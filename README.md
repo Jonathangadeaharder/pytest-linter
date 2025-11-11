@@ -79,6 +79,9 @@ Add to your CI pipeline (e.g., GitHub Actions):
 | **W9011** | `pytest-mnt-test-logic` | Conditional logic (if/for/while) in test. Follow Arrange-Act-Assert pattern. |
 | **W9012** | `pytest-mnt-magic-assert` | Magic number/string in assert. Extract to named constants. |
 | **W9013** | `pytest-mnt-suboptimal-assert` | Use direct `assert x == y` instead of `assertTrue(x == y)`. |
+| **W9014** | `pytest-fix-fixture-mutation` | Test modifies fixture in-place. Fixtures should not be mutated. |
+| **W9015** | `pytest-param-duplicate` | Duplicate values in `@pytest.mark.parametrize`. Remove redundant test cases. |
+| **W9016** | `pytest-param-mismatch` | Parameter count mismatch in `@pytest.mark.parametrize`. |
 
 ### Category 2: Fixture Definition Smells
 
@@ -95,6 +98,66 @@ Add to your CI pipeline (e.g., GitHub Actions):
 | **W9033** | `pytest-fix-shadowed` | Fixture is shadowed across conftest.py files. |
 | **W9034** | `pytest-fix-unused` | Fixture is defined but never used. |
 | **E9035** | `pytest-fix-stateful-session` | Session-scoped fixture returns mutable object. |
+| **E9036** | `pytest-fix-db-commit` | Fixture performs database commits without proper cleanup. |
+| **W9037** | `pytest-fix-scope-overuse` | Fixture scope is broader than necessary. Consider narrowing. |
+
+## Configuration
+
+### Using `pyproject.toml`
+
+You can customize the linter behavior using `pyproject.toml`:
+
+```toml
+[tool.pytest-deep-analysis]
+# Disable specific rules
+disable = [
+    "pytest-fix-autouse",
+    "pytest-mnt-test-logic"
+]
+
+# Ignore file patterns
+ignore_patterns = [
+    "**/migrations/*",
+    "**/generated/*.py"
+]
+
+# Feature flags
+[tool.pytest-deep-analysis.features]
+database_commits = true      # Check for DB commits without cleanup
+scope_narrowing = true       # Suggest narrower fixture scopes
+fixture_mutations = true     # Warn about fixture mutations in tests
+parametrize_checks = true    # Check parametrize usage
+
+# Rule-specific configuration
+[tool.pytest-deep-analysis.rules.pytest-fix-autouse]
+severity = "error"
+```
+
+### Using `.pylintrc`
+
+Alternatively, use Pylint's native configuration:
+
+```ini
+[MASTER]
+load-plugins=pytest_deep_analysis
+
+[MESSAGES CONTROL]
+disable=all
+enable=pytest-deep-analysis
+
+# Disable specific rules
+disable=pytest-fix-autouse,pytest-mnt-test-logic
+```
+
+### Integration with pytest-xdist
+
+The linter automatically detects when running under `pytest-xdist` and serializes fixture graph data for proper parallel analysis:
+
+```bash
+# Run tests in parallel - the linter will handle it correctly
+pytest -n auto tests/
+pylint --load-plugins=pytest_deep_analysis tests/
+```
 
 ## Examples
 
@@ -155,6 +218,88 @@ def database():
 @pytest.fixture
 def database():  # ⚠️ PYTEST-FIX-004: Shadows parent fixture
     return {"host": "api-server"}
+```
+
+### ❌ Bad: Database Commit Without Cleanup
+
+```python
+@pytest.fixture(scope="session")
+def db_session():
+    conn = create_connection()
+    conn.execute("CREATE TABLE users ...")
+    conn.commit()  # ⚠️ E9036: Commit without cleanup
+    yield conn
+    # Missing rollback/cleanup!
+```
+
+### ✅ Good: Database Fixture with Cleanup
+
+```python
+@pytest.fixture(scope="function")
+def db_session():
+    conn = create_connection()
+    conn.execute("CREATE TABLE users ...")
+    conn.commit()
+    yield conn
+    conn.rollback()  # ✓ Proper cleanup
+    conn.close()
+```
+
+### ❌ Bad: Test Mutates Fixture
+
+```python
+@pytest.fixture
+def user_dict():
+    return {"name": "Alice", "age": 30}
+
+def test_user_update(user_dict):
+    user_dict["age"] = 31  # ⚠️ W9014: Mutating fixture in-place
+    assert user_dict["age"] == 31
+```
+
+### ✅ Good: Test Copies Fixture Data
+
+```python
+def test_user_update(user_dict):
+    updated_user = user_dict.copy()  # ✓ Create a copy
+    updated_user["age"] = 31
+    assert updated_user["age"] == 31
+```
+
+### ❌ Bad: Fixture Scope Too Broad
+
+```python
+@pytest.fixture(scope="session")  # ⚠️ W9037: Only used in one test
+def temp_file():
+    return "/tmp/test.txt"
+
+def test_file_operations(temp_file):
+    # Only test using this fixture
+    assert os.path.exists(temp_file)
+```
+
+### ✅ Good: Appropriate Fixture Scope
+
+```python
+@pytest.fixture(scope="function")  # ✓ Narrower scope
+def temp_file():
+    return "/tmp/test.txt"
+```
+
+### ❌ Bad: Duplicate Parametrize Values
+
+```python
+@pytest.mark.parametrize("value", [1, 2, 3, 2, 4])  # ⚠️ W9015: Duplicate "2"
+def test_processing(value):
+    assert process(value) > 0
+```
+
+### ✅ Good: Unique Parametrize Values
+
+```python
+@pytest.mark.parametrize("value", [1, 2, 3, 4, 5])  # ✓ All unique
+def test_processing(value):
+    assert process(value) > 0
 ```
 
 ## Architecture
@@ -232,14 +377,23 @@ Compare this to Ruff (runs in <1 second for most projects) to understand the tra
 
 Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
+### Recent Enhancements (v2.0)
+
+- ✅ Detect fixtures that perform database commits without cleanup (E9036)
+- ✅ Warn about tests that modify fixture state in-place (W9014)
+- ✅ Identify fixtures that could be narrowed in scope (W9037)
+- ✅ Detect parametrize misuse and anti-patterns (W9015, W9016)
+- ✅ Integration with pytest-xdist for parallel test analysis
+- ✅ Custom rule configuration via pyproject.toml
+
 ### Potential Future Enhancements
 
-- [ ] Detect fixtures that perform database commits without cleanup
-- [ ] Warn about tests that modify fixture state in-place
-- [ ] Identify fixtures that could be narrowed in scope
-- [ ] Detect parametrize misuse and anti-patterns
-- [ ] Integration with pytest-xdist for parallel test analysis
-- [ ] Custom rule configuration via pyproject.toml
+- [ ] Detect test ordering dependencies (tests that pass/fail based on execution order)
+- [ ] Identify missing fixture cleanup code
+- [ ] Detect over-mocking (tests that mock too many dependencies)
+- [ ] Warn about fixtures with side effects
+- [ ] Detect circular fixture dependencies
+- [ ] Suggest fixture refactoring opportunities
 
 ## License
 

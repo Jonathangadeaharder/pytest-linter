@@ -64,6 +64,27 @@ MESSAGES = {
         "'assert x == y' produces rich diffs, while 'assertTrue(x == y)' or similar "
         "will only report 'assert False is True' without helpful context.",
     ),
+    "W9014": (
+        "Test function modifies fixture '%s' in-place.",
+        "pytest-fix-fixture-mutation",
+        "Tests should not modify fixtures in-place as this creates stateful dependencies "
+        "between tests. Fixtures are meant to be set up fresh for each test. If you need "
+        "to modify state, copy the fixture data or use a narrower scope.",
+    ),
+    "W9015": (
+        "Duplicate values found in @pytest.mark.parametrize: %s",
+        "pytest-param-duplicate",
+        "Duplicate parameter values in @pytest.mark.parametrize are redundant and waste "
+        "test execution time. Each parameter combination should be unique and test a "
+        "distinct scenario.",
+    ),
+    "W9016": (
+        "Parameter count mismatch in @pytest.mark.parametrize: expected %d, got %d.",
+        "pytest-param-mismatch",
+        "The number of parameters in @pytest.mark.parametrize must match the number of "
+        "arguments in the test function signature. A mismatch will cause test collection "
+        "failures.",
+    ),
 
     # =========================================================================
     # Category 2: Fixture Definition Smells (ast-based)
@@ -117,5 +138,19 @@ MESSAGES = {
         "A session-scoped, mutable object (like a shared database connection) that is "
         "altered by tests creates stateful dependencies and flakiness. Either use a "
         "narrower scope or ensure the fixture returns immutable objects.",
+    ),
+    "E9036": (
+        "Fixture '%s' performs database commits without proper cleanup.",
+        "pytest-fix-db-commit",
+        "Fixtures that commit to a database without cleanup can cause test pollution "
+        "and state leakage between tests. Ensure fixtures that perform commits also "
+        "include proper rollback/cleanup logic, typically using yield and a cleanup section.",
+    ),
+    "W9037": (
+        "Fixture '%s' has scope '%s' but is only used in a single %s. Consider narrowing the scope.",
+        "pytest-fix-scope-overuse",
+        "Fixtures with broader scopes than necessary can lead to unexpected state sharing "
+        "and harder-to-debug issues. If a fixture is only used within a single module or "
+        "test, consider narrowing its scope from 'session' to 'module' or 'function'.",
     ),
 }
