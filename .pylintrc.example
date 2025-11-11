@@ -1,0 +1,68 @@
+# Example Pylint configuration for pytest-deep-analysis
+#
+# This configuration demonstrates the "hybrid toolchain" approach:
+# - Use Ruff for fast, file-local linting
+# - Use Pylint with pytest-deep-analysis for deep, semantic pytest checks
+#
+# Usage:
+#   cp .pylintrc.example .pylintrc
+#   pylint --disable=all --enable=pytest-deep-analysis path/to/tests/
+
+[MASTER]
+# Load the pytest-deep-analysis plugin
+load-plugins=pytest_deep_analysis
+
+# Specify a score threshold to be exceeded before program exits with error
+fail-under=10.0
+
+[MESSAGES CONTROL]
+# Disable all default Pylint checks and enable only pytest-deep-analysis
+disable=all
+enable=pytest-deep-analysis,
+       pytest-flk-time-sleep,
+       pytest-flk-io-open,
+       pytest-flk-network-import,
+       pytest-flk-cwd-dependency,
+       pytest-mnt-test-logic,
+       pytest-mnt-magic-assert,
+       pytest-mnt-suboptimal-assert,
+       pytest-fix-autouse,
+       pytest-fix-session-mutation,
+       pytest-fix-invalid-scope,
+       pytest-fix-shadowed,
+       pytest-fix-unused,
+       pytest-fix-stateful-session
+
+[REPORTS]
+# Set the output format
+output-format=text
+
+# Include message's id in output
+include-ids=yes
+
+# Include symbolic ids of messages in output
+symbols=yes
+
+# Activate the evaluation score
+score=yes
+
+[FORMAT]
+# Maximum number of characters on a single line
+max-line-length=100
+
+[BASIC]
+# Good variable names which should always be accepted
+good-names=i,j,k,ex,Run,_,id,db
+
+[DESIGN]
+# Maximum number of arguments for function / method
+max-args=5
+
+# Maximum number of attributes for a class
+max-attributes=7
+
+# Minimum number of public methods for a class
+min-public-methods=0
+
+# Maximum number of public methods for a class
+max-public-methods=20
