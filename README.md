@@ -194,7 +194,11 @@ pip install -e ".[dev]"
 ### Run Tests
 
 ```bash
-pytest tests/
+# Run automated test suite
+pytest tests/test_harness/
+
+# Run with coverage
+pytest --cov=pytest_deep_analysis tests/test_harness/
 ```
 
 ### Run the Linter on Itself

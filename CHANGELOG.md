@@ -48,6 +48,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Automated Test Harness**: Comprehensive test suite using `pylint.testutils`
+  - 66 automated unit tests covering all linter rules
+  - Tests validate message IDs, line numbers, and edge cases
+  - Base test infrastructure in `tests/test_harness/base.py`
+  - Tests for Category 1 (flakiness & maintenance), Category 2 (fixture definition), and Category 3 (fixture interaction)
+  - Documentation in `tests/test_harness/README.md`
+  - Updated `CONTRIBUTING.md` with testing guidelines
+- **Improved Development Workflow**:
+  - Tests run in <2 seconds vs manual visual inspection
+  - Automated regression detection in CI
+  - Clear separation between example files (`tests/test_category*.py`) and automated tests (`tests/test_harness/`)
+
 ### Planned Features
 - Improved fixture shadowing detection across conftest.py hierarchies
 - Detection of fixtures that perform database commits without cleanup
