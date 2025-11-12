@@ -31,6 +31,7 @@ classifiers = [
 dependencies = [
     "pylint>=2.15.0",
     "astroid>=2.12.0",
+    "tomli>=1.2.0; python_version<'3.11'",
 ]
 
 [project.optional-dependencies]
@@ -81,3 +82,16 @@ exclude_lines = [
     "if __name__ == .__main__.:",
     "if TYPE_CHECKING:",
 ]
+
+[tool.pytest-deep-analysis]
+# Configuration for pytest-deep-analysis linter
+# Uncomment and customize as needed
+
+# Allow specific "magic" constants that are common in your domain
+# These will not trigger pytest-mnt-magic-assert warnings
+# magic-assert-allowlist = [
+#     200, 201, 204,  # HTTP success codes
+#     400, 401, 403, 404,  # HTTP client error codes
+#     500, 502, 503,  # HTTP server error codes
+#     "GET", "POST", "PUT", "DELETE",  # HTTP methods
+# ]

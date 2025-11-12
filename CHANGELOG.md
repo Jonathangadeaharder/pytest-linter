@@ -50,16 +50,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **Automated Test Harness**: Comprehensive test suite using `pylint.testutils`
-  - 66 automated unit tests covering all linter rules
+  - 66 automated unit tests covering all linter rules (100% passing)
   - Tests validate message IDs, line numbers, and edge cases
   - Base test infrastructure in `tests/test_harness/base.py`
   - Tests for Category 1 (flakiness & maintenance), Category 2 (fixture definition), and Category 3 (fixture interaction)
   - Documentation in `tests/test_harness/README.md`
   - Updated `CONTRIBUTING.md` with testing guidelines
+- **Configuration Support** via `pyproject.toml`
+  - `magic-assert-allowlist`: Configure domain-specific constants (fixes false positives for HTTP codes, etc.)
+  - New `config.py` module for centralized configuration management
+  - Python 3.8-3.10 support via `tomli`, Python 3.11+ via built-in `tomllib`
+  - Example configuration in `pyproject.toml.example`
+  - Documentation in README with real-world examples
 - **Improved Development Workflow**:
-  - Tests run in <2 seconds vs manual visual inspection
+  - Tests run in <1 second vs manual visual inspection
   - Automated regression detection in CI
   - Clear separation between example files (`tests/test_category*.py`) and automated tests (`tests/test_harness/`)
+  - Configurable rules reduce false positives in production codebases
 
 ### Planned Features
 - Improved fixture shadowing detection across conftest.py hierarchies

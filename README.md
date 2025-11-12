@@ -55,7 +55,22 @@ Copy the example configuration:
 cp .pylintrc.example .pylintrc
 ```
 
-### 3. Integrate into CI:
+### 3. Configure pyproject.toml (Optional):
+
+Customize linter behavior for your domain:
+
+```toml
+[tool.pytest-deep-analysis]
+# Allow domain-specific "magic" constants
+magic-assert-allowlist = [
+    200, 201, 400, 404,  # HTTP status codes
+    "GET", "POST",  # HTTP methods
+]
+```
+
+See `pyproject.toml.example` for more configuration options.
+
+### 4. Integrate into CI:
 
 Add to your CI pipeline (e.g., GitHub Actions):
 
@@ -65,6 +80,32 @@ Add to your CI pipeline (e.g., GitHub Actions):
     pip install pytest-deep-analysis
     pylint --disable=all --enable=pytest-deep-analysis tests/
 ```
+
+## Configuration
+
+The linter can be configured via `pyproject.toml` to reduce false positives for domain-specific constants.
+
+### Magic Assert Allowlist
+
+By default, the `pytest-mnt-magic-assert` rule allows `0, 1, -1, True, False, None, ""` in assertions. Add your domain-specific constants:
+
+```toml
+[tool.pytest-deep-analysis]
+magic-assert-allowlist = [
+    # HTTP Status Codes
+    200, 201, 204, 400, 401, 403, 404, 500, 502, 503,
+
+    # HTTP Methods
+    "GET", "POST", "PUT", "DELETE", "PATCH",
+
+    # Your domain constants
+    "localhost", 3306, 5432,  # DB ports
+]
+```
+
+**Example:** Without configuration, `assert response.status_code == 200` triggers a warning. With `200` in the allowlist, it's allowed.
+
+See `pyproject.toml.example` for a complete configuration template.
 
 ## Rules
 
