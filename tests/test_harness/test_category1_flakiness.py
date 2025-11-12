@@ -115,11 +115,12 @@ class TestNetworkImports(PytestDeepAnalysisTestCase):
 
         def test_api_call():
             response = requests.get("http://example.com")
-            assert response.status_code == 200
+            assert response.status_code == 200  # Line 6 - 200 is magic
         """
         self.assert_adds_messages(
             code,
-            msg("pytest-flk-network-import", line=2)
+            msg("pytest-flk-network-import", line=2),
+            msg("pytest-mnt-magic-assert", line=6)  # 200 is a magic number
         )
 
     def test_socket_import(self):

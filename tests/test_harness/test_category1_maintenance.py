@@ -21,14 +21,15 @@ class TestLogicInTests(PytestDeepAnalysisTestCase):
         code = """
         def test_with_conditional():
             result = calculate()
-            if result > 10:  # Line 4
-                assert result < 100
+            if result > 10:  # Line 4 - test logic
+                assert result < 100  # Line 5 - 100 is magic
             else:
-                assert result >= 0
+                assert result >= 0  # 0 is not magic
         """
         self.assert_adds_messages(
             code,
-            msg("pytest-mnt-test-logic", line=4)
+            msg("pytest-mnt-test-logic", line=4),
+            msg("pytest-mnt-magic-assert", line=5)
         )
 
     def test_for_loop_in_test(self):
@@ -49,13 +50,14 @@ class TestLogicInTests(PytestDeepAnalysisTestCase):
         code = """
         def test_with_while():
             counter = 0
-            while counter < 10:  # Line 4
+            while counter < 10:  # Line 4 - test logic
                 counter += 1
-            assert counter == 10
+            assert counter == 10  # Line 6 - 10 is magic
         """
         self.assert_adds_messages(
             code,
-            msg("pytest-mnt-test-logic", line=4)
+            msg("pytest-mnt-test-logic", line=4),
+            msg("pytest-mnt-magic-assert", line=6)
         )
 
     def test_list_comprehension_allowed(self):
@@ -63,20 +65,26 @@ class TestLogicInTests(PytestDeepAnalysisTestCase):
         code = """
         def test_with_comprehension():
             items = [1, 2, 3, 4, 5]
-            filtered = [x for x in items if x > 2]
-            assert len(filtered) == 3
+            filtered = [x for x in items if x > 2]  # Comprehension OK
+            assert len(filtered) == 3  # Line 5 - 3 is magic
         """
-        self.assert_no_messages(code)
+        self.assert_adds_messages(
+            code,
+            msg("pytest-mnt-magic-assert", line=5)  # 3 is a magic number
+        )
 
     def test_dict_comprehension_allowed(self):
         """Should NOT warn for dict comprehensions."""
         code = """
         def test_with_dict_comp():
             data = {"a": 1, "b": 2, "c": 3}
-            doubled = {k: v * 2 for k, v in data.items()}
-            assert doubled["a"] == 2
+            doubled = {k: v * 2 for k, v in data.items()}  # Comprehension OK
+            assert doubled["a"] == 2  # Line 5 - 2 is magic
         """
-        self.assert_no_messages(code)
+        self.assert_adds_messages(
+            code,
+            msg("pytest-mnt-magic-assert", line=5)  # 2 is a magic number
+        )
 
     def test_if_in_pytest_raises_allowed(self):
         """Should NOT warn for logic inside pytest.raises context."""
@@ -95,14 +103,17 @@ class TestLogicInTests(PytestDeepAnalysisTestCase):
         """Should NOT warn for logic outside test functions."""
         code = """
         def helper_function():
-            if True:
+            if True:  # Logic in helper is OK
                 return "yes"
             return "no"
 
         def test_something():
-            assert helper_function() == "yes"
+            assert helper_function() == "yes"  # Line 8 - "yes" is magic
         """
-        self.assert_no_messages(code)
+        self.assert_adds_messages(
+            code,
+            msg("pytest-mnt-magic-assert", line=8)  # "yes" is a magic string
+        )
 
 
 class TestMagicConstants(PytestDeepAnalysisTestCase):
@@ -212,37 +223,42 @@ class TestSuboptimalAssert(PytestDeepAnalysisTestCase):
     def test_assert_true_with_comparison(self):
         """Should warn for assertTrue with comparison."""
         code = """
-        def test_bad_assert():
+        def test_bad_assert(self):
             result = calculate()
-            assert assertTrue(result == 42)  # Line 4
+            assert self.assertTrue(result == 42)  # Line 4
         """
         self.assert_adds_messages(
             code,
             msg("pytest-mnt-suboptimal-assert", line=4)
+            # Note: 42 inside assertTrue() argument is not caught by magic-assert
+            # checker (it only looks at direct assert comparisons)
         )
 
     def test_assert_false_with_comparison(self):
         """Should warn for assertFalse with comparison."""
         code = """
-        def test_bad_assert_false():
+        def test_bad_assert_false(self):
             result = calculate()
-            assert assertFalse(result != 42)  # Line 4
+            assert self.assertFalse(result != 42)  # Line 4
         """
         self.assert_adds_messages(
             code,
             msg("pytest-mnt-suboptimal-assert", line=4)
+            # Note: 42 inside assertFalse() argument is not caught by magic-assert
+            # checker (it only looks at direct assert comparisons)
         )
 
     def test_assert_equal_with_comparison(self):
         """Should warn for assertEqual with comparison."""
         code = """
-        def test_bad_assert_equal():
+        def test_bad_assert_equal(self):
             result = calculate()
-            assert assertEqual(result > 10, True)  # Line 4
+            assert self.assertEqual(result > 10, True)  # Line 4
         """
         self.assert_adds_messages(
             code,
             msg("pytest-mnt-suboptimal-assert", line=4)
+            # True is not magic
         )
 
     def test_direct_assert(self):
@@ -250,9 +266,12 @@ class TestSuboptimalAssert(PytestDeepAnalysisTestCase):
         code = """
         def test_good_assert():
             result = calculate()
-            assert result == 42
+            assert result == 42  # Line 4 - 42 is magic though!
         """
-        self.assert_no_messages(code)
+        self.assert_adds_messages(
+            code,
+            msg("pytest-mnt-magic-assert", line=4)  # 42 is a magic number
+        )
 
     def test_assert_with_boolean(self):
         """Should NOT warn for simple boolean assertions."""
@@ -270,11 +289,11 @@ class TestMultipleMaintenanceIssues(PytestDeepAnalysisTestCase):
     def test_all_maintenance_warnings(self):
         """Should detect all maintenance issues."""
         code = """
-        def test_many_problems():
+        def test_many_problems(self):
             result = calculate()
             if result > 10:  # Line 4 - test logic
                 assert result == 250  # Line 5 - magic number
-            assert assertTrue(result != 0)  # Line 6 - suboptimal assert
+            assert self.assertTrue(result != 0)  # Line 6 - suboptimal assert
         """
         self.assert_adds_messages(
             code,
