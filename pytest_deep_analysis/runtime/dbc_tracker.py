@@ -105,9 +105,13 @@ class DbCTracker:
         Returns:
             Summary of contract enforcement quality
         """
+        # Extract unique function names from contracts_checked
+        # (contracts_checked keys are "function:contract_type", so split to get unique functions)
+        tested_functions = {key.split(":", 1)[0] for key in self.contracts_checked}
+
         summary = {
             "total_contracts": len(self.functions_with_contracts),
-            "contracts_tested": len(self.contracts_checked),
+            "contracts_tested": len(tested_functions),
             "violations_detected": len(self.contract_violations),
             "coverage_percentage": 0.0,
             "effectiveness_score": 0.0

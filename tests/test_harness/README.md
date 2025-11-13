@@ -6,7 +6,7 @@ This directory contains the automated test suite for the pytest-deep-analysis li
 
 The test harness validates that the linter correctly:
 - **Detects anti-patterns** (positive tests)
-- **Ignores acceptable code** (negative tests
+- **Ignores acceptable code** (negative tests)
 - **Reports correct line numbers** for warnings
 - **Handles edge cases** appropriately
 
@@ -33,19 +33,7 @@ python -m pytest tests/test_harness/ --cov=pytest_deep_analysis --cov-report=htm
 
 ## Current Status
 
-**51/66 tests passing** ✅
-
-### Known Test Issues (not linter bugs!)
-
-Some tests are currently failing because they have incorrect expectations, not because the linter is broken:
-
-1. **Magic number over-detection**: Some tests didn't expect magic numbers like `200`, `42`, `"yes"` to be flagged, but the linter correctly identifies them as magic constants.
-
-2. **Suboptimal assert pattern matching**: The test patterns for `assertTrue(x == y)` need adjustment to match how these are actually called in real code.
-
-3. **Multiple messages in fixture tests**: Category 3 tests often trigger multiple warnings (unused + stateful + invalid-scope) which is correct behavior but needs test expectations updated.
-
-These are **test expectation issues**, not linter bugs. The linter is working correctly!
+**90/90 tests passing** ✅ (100% pass rate)
 
 ## Adding New Tests
 

@@ -10,10 +10,7 @@ Tests for rules:
 Note: E9031 (session-mutation) is not yet implemented.
 """
 
-import pytest
-from pylint.testutils import MessageTest
-
-from tests.test_harness.base import PytestDeepAnalysisTestCase, msg
+from tests.test_harness.base import PytestDeepAnalysisTestCase
 
 
 class TestInvalidScopeDependency(PytestDeepAnalysisTestCase):

@@ -4,10 +4,9 @@ Base test infrastructure for pytest-deep-analysis linter tests.
 This module provides utilities for testing the linter using pylint.testutils.
 """
 
-from typing import List, Tuple, Optional, Set
+from typing import List, Tuple, Optional
 import textwrap
 import tempfile
-import os
 from pathlib import Path
 
 import astroid

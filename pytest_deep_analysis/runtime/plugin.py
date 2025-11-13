@@ -272,9 +272,8 @@ def pytest_runtest_call(item: Item):
 
 def pytest_runtest_teardown(item: Item, nextitem):
     """Hook called after test execution."""
-    if _plugin_instance and _plugin_instance.enabled:
-        outcome = "passed"  # Will be updated by pytest_runtest_makereport
-        _plugin_instance.end_test_execution(item, outcome)
+    # Finalization happens in pytest_runtest_makereport once the real outcome is known.
+    pass
 
 
 @pytest.hookimpl(tryfirst=True, hookwrapper=True)
@@ -285,8 +284,9 @@ def pytest_runtest_makereport(item: Item, call):
 
     if _plugin_instance and _plugin_instance.enabled:
         if report.when == "call":
+            # Stop trace collection and finalize the test context after the call phase
             if _plugin_instance.current_context:
-                _plugin_instance.current_context.passed = report.passed
+                _plugin_instance.end_test_execution(item, report.outcome)
 
 
 def pytest_sessionfinish(session, exitstatus):

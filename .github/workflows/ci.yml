@@ -35,7 +35,7 @@ jobs:
 
     - name: Run linter on example test files
       run: |
-        pylint --disable=all --enable=pytest-deep-analysis tests/test_category*.py tests/conftest.py || true
+        pylint --disable=all --enable=pytest-deep-analysis tests/test_category*.py tests/conftest.py
 
   lint:
     name: Code Quality
@@ -62,11 +62,11 @@ jobs:
 
     - name: Type check with mypy
       run: |
-        mypy pytest_deep_analysis/ --ignore-missing-imports || true
+        mypy pytest_deep_analysis/ --ignore-missing-imports
 
     - name: Lint with pylint
       run: |
-        pylint pytest_deep_analysis/ --disable=all --enable=import-error,undefined-variable || true
+        pylint pytest_deep_analysis/ --disable=all --enable=import-error,undefined-variable
 
   coverage:
     name: Test Coverage

@@ -101,7 +101,8 @@ class ExecutionTraceCollector:
         # Capture assertions (look for assert statement execution)
         # Note: Python doesn't have a direct "assert" event, but we can infer from AssertionError
         elif event == "exception":
-            exc_type, exc_value, exc_tb = arg
+            # Exception tuple contains (type, value, traceback), but we only need the value
+            _exc_type, exc_value, _exc_tb = arg
             if self.current_context:
                 self.current_context.exceptions_raised.append(exc_value)
 

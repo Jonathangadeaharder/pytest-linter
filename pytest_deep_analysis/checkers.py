@@ -792,7 +792,7 @@ class PytestDeepAnalysisChecker(BaseChecker):
             return True
 
         # Check for yield (resource management fixtures)
-        for yield_node in node.nodes_of_class(astroid.Yield):
+        for _yield_node in node.nodes_of_class(astroid.Yield):
             return True
 
         return False

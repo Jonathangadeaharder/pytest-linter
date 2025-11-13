@@ -7,7 +7,7 @@
 A Pylint plugin for deep, semantic pytest linting that targets the most challenging pain points in the Python testing ecosystem.
 
 **Features:**
-- ✅ 66 automated tests (100% passing)
+- ✅ 90 automated tests (100% passing)
 - ✅ Configurable rules via `pyproject.toml`
 - ✅ Advanced fixture shadowing detection
 - ✅ Type inference for stateful fixtures

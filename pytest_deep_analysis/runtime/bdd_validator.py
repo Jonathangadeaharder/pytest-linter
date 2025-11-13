@@ -9,7 +9,7 @@ This addresses the fundamental limitation of static W9016 checks:
 - Runtime: Can verify steps ACTUALLY EXECUTE and map to implementation
 """
 
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 import re
 from dataclasses import dataclass
 from difflib import SequenceMatcher
