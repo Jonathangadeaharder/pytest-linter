@@ -43,16 +43,17 @@ jobs:
         pip install safety
 
     - name: Run Safety check
+      continue-on-error: true
       run: |
         # Check installed dependencies for known vulnerabilities
         pip install -e ".[dev]"
-        safety check --json || true
-        # Use || true to not fail the build, just report
+        safety check --json
 
     - name: Run pip-audit
+      continue-on-error: true
       run: |
         pip install pip-audit
-        pip-audit --desc || true
+        pip-audit --desc
 
   bandit:
     name: Bandit Security Linter
@@ -70,9 +71,10 @@ jobs:
       run: pip install bandit[toml]
 
     - name: Run Bandit
+      continue-on-error: true
       run: |
-        bandit -r pytest_deep_analysis/ -f json -o bandit-report.json || true
-        bandit -r pytest_deep_analysis/ || true
+        bandit -r pytest_deep_analysis/ -f json -o bandit-report.json
+        bandit -r pytest_deep_analysis/
 
     - name: Upload Bandit report
       if: always()
@@ -81,3 +83,4 @@ jobs:
         name: bandit-security-report
         path: bandit-report.json
         retention-days: 30
+        if-no-files-found: warn
