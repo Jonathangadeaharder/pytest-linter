@@ -67,6 +67,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Automated regression detection in CI
   - Clear separation between example files (`tests/test_category*.py`) and automated tests (`tests/test_harness/`)
   - Configurable rules reduce false positives in production codebases
+- **Advanced Linter Enhancements**:
+  - **Improved Fixture Shadowing Detection** (W9033): Refactored fixture graph to support multiple definitions per name, enabling detection of same-file and cross-file shadowing
+  - **Enhanced Type Inference** (E9035): Stateful session fixture detection now uses astroid's inference engine for more accurate mutable type detection
+  - **CI/CD Integration**: GitHub Actions workflow with multi-Python testing (3.8-3.12), code quality checks, and coverage reporting
+
+### Fixed
+- Fixture shadowing detection now works for same-file redefinitions (previously a known limitation)
+- Stateful session fixture detection is more accurate with type inference (fewer false negatives)
+- Fixture graph no longer registers duplicates when using test harness
 
 ### Planned Features
 - Improved fixture shadowing detection across conftest.py hierarchies
@@ -78,9 +87,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Integration with pytest-xdist for parallel analysis
 
 ### Known Limitations
-- Shadowed fixture detection requires refactoring fixture graph structure
-- Session mutation detection is heuristic-based (limited type inference)
-- Some false positives on common patterns (e.g., HTTP status code 200)
+- ~~Shadowed fixture detection requires refactoring fixture graph structure~~ ✅ **FIXED**
+- ~~Session mutation detection is heuristic-based (limited type inference)~~ ✅ **IMPROVED**
+- ~~Some false positives on common patterns (e.g., HTTP status code 200)~~ ✅ **FIXED via configuration**
 - Performance scales linearly with project size (intentional trade-off)
 
 ---
