@@ -1,0 +1,51 @@
+# Example pyproject.toml configuration for pytest-deep-analysis
+# Copy the [tool.pytest-deep-analysis] section to your project's pyproject.toml
+# and uncomment/customize as needed.
+
+[tool.pytest-deep-analysis]
+# Configuration for pytest-deep-analysis linter rules
+
+# Magic Assert Allowlist (W9012: pytest-mnt-magic-assert)
+# --------------------------------------------------------
+# Specify values that should NOT trigger magic constant warnings.
+# By default, 0, 1, -1, True, False, None, and "" are allowed.
+# Add domain-specific constants that are meaningful in your codebase.
+
+magic-assert-allowlist = [
+    # HTTP Status Codes
+    200, 201, 202, 204,  # Success codes
+    400, 401, 403, 404, 409,  # Client errors
+    500, 502, 503, 504,  # Server errors
+
+    # HTTP Methods
+    "GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS",
+
+    # Common Test Values
+    "test", "example", "sample",
+    100, 1000, 10000,  # Common round numbers
+
+    # Database/Storage
+    "localhost", "127.0.0.1",
+    3306, 5432, 6379, 27017,  # Common DB ports
+
+    # Your domain-specific constants
+    # Add values that are self-documenting in your domain
+]
+
+# Future Configuration Options
+# -----------------------------
+# These are planned but not yet implemented:
+
+# network-import-allowlist = [
+#     # Allow specific network modules if they're mocked
+#     "requests",  # If using pytest-mock
+# ]
+
+# cwd-dependency-allowlist = [
+#     # Allow specific CWD functions in certain contexts
+# ]
+
+# fixture-autouse-allowlist = [
+#     # Allow specific fixture names to use autouse=True
+#     "db_transaction",  # Common pattern for test DB cleanup
+# ]

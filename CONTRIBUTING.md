@@ -40,16 +40,30 @@ pytest tests/
 
 ### Running Tests
 
+We use an automated test harness based on `pylint.testutils` to verify the linter works correctly.
+
 ```bash
-# Run all tests
-pytest tests/
+# Run all automated tests
+pytest tests/test_harness/
 
 # Run with coverage
-pytest --cov=pytest_deep_analysis --cov-report=html tests/
+pytest --cov=pytest_deep_analysis --cov-report=html tests/test_harness/
 
-# Run specific test file
-pytest tests/test_category1_flakiness.py
+# Run specific test category
+pytest tests/test_harness/test_category1_flakiness.py
+pytest tests/test_harness/test_category1_maintenance.py
+pytest tests/test_harness/test_category2_fixtures.py
+pytest tests/test_harness/test_category3_fixtures.py
+
+# Run with verbose output
+pytest -v tests/test_harness/
 ```
+
+The test harness automatically:
+- Loads the pytest-deep-analysis plugin
+- Runs the linter on test code snippets
+- Asserts specific messages are generated with correct line numbers
+- Validates both positive (should warn) and negative (should not warn) cases
 
 ### Code Formatting
 
@@ -69,11 +83,19 @@ mypy pytest_deep_analysis/
 
 ### Running the Linter
 
-Test the linter on the test suite:
+Test the linter on the example test files:
 
 ```bash
+# Run on example test files (manual inspection)
+pylint --disable=all --enable=pytest-deep-analysis tests/test_category*.py tests/conftest.py
+
+# Run on the entire tests directory
 pylint --disable=all --enable=pytest-deep-analysis tests/
 ```
+
+Note: The `tests/` directory contains two types of files:
+- `tests/test_harness/` - Automated unit tests for the linter (run with pytest)
+- `tests/test_category*.py`, `tests/conftest.py` - Example files demonstrating bad/good patterns (run with pylint for manual inspection)
 
 ## Contributing Guidelines
 
@@ -135,7 +157,7 @@ When proposing new linter rules:
 
 ## Project Structure
 
-```
+```text
 pytest-deep-analysis/
 ├── pytest_deep_analysis/
 │   ├── __init__.py          # Plugin registration
@@ -235,25 +257,78 @@ def test_good_pattern():
 
 ### Writing Good Tests
 
+The automated test harness provides two base classes for writing tests:
+
+**1. `PytestDeepAnalysisTestCase` - For single-file analysis:**
+
 ```python
-def test_bad_example():
-    """BAD: Brief description (RULE-ID)."""
-    # Arrange
-    setup_code()
+from tests.test_harness.base import PytestDeepAnalysisTestCase, msg
 
-    # Act - This should trigger the warning
-    problematic_code()
+class TestMyRule(PytestDeepAnalysisTestCase):
+    """Tests for W9XXX: my-rule-symbol"""
 
-    # Assert
-    assert result
+    def test_should_trigger_warning(self):
+        """Should warn when anti-pattern is detected."""
+        code = """
+        def test_something():
+            bad_pattern()  # Line 3
+        """
+        self.assert_adds_messages(
+            code,
+            msg("my-rule-symbol", line=3)
+        )
 
-
-def test_good_example():
-    """GOOD: Brief description of best practice."""
-    # Demonstrate the correct approach
-    proper_code()
-    assert result
+    def test_should_not_trigger(self):
+        """Should NOT warn for acceptable code."""
+        code = """
+        def test_something():
+            good_pattern()
+        """
+        self.assert_no_messages(code)
 ```
+
+**2. `MultiFileTestCase` - For multi-file analysis (fixture interactions):**
+
+```python
+from tests.test_harness.base import MultiFileTestCase
+
+def test_cross_file_fixture_issue():
+    """Test fixture shadowing across conftest files."""
+    test_case = MultiFileTestCase()
+
+    test_case.setup_files({
+        "conftest.py": """
+            import pytest
+            @pytest.fixture
+            def my_fixture():
+                return "parent"
+        """,
+        "subdir/conftest.py": """
+            import pytest
+            @pytest.fixture
+            def my_fixture():  # Shadows parent
+                return "child"
+        """,
+        "subdir/test_foo.py": """
+            def test_foo(my_fixture):
+                assert my_fixture
+        """
+    })
+
+    test_case.assert_messages(
+        expected=[("subdir/test_foo.py", "pytest-fix-shadowed", 2)],
+        files=["subdir/test_foo.py"]
+    )
+
+    test_case.cleanup()
+```
+
+**Tips for Writing Tests:**
+- Use clear, descriptive test names
+- Include both positive (should warn) and negative (should not warn) tests
+- Specify exact line numbers where warnings should appear
+- Test edge cases and tricky scenarios
+- Add comments to explain why code should or shouldn't trigger warnings
 
 ## Performance Considerations
 

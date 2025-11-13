@@ -170,27 +170,19 @@ def is_in_comprehension(node: astroid.NodeNG) -> bool:
 def is_magic_constant(value: Any) -> bool:
     """Check if a constant value is a 'magic' value that should be extracted.
 
+    This function uses the global configuration to determine which values
+    are considered "non-magic" (allowed in assertions without extraction).
+
     Args:
         value: The constant value to check
 
     Returns:
         True if the value is a magic constant
     """
-    # Known non-magic scalar values
-    NON_MAGIC_SCALARS = {0, 1, -1, True, False, None, ""}
+    from pytest_deep_analysis.config import get_config
 
-    if value in NON_MAGIC_SCALARS:
-        return False
-
-    # Empty collections are not magic
-    if isinstance(value, (list, dict, tuple, set)) and not value:
-        return False
-
-    # Numeric or string constants are potentially magic
-    if isinstance(value, (int, float, str)):
-        return True
-
-    return False
+    config = get_config()
+    return config.is_magic_constant(value)
 
 
 def get_call_qualname(node: astroid.Call) -> Optional[str]:

@@ -64,6 +64,41 @@ MESSAGES = {
         "'assert x == y' produces rich diffs, while 'assertTrue(x == y)' or similar "
         "will only report 'assert False is True' without helpful context.",
     ),
+    "E9014": (
+        "Test function '%s' contains no assertions.",
+        "pytest-test-no-assert",
+        "Tests without assertions (H-3: Assertion-Free) cannot verify correctness and "
+        "provide false confidence. Either add explicit assertions or mark as a smoke test "
+        "if only checking for exceptions. This is a CRITICAL indicator of low-value tests.",
+    ),
+    "W9015": (
+        "Test '%s' only verifies mock interactions without state assertions.",
+        "pytest-mock-only-verify",
+        "Tests that only verify mock calls (H-9: Interaction-Only) without checking state "
+        "changes or return values provide weak guarantees. Interaction-based testing is "
+        "brittle and tightly coupled to implementation details. Consider adding state assertions.",
+    ),
+    "W9016": (
+        "Test '%s' lacks BDD traceability (missing @pytest.mark.scenario or Gherkin reference).",
+        "pytest-bdd-missing-scenario",
+        "Behavior-Driven Development requires explicit traceability from tests to scenarios. "
+        "Consider using pytest-bdd with @pytest.mark.scenario or documenting the Gherkin "
+        "feature file reference in the test docstring to maintain semantic alignment.",
+    ),
+    "W9017": (
+        "Test '%s' uses @pytest.mark.parametrize but could benefit from property-based testing.",
+        "pytest-no-property-test-hint",
+        "Property-Based Testing (PBT) with Hypothesis generates diverse test cases and uncovers "
+        "edge cases better than manual parametrization. For tests with >3 parameter sets or "
+        "numeric/string inputs, consider using @hypothesis.given() to define invariants.",
+    ),
+    "W9018": (
+        "Fixture '%s' has complex logic but lacks formal contracts (icontract decorators).",
+        "pytest-no-contract-hint",
+        "Design by Contract (DbC) makes preconditions and postconditions explicit and machine-verifiable. "
+        "For fixtures with complex setup/teardown logic, consider using @icontract.require() and "
+        "@icontract.ensure() decorators to formalize contracts instead of relying on informal docstrings.",
+    ),
 
     # =========================================================================
     # Category 2: Fixture Definition Smells (ast-based)

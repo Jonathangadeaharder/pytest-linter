@@ -48,6 +48,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Automated Test Harness**: Comprehensive test suite using `pylint.testutils`
+  - 90 automated unit tests covering all linter rules (100% passing)
+  - Tests validate message IDs, line numbers, and edge cases
+  - Base test infrastructure in `tests/test_harness/base.py` with automatic semantic check filtering
+  - Tests for Category 1 (flakiness & maintenance), Category 2 (fixture definition), and Category 3 (fixture interaction)
+  - New semantic quality test suite in `tests/test_harness/test_semantic_quality.py` (24 tests)
+  - Documentation in `tests/test_harness/README.md`
+  - Updated `CONTRIBUTING.md` with testing guidelines
+- **Configuration Support** via `pyproject.toml`
+  - `magic-assert-allowlist`: Configure domain-specific constants (fixes false positives for HTTP codes, etc.)
+  - New `config.py` module for centralized configuration management
+  - Python 3.8-3.10 support via `tomli`, Python 3.11+ via built-in `tomllib`
+  - Example configuration in `pyproject.toml.example`
+  - Documentation in README with real-world examples
+- **Improved Development Workflow**:
+  - Tests run in <1 second vs manual visual inspection
+  - Automated regression detection in CI
+  - Clear separation between example files (`tests/test_category*.py`) and automated tests (`tests/test_harness/`)
+  - Configurable rules reduce false positives in production codebases
+- **Advanced Linter Enhancements**:
+  - **Improved Fixture Shadowing Detection** (W9033): Refactored fixture graph to support multiple definitions per name, enabling detection of same-file and cross-file shadowing
+  - **Enhanced Type Inference** (E9035): Stateful session fixture detection now uses astroid's inference engine for more accurate mutable type detection
+  - **CI/CD Integration**: GitHub Actions workflow with multi-Python testing (3.8-3.12), code quality checks, and coverage reporting
+- **Semantic Quality Enforcement** (BDD/PBT/DbC alignment):
+  - **E9014** (`pytest-test-no-assert`): Detect assertion-free tests (H-3 heuristic) - CRITICAL indicator of low-value tests
+  - **W9015** (`pytest-mock-only-verify`): Detect interaction-only tests without state assertions (H-9 heuristic)
+  - **W9016** (`pytest-bdd-missing-scenario`): Enforce BDD traceability via `@pytest.mark.scenario` or Gherkin docstrings
+  - **W9017** (`pytest-no-property-test-hint`): Suggest property-based testing (Hypothesis) for heavily parametrized tests
+  - **W9018** (`pytest-no-contract-hint`): Suggest Design by Contract (icontract) for complex fixtures
+  - These checks bridge the "semantic gap" between syntactic coverage and requirements validation
+  - Can be disabled individually via pylint configuration if too opinionated for your workflow
+- **Runtime Semantic Validation Plugin** (`pytest --semantic-validate`):
+  - **Pytest plugin** for runtime validation of semantic properties impossible to check statically
+  - **BDD Validator**: Maps Gherkin steps to actual function execution, detects orphan steps, generates RTM
+  - **PBT Analyzer**: Validates Hypothesis strategy diversity, detects trivial properties, analyzes shrinking behavior
+  - **DbC Tracker**: Monitors icontract enforcement, detects vacuous contracts, tracks violation rates
+  - **Semantic Coverage**: Identifies false-positive tests (pass but verify nothing meaningful)
+  - **Multi-format reports**: Terminal (colorized), HTML (with charts), JSON (CI integration)
+  - **Low overhead**: Selective validation via `--semantic-checks=bdd,pbt,dbc,coverage`
+  - Complete documentation in `pytest_deep_analysis/runtime/README.md`
+
+### Fixed
+- Fixture shadowing detection now works for same-file redefinitions (previously a known limitation)
+- Stateful session fixture detection is more accurate with type inference (fewer false negatives)
+- Fixture graph no longer registers duplicates when using test harness
+
 ### Planned Features
 - Improved fixture shadowing detection across conftest.py hierarchies
 - Detection of fixtures that perform database commits without cleanup
@@ -58,9 +105,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Integration with pytest-xdist for parallel analysis
 
 ### Known Limitations
-- Shadowed fixture detection requires refactoring fixture graph structure
-- Session mutation detection is heuristic-based (limited type inference)
-- Some false positives on common patterns (e.g., HTTP status code 200)
+- ~~Shadowed fixture detection requires refactoring fixture graph structure~~ ✅ **FIXED**
+- ~~Session mutation detection is heuristic-based (limited type inference)~~ ✅ **IMPROVED**
+- ~~Some false positives on common patterns (e.g., HTTP status code 200)~~ ✅ **FIXED via configuration**
 - Performance scales linearly with project size (intentional trade-off)
 
 ---
