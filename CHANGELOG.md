@@ -80,6 +80,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **W9018** (`pytest-no-contract-hint`): Suggest Design by Contract (icontract) for complex fixtures
   - These checks bridge the "semantic gap" between syntactic coverage and requirements validation
   - Can be disabled individually via pylint configuration if too opinionated for your workflow
+- **Runtime Semantic Validation Plugin** (`pytest --semantic-validate`):
+  - **Pytest plugin** for runtime validation of semantic properties impossible to check statically
+  - **BDD Validator**: Maps Gherkin steps to actual function execution, detects orphan steps, generates RTM
+  - **PBT Analyzer**: Validates Hypothesis strategy diversity, detects trivial properties, analyzes shrinking behavior
+  - **DbC Tracker**: Monitors icontract enforcement, detects vacuous contracts, tracks violation rates
+  - **Semantic Coverage**: Identifies false-positive tests (pass but verify nothing meaningful)
+  - **Multi-format reports**: Terminal (colorized), HTML (with charts), JSON (CI integration)
+  - **Low overhead**: Selective validation via `--semantic-checks=bdd,pbt,dbc,coverage`
+  - Complete documentation in `pytest_deep_analysis/runtime/README.md`
 
 ### Fixed
 - Fixture shadowing detection now works for same-file redefinitions (previously a known limitation)

@@ -51,6 +51,9 @@ Issues = "https://github.com/yourusername/pytest-deep-analysis/issues"
 where = ["."]
 include = ["pytest_deep_analysis*"]
 
+[project.entry-points."pytest11"]
+pytest_deep_analysis_runtime = "pytest_deep_analysis.runtime.plugin"
+
 [tool.black]
 line-length = 88
 target-version = ['py38', 'py39', 'py310', 'py311']
