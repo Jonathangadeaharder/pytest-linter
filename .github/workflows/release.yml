@@ -1,0 +1,77 @@
+name: Create Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'  # Triggers on version tags like v1.0.0
+
+jobs:
+  create-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Fetch all history for changelog
+
+    - name: Extract version from tag
+      id: version
+      run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+    - name: Extract changelog for this version
+      id: changelog
+      run: |
+        # Extract the section for this version from CHANGELOG.md
+        VERSION="${{ steps.version.outputs.VERSION }}"
+
+        # Try to extract changelog section (customize based on your CHANGELOG format)
+        if [ -f CHANGELOG.md ]; then
+          # This assumes a format like "## [1.0.0] - 2024-01-01"
+          CHANGELOG=$(awk "/^## \[?${VERSION}\]?/,/^## \[?[0-9]/" CHANGELOG.md | head -n -1)
+
+          if [ -z "$CHANGELOG" ]; then
+            # Fallback: use git log since last tag
+            PREVIOUS_TAG=$(git describe --abbrev=0 --tags "v${VERSION}^" 2>/dev/null || echo "")
+            if [ -n "$PREVIOUS_TAG" ]; then
+              CHANGELOG="## Changes since ${PREVIOUS_TAG}"$'\n\n'$(git log ${PREVIOUS_TAG}..v${VERSION} --pretty=format:"- %s (%h)" --no-merges)
+            else
+              CHANGELOG="## Changes in v${VERSION}"$'\n\n'$(git log v${VERSION} --pretty=format:"- %s (%h)" --no-merges | head -20)
+            fi
+          fi
+        else
+          # No CHANGELOG.md, use git log
+          PREVIOUS_TAG=$(git describe --abbrev=0 --tags "v${VERSION}^" 2>/dev/null || echo "")
+          if [ -n "$PREVIOUS_TAG" ]; then
+            CHANGELOG="## Changes since ${PREVIOUS_TAG}"$'\n\n'$(git log ${PREVIOUS_TAG}..v${VERSION} --pretty=format:"- %s (%h)" --no-merges)
+          else
+            CHANGELOG="## Changes in v${VERSION}"$'\n\n'$(git log v${VERSION} --pretty=format:"- %s (%h)" --no-merges | head -20)
+          fi
+        fi
+
+        # Write to output
+        echo "CHANGELOG<<EOF" >> $GITHUB_OUTPUT
+        echo "$CHANGELOG" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        name: Release v${{ steps.version.outputs.VERSION }}
+        body: |
+          # pytest-deep-analysis v${{ steps.version.outputs.VERSION }}
+
+          ${{ steps.changelog.outputs.CHANGELOG }}
+
+          ## Installation
+
+          ```bash
+          pip install pytest-deep-analysis==${{ steps.version.outputs.VERSION }}
+          ```
+
+          ## What's Changed
+          See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/v${{ steps.version.outputs.VERSION }}/CHANGELOG.md) for full details.
+        draft: false
+        prerelease: ${{ contains(steps.version.outputs.VERSION, 'rc') || contains(steps.version.outputs.VERSION, 'beta') || contains(steps.version.outputs.VERSION, 'alpha') }}
