@@ -85,6 +85,25 @@ class SemanticValidationPlugin:
         # Global semantic issues
         self.global_issues: List[str] = []
 
+        # Semantic feedback loop: Load validation tasks from static linter
+        self.validation_tasks = self._load_validation_tasks()
+        # Semantic feedback loop: Track validation results
+        self.validation_results: Dict[str, Dict[str, Any]] = {}
+
+    def _load_validation_tasks(self) -> Dict[str, List[str]]:
+        """Load validation tasks from static linter (Phase 1)."""
+        import json
+        from pathlib import Path
+
+        task_file = Path(".pytest_deep_analysis_tasks.json")
+        if not task_file.exists():
+            return {}
+
+        try:
+            return json.loads(task_file.read_text())
+        except Exception:
+            return {}
+
     def should_check(self, check_type: str) -> bool:
         """Check if a specific validation type is enabled."""
         if not self.enabled:
@@ -153,6 +172,13 @@ class SemanticValidationPlugin:
     def _validate_test_semantics(self, context: TestExecutionContext):
         """Run all enabled semantic validations on test context."""
 
+        # Semantic feedback loop Phase 2: Check if this test needs validation
+        test_id = context.test_id
+        needs_validation = self.validation_tasks.get(test_id, [])
+
+        if test_id not in self.validation_results:
+            self.validation_results[test_id] = {}
+
         # 1. BDD Validation: Gherkin steps actually executed
         if self.should_check("bdd") and context.gherkin_steps:
             bdd_issues = self.bdd_validator.validate_scenario_execution(
@@ -161,10 +187,24 @@ class SemanticValidationPlugin:
             )
             context.semantic_issues.extend(bdd_issues)
 
+            # Semantic feedback loop: Record BDD validation result
+            if "bdd" in needs_validation:
+                self.validation_results[test_id]["bdd"] = {
+                    "validated": len(bdd_issues) == 0 and context.passed,
+                    "timestamp": self._get_timestamp(),
+                }
+
         # 2. PBT Analysis: Check Hypothesis coverage
         if self.should_check("pbt") and context.hypothesis_examples_tried > 0:
             pbt_issues = self.pbt_analyzer.analyze_coverage(context)
             context.semantic_issues.extend(pbt_issues)
+
+            # Semantic feedback loop: Record PBT validation result
+            if "pbt" in needs_validation:
+                self.validation_results[test_id]["pbt"] = {
+                    "validated": len(pbt_issues) == 0 and context.passed,
+                    "timestamp": self._get_timestamp(),
+                }
 
         # 3. DbC Tracking: Contract enforcement
         if self.should_check("dbc") and context.contracts_checked:
@@ -180,6 +220,28 @@ class SemanticValidationPlugin:
                         "(possible false positive)"
                     )
 
+    def _get_timestamp(self) -> str:
+        """Get current timestamp in ISO format."""
+        from datetime import datetime
+        return datetime.now().isoformat()
+
+    def _write_validation_cache(self):
+        """Write validation cache for static linter (Phase 2)."""
+        import json
+        from pathlib import Path
+
+        cache_data = {
+            "tests_with_semantic_validation": self.validation_results,
+            "timestamp": self._get_timestamp(),
+        }
+
+        cache_file = Path(".pytest_deep_analysis_cache.json")
+        try:
+            cache_file.write_text(json.dumps(cache_data, indent=2))
+        except Exception:
+            # Fail silently if we can't write the cache
+            pass
+
     def generate_report(self):
         """Generate semantic validation report."""
         reporter = SemanticReporter(
@@ -188,6 +250,9 @@ class SemanticValidationPlugin:
             format=self.report_format
         )
         reporter.generate()
+
+        # Semantic feedback loop Phase 2: Write validation cache
+        self._write_validation_cache()
 
 
 # Pytest plugin hooks

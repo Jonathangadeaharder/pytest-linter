@@ -118,6 +118,61 @@ magic-assert-allowlist = [
 
 See `pyproject.toml.example` for a complete configuration template.
 
+## Semantic Feedback Loop (Static ↔ Dynamic Integration)
+
+This linter implements a **bidirectional feedback loop** between static analysis (pylint) and runtime validation (pytest plugin):
+
+### Phase 1: Static → Dynamic (Smart Triggers)
+
+When you run `pylint`, it generates `.pytest_deep_analysis_tasks.json` containing tests that need semantic validation:
+
+```json
+{
+  "tests/test_api.py::test_user_creation": ["bdd", "pbt"],
+  "tests/test_auth.py::test_login": ["bdd"]
+}
+```
+
+The runtime plugin reads this file and **selectively enables validators** only for flagged tests, reducing overhead.
+
+### Phase 2: Dynamic → Static (Suppression Cache)
+
+When you run `pytest --semantic-validate`, the runtime plugin generates `.pytest_deep_analysis_cache.json`:
+
+```json
+{
+  "tests_with_semantic_validation": {
+    "tests/test_api.py::test_user_creation": {
+      "bdd": {"validated": true, "timestamp": "2024-11-13T23:27:00"}
+    }
+  }
+}
+```
+
+The next `pylint` run reads this cache and **suppresses warnings** (W9016/W9017) for proven-effective tests.
+
+### Benefits
+
+- **Eliminates false positives**: Tests lacking static markers but valid at runtime no longer trigger warnings
+- **Reduces runtime overhead**: Only flagged tests are validated, not entire test suite
+- **Evidence-based linting**: Static suggestions refined by dynamic execution evidence
+- **Seamless workflow**: No manual intervention needed - the loop runs automatically
+
+### Usage
+
+```bash
+# 1. Run static linter (generates task file)
+pylint --load-plugins=pytest_deep_analysis tests/
+
+# 2. Run tests with semantic validation (generates cache)
+pytest --semantic-validate
+
+# 3. Run static linter again (reads cache, suppresses validated tests)
+pylint --load-plugins=pytest_deep_analysis tests/
+```
+
+See `pytest_deep_analysis/runtime/README.md` for full runtime plugin documentation.
+
 ## Rules
 
 ### Category 1: Test Body Smells (Flakiness & Maintenance)
@@ -125,9 +180,10 @@ See `pyproject.toml.example` for a complete configuration template.
 | Rule ID | Message | Description |
 |---------|---------|-------------|
 | **W9001** | `pytest-flk-time-sleep` | `time.sleep()` found in test. Use explicit waits instead. |
-| **W9002** | `pytest-flk-io-open` | `open()` found in test. Use the `tmp_path` fixture instead. |
+| **W9002** | `pytest-flk-io-open` | `open()` found in test with resource fixture. Use the `tmp_path` fixture instead. |
 | **W9003** | `pytest-flk-network-import` | Network module imported in test file. Mock network calls. |
 | **W9004** | `pytest-flk-cwd-dependency` | CWD-sensitive function found. Tests should not depend on working directory. |
+| **W9005** | `pytest-flk-mystery-guest` | Mystery Guest: Test uses file I/O without resource fixture (`tmp_path`, `tmpdir`). |
 | **W9011** | `pytest-mnt-test-logic` | Conditional logic (if/for/while) in test. Follow Arrange-Act-Assert pattern. |
 | **W9012** | `pytest-mnt-magic-assert` | Magic number/string in assert. Extract to named constants. |
 | **W9013** | `pytest-mnt-suboptimal-assert` | Use direct `assert x == y` instead of `assertTrue(x == y)`. |

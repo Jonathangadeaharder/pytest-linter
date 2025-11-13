@@ -82,6 +82,30 @@ class PytestDeepAnalysisChecker(BaseChecker):
         self._test_has_assertions: bool = False
         self._test_has_state_assertions: bool = False
         self._test_has_mock_verifications: bool = False
+        # Semantic feedback loop: Track which tests need semantic validation
+        self._semantic_validation_tasks: Dict[str, List[str]] = {}
+        # Semantic feedback loop Phase 2: Load validation cache from runtime
+        self._validation_cache: Dict[str, Dict[str, Any]] = self._load_validation_cache()
+
+    def _load_validation_cache(self) -> Dict[str, Dict[str, Any]]:
+        """Load the validation cache written by the runtime plugin (Phase 2).
+
+        Returns:
+            Dictionary mapping test IDs to their validation status
+        """
+        import json
+        from pathlib import Path
+
+        cache_file = Path(".pytest_deep_analysis_cache.json")
+        if not cache_file.exists():
+            return {}
+
+        try:
+            cache_data = json.loads(cache_file.read_text())
+            return cache_data.get("tests_with_semantic_validation", {})
+        except Exception:
+            # Fail silently if cache is corrupted
+            return {}
 
     # =========================================================================
     # Pass 1: Fixture Discovery
@@ -273,23 +297,38 @@ class PytestDeepAnalysisChecker(BaseChecker):
                 args=(test_name,),
             )
 
+        # Build test ID for cache lookup (semantic feedback loop Phase 2)
+        file_path = node.root().file if node.root().file else "<unknown>"
+        test_id = f"{file_path}::{node.name}"
+        test_cache = self._validation_cache.get(test_id, {})
+
         # W9016: Check for BDD traceability
         if not self._has_bdd_traceability(node):
-            self.add_message(
-                "pytest-bdd-missing-scenario",
-                node=node,
-                line=node.lineno,
-                args=(test_name,),
-            )
+            # Semantic feedback loop Phase 2: Check if runtime validated this test
+            bdd_validated = test_cache.get("bdd", {}).get("validated", False)
+            if not bdd_validated:
+                self.add_message(
+                    "pytest-bdd-missing-scenario",
+                    node=node,
+                    line=node.lineno,
+                    args=(test_name,),
+                )
+                # Semantic feedback loop Phase 1: Track that this test needs validation
+                self._track_semantic_validation_task(node, "bdd")
 
         # W9017: Check if parametrize could be PBT
         if self._should_suggest_pbt(node):
-            self.add_message(
-                "pytest-no-property-test-hint",
-                node=node,
-                line=node.lineno,
-                args=(test_name,),
-            )
+            # Semantic feedback loop Phase 2: Check if runtime validated this test
+            pbt_validated = test_cache.get("pbt", {}).get("validated", False)
+            if not pbt_validated:
+                self.add_message(
+                    "pytest-no-property-test-hint",
+                    node=node,
+                    line=node.lineno,
+                    args=(test_name,),
+                )
+                # Semantic feedback loop Phase 1: Track that this test needs validation
+                self._track_semantic_validation_task(node, "pbt")
 
     def _has_pytest_raises(self, node: astroid.FunctionDef) -> bool:
         """Check if test uses pytest.raises context manager.
@@ -408,13 +447,41 @@ class PytestDeepAnalysisChecker(BaseChecker):
                 line=node.lineno,
             )
 
-        # PYTEST-FLK-002: Check for open()
+        # PYTEST-FLK-002/W9005: Check for open() and Mystery Guest pattern
         if qualname == "open":
-            self.add_message(
-                "pytest-flk-io-open",
-                node=node,
-                line=node.lineno,
-            )
+            # Enhanced check: Determine if this is a "Mystery Guest"
+            # A Mystery Guest is file I/O without a resource fixture dependency
+            has_resource_fixture = False
+
+            if self._current_test_node:
+                # Get fixture dependencies of the current test
+                test_fixtures = set(get_fixture_dependencies(self._current_test_node))
+
+                # Known pytest resource fixtures
+                resource_fixtures = {
+                    "tmp_path",
+                    "tmp_path_factory",
+                    "tmpdir",
+                    "tmpdir_factory",
+                }
+
+                # Check if test uses any resource fixture
+                has_resource_fixture = bool(test_fixtures & resource_fixtures)
+
+            if not has_resource_fixture:
+                # Mystery Guest: File I/O without clear resource management
+                self.add_message(
+                    "pytest-flk-mystery-guest",
+                    node=node,
+                    line=node.lineno,
+                )
+            else:
+                # Has resource fixture, still flag but less severe
+                self.add_message(
+                    "pytest-flk-io-open",
+                    node=node,
+                    line=node.lineno,
+                )
 
         # PYTEST-FLK-004: Check for CWD-sensitive functions
         cwd_functions = {
@@ -639,6 +706,26 @@ class PytestDeepAnalysisChecker(BaseChecker):
             line=node.lineno,
         )
 
+    def _track_semantic_validation_task(
+        self, node: astroid.FunctionDef, validation_type: str
+    ) -> None:
+        """Track that a test needs semantic validation (feedback loop Phase 1).
+
+        Args:
+            node: The test function node
+            validation_type: Type of validation needed ("bdd", "pbt", "dbc")
+        """
+        # Build test identifier: file_path::test_name
+        file_path = node.root().file if node.root().file else "<unknown>"
+        test_id = f"{file_path}::{node.name}"
+
+        # Add validation type to this test's task list
+        if test_id not in self._semantic_validation_tasks:
+            self._semantic_validation_tasks[test_id] = []
+
+        if validation_type not in self._semantic_validation_tasks[test_id]:
+            self._semantic_validation_tasks[test_id].append(validation_type)
+
     # =========================================================================
     # Pass 2 Finalization: Fixture Graph Validation (Category 3)
     # =========================================================================
@@ -648,6 +735,21 @@ class PytestDeepAnalysisChecker(BaseChecker):
 
         This performs Category 3 checks that require the complete fixture graph.
         """
+        # Semantic feedback loop Phase 1: Write task file for runtime plugin
+        # This tells the runtime plugin which tests need validation
+        # This runs regardless of whether there's a fixture graph
+        if self._semantic_validation_tasks:
+            import json
+            from pathlib import Path
+
+            task_file = Path(".pytest_deep_analysis_tasks.json")
+            try:
+                task_file.write_text(json.dumps(self._semantic_validation_tasks, indent=2))
+            except Exception:
+                # Fail silently if we can't write the task file
+                pass
+
+        # Early return if no fixture graph available
         if not self.fixture_graph:
             return
 

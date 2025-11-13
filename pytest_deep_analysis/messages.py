@@ -41,6 +41,14 @@ MESSAGES = {
         "Tests that rely on the current working directory are brittle and fail when run "
         "from different directories. Use absolute paths or the 'tmp_path' fixture instead.",
     ),
+    "W9005": (
+        "Mystery Guest: Test uses file I/O without a resource fixture (tmp_path, tmpdir).",
+        "pytest-flk-mystery-guest",
+        "This test calls open() or file operations without depending on pytest's resource "
+        "fixtures (tmp_path, tmp_path_factory, tmpdir). This is the 'Mystery Guest' smell: "
+        "an external resource of unclear origin. Tests should use tmp_path fixture to ensure "
+        "isolation, cleanup, and clarity about what files are being used.",
+    ),
 
     # PYTEST-MNT: Maintenance checks
     "W9011": (

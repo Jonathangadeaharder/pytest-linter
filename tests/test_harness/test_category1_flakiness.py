@@ -66,7 +66,7 @@ class TestFileIO(PytestDeepAnalysisTestCase):
     """Tests for W9002: pytest-flk-io-open"""
 
     def test_open_in_test_function(self):
-        """Should warn when open() is used in a test function."""
+        """Should warn when open() is used without resource fixture (Mystery Guest)."""
         code = """
         def test_file_operation():
             with open("test.txt", "w") as f:  # Line 3
@@ -75,7 +75,7 @@ class TestFileIO(PytestDeepAnalysisTestCase):
         """
         self.assert_adds_messages(
             code,
-            msg("pytest-flk-io-open", line=3)
+            msg("pytest-flk-mystery-guest", line=3)
         )
 
     def test_open_with_tmp_path_fixture(self):
@@ -299,5 +299,5 @@ class TestMultipleIssues(PytestDeepAnalysisTestCase):
             code,
             msg("pytest-flk-time-sleep", line=6),
             msg("pytest-flk-cwd-dependency", line=7),
-            msg("pytest-flk-io-open", line=8),
+            msg("pytest-flk-mystery-guest", line=8),
         )

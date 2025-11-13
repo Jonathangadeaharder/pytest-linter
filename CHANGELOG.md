@@ -98,11 +98,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Automatically skips try/except inside `pytest.raises()` context (for testing exception attributes)
   - These rules systematically implement academically-validated test smells from the PyNose taxonomy
   - Bridges the gap between ad-hoc linting and evidence-based test quality research
+- **Mystery Guest Pattern Detection** (W9005):
+  - **W9005** (`pytest-flk-mystery-guest`): Detects tests using file I/O without pytest resource fixtures (`tmp_path`, `tmpdir`)
+  - Enhanced W9002 to use fixture graph analysis, distinguishing between tests with and without resource fixtures
+  - Implements the "Mystery Guest" test smell from academic research: external dependencies of unclear origin
+  - Promotes test isolation, cleanup, and clarity by requiring explicit resource fixtures
+  - Automatically suppresses W9005 for tests that properly use `tmp_path` or `tmpdir` fixtures
+- **Semantic Feedback Loop** (Static ↔ Dynamic Integration):
+  - **Phase 1 (Static→Dynamic)**: Static linter writes `.pytest_deep_analysis_tasks.json` with tests needing semantic validation
+    - Task file contains test IDs mapped to validation types (bdd, pbt, dbc)
+    - Runtime plugin reads this file to selectively enable validators only for flagged tests
+    - Reduces runtime overhead by avoiding validation for all tests
+  - **Phase 2 (Dynamic→Static)**: Runtime plugin writes `.pytest_deep_analysis_cache.json` with validation results
+    - Cache contains timestamp and validation status for each test
+    - Static linter reads cache at startup to suppress warnings for proven-effective tests
+    - Suppresses W9016/W9017 for tests validated at runtime (e.g., BDD scenario actually executed, PBT properties verified)
+  - Creates a **bidirectional feedback loop** between compile-time and runtime analysis
+  - Eliminates false positives for tests that lack static markers but are semantically valid at runtime
+  - Implements the architectural vision from strategic analysis: static suggestions refined by dynamic evidence
 
 ### Fixed
 - Fixture shadowing detection now works for same-file redefinitions (previously a known limitation)
 - Stateful session fixture detection is more accurate with type inference (fewer false negatives)
 - Fixture graph no longer registers duplicates when using test harness
+- Test harness updated to expect W9005 (Mystery Guest) instead of W9002 for tests without resource fixtures
+- All 90 automated tests now pass (100% success rate)
 
 ### Planned Features
 - Improved fixture shadowing detection across conftest.py hierarchies

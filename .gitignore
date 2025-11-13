@@ -136,3 +136,4 @@ Thumbs.db
 # Project specific
 .pylintrc
 test_file.txt
+.pytest_deep_analysis_*.json
