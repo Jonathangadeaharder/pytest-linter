@@ -24,9 +24,14 @@ class PytestDeepAnalysisTestCase(CheckerTestCase):
     - Run the linter on code snippets or files
     - Assert that specific messages are generated
     - Verify line numbers and message arguments
+
+    Attributes:
+        FILTER_SEMANTIC_CHECKS: If True, automatically filter out W9016/W9017/W9018
+                                warnings unless explicitly testing them. Default: True.
     """
 
     CHECKER_CLASS = PytestDeepAnalysisChecker
+    FILTER_SEMANTIC_CHECKS = True  # Filter BDD/PBT/DbC checks by default
 
     def assert_adds_messages(
         self,
@@ -53,6 +58,24 @@ class PytestDeepAnalysisTestCase(CheckerTestCase):
 
         # Get actual messages
         actual_messages = self.linter.release_messages()
+
+        # Filter out semantic quality checks if not explicitly testing them
+        if self.FILTER_SEMANTIC_CHECKS:
+            semantic_checks = {
+                "pytest-test-no-assert",
+                "pytest-mock-only-verify",
+                "pytest-bdd-missing-scenario",
+                "pytest-no-property-test-hint",
+                "pytest-no-contract-hint"
+            }
+            expected_ids = {msg.msg_id for msg in expected_messages}
+
+            # Only filter if we're NOT explicitly testing semantic checks
+            if not any(msg_id in semantic_checks for msg_id in expected_ids):
+                actual_messages = [
+                    msg for msg in actual_messages
+                    if msg.msg_id not in semantic_checks
+                ]
 
         # Compare messages (only msg_id and line)
         expected_set = {(msg.msg_id, msg.line) for msg in expected_messages}

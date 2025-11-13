@@ -50,10 +50,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **Automated Test Harness**: Comprehensive test suite using `pylint.testutils`
-  - 66 automated unit tests covering all linter rules (100% passing)
+  - 90 automated unit tests covering all linter rules (100% passing)
   - Tests validate message IDs, line numbers, and edge cases
-  - Base test infrastructure in `tests/test_harness/base.py`
+  - Base test infrastructure in `tests/test_harness/base.py` with automatic semantic check filtering
   - Tests for Category 1 (flakiness & maintenance), Category 2 (fixture definition), and Category 3 (fixture interaction)
+  - New semantic quality test suite in `tests/test_harness/test_semantic_quality.py` (24 tests)
   - Documentation in `tests/test_harness/README.md`
   - Updated `CONTRIBUTING.md` with testing guidelines
 - **Configuration Support** via `pyproject.toml`
@@ -71,6 +72,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Improved Fixture Shadowing Detection** (W9033): Refactored fixture graph to support multiple definitions per name, enabling detection of same-file and cross-file shadowing
   - **Enhanced Type Inference** (E9035): Stateful session fixture detection now uses astroid's inference engine for more accurate mutable type detection
   - **CI/CD Integration**: GitHub Actions workflow with multi-Python testing (3.8-3.12), code quality checks, and coverage reporting
+- **Semantic Quality Enforcement** (BDD/PBT/DbC alignment):
+  - **E9014** (`pytest-test-no-assert`): Detect assertion-free tests (H-3 heuristic) - CRITICAL indicator of low-value tests
+  - **W9015** (`pytest-mock-only-verify`): Detect interaction-only tests without state assertions (H-9 heuristic)
+  - **W9016** (`pytest-bdd-missing-scenario`): Enforce BDD traceability via `@pytest.mark.scenario` or Gherkin docstrings
+  - **W9017** (`pytest-no-property-test-hint`): Suggest property-based testing (Hypothesis) for heavily parametrized tests
+  - **W9018** (`pytest-no-contract-hint`): Suggest Design by Contract (icontract) for complex fixtures
+  - These checks bridge the "semantic gap" between syntactic coverage and requirements validation
+  - Can be disabled individually via pylint configuration if too opinionated for your workflow
 
 ### Fixed
 - Fixture shadowing detection now works for same-file redefinitions (previously a known limitation)

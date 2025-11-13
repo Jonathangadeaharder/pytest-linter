@@ -77,6 +77,11 @@ class PytestDeepAnalysisChecker(BaseChecker):
         self._pass1_complete = False
         # Track processed fixture nodes to avoid duplicates
         self._processed_fixtures: Set[int] = set()
+        # Track current test function for assertion counting
+        self._current_test_node: Optional[astroid.FunctionDef] = None
+        self._test_has_assertions: bool = False
+        self._test_has_state_assertions: bool = False
+        self._test_has_mock_verifications: bool = False
 
     # =========================================================================
     # Pass 1: Fixture Discovery
@@ -149,6 +154,10 @@ class PytestDeepAnalysisChecker(BaseChecker):
         """
         if is_test_function(node):
             self._in_test_function = True
+            self._current_test_node = node
+            self._test_has_assertions = False
+            self._test_has_state_assertions = False
+            self._test_has_mock_verifications = False
             self._check_test_function(node)
             # Continue visiting children for Category 1 checks
 
@@ -159,7 +168,10 @@ class PytestDeepAnalysisChecker(BaseChecker):
             node: The function definition node
         """
         if is_test_function(node):
+            # Check for semantic quality issues before leaving
+            self._check_test_semantic_quality(node)
             self._in_test_function = False
+            self._current_test_node = None
 
     def _check_test_function(self, node: astroid.FunctionDef) -> None:
         """Analyze a test function for fixture usage (Category 3).
@@ -222,6 +234,141 @@ class PytestDeepAnalysisChecker(BaseChecker):
                 args=(fixture_name, files[0], files[-1] if len(unique_files) > 1 else files[0]),
             )
 
+    def _check_test_semantic_quality(self, node: astroid.FunctionDef) -> None:
+        """Check test function for semantic quality issues (BDD/PBT/DbC alignment).
+
+        This implements the new semantic checks:
+        - E9014: Assertion-free tests (H-3)
+        - W9015: Mock-only verification (H-9)
+        - W9016: BDD traceability
+        - W9017: PBT hints
+
+        Args:
+            node: The test function node
+        """
+        test_name = node.name
+
+        # E9014: Check for assertion-free tests (CRITICAL)
+        # Skip if test is expected to raise (pytest.raises context manager)
+        has_pytest_raises = self._has_pytest_raises(node)
+        if not self._test_has_assertions and not has_pytest_raises:
+            self.add_message(
+                "pytest-test-no-assert",
+                node=node,
+                line=node.lineno,
+                args=(test_name,),
+            )
+
+        # W9015: Check for interaction-only tests (mock verify without state checks)
+        if self._test_has_mock_verifications and not self._test_has_state_assertions:
+            self.add_message(
+                "pytest-mock-only-verify",
+                node=node,
+                line=node.lineno,
+                args=(test_name,),
+            )
+
+        # W9016: Check for BDD traceability
+        if not self._has_bdd_traceability(node):
+            self.add_message(
+                "pytest-bdd-missing-scenario",
+                node=node,
+                line=node.lineno,
+                args=(test_name,),
+            )
+
+        # W9017: Check if parametrize could be PBT
+        if self._should_suggest_pbt(node):
+            self.add_message(
+                "pytest-no-property-test-hint",
+                node=node,
+                line=node.lineno,
+                args=(test_name,),
+            )
+
+    def _has_pytest_raises(self, node: astroid.FunctionDef) -> bool:
+        """Check if test uses pytest.raises context manager.
+
+        Args:
+            node: The test function node
+
+        Returns:
+            True if pytest.raises is used
+        """
+        for with_node in node.nodes_of_class(astroid.With):
+            for item in with_node.items:
+                context_expr = item[0]
+                if isinstance(context_expr, astroid.Call):
+                    qualname = get_call_qualname(context_expr)
+                    if qualname in {"pytest.raises", "raises"}:
+                        return True
+        return False
+
+    def _has_bdd_traceability(self, node: astroid.FunctionDef) -> bool:
+        """Check if test has BDD traceability markers.
+
+        Args:
+            node: The test function node
+
+        Returns:
+            True if test has BDD traceability
+        """
+        # Check for @pytest.mark.scenario decorator
+        if node.decorators:
+            for decorator in node.decorators.nodes:
+                qualname = ""
+                if isinstance(decorator, astroid.Attribute):
+                    qualname = decorator.as_string()
+                elif isinstance(decorator, astroid.Call):
+                    if isinstance(decorator.func, astroid.Attribute):
+                        qualname = decorator.func.as_string()
+
+                if "scenario" in qualname or "feature" in qualname:
+                    return True
+
+        # Check for Gherkin references in docstring
+        if node.doc_node:
+            docstring = node.doc_node.value.lower()
+            gherkin_keywords = ["given", "when", "then", "scenario:", "feature:"]
+            if any(keyword in docstring for keyword in gherkin_keywords):
+                return True
+
+        return False
+
+    def _should_suggest_pbt(self, node: astroid.FunctionDef) -> bool:
+        """Check if test should use property-based testing.
+
+        Args:
+            node: The test function node
+
+        Returns:
+            True if PBT would be beneficial
+        """
+        # Check for @pytest.mark.parametrize with many parameters
+        if node.decorators:
+            for decorator in node.decorators.nodes:
+                if isinstance(decorator, astroid.Call):
+                    qualname = ""
+                    if isinstance(decorator.func, astroid.Attribute):
+                        qualname = decorator.func.as_string()
+
+                    if "parametrize" in qualname:
+                        # Check if already using hypothesis
+                        for dec in node.decorators.nodes:
+                            dec_str = dec.as_string()
+                            if "hypothesis" in dec_str or "given" in dec_str:
+                                return False  # Already using PBT
+
+                        # Check number of parameter sets
+                        if len(decorator.args) >= 2:
+                            param_values = decorator.args[1]
+                            # If it's a list with >3 items, suggest PBT
+                            if isinstance(param_values, astroid.List):
+                                if len(param_values.elts) > 3:
+                                    return True
+
+        return False
+
     # =========================================================================
     # Category 1: Test Body Smells (ast-based checks)
     # =========================================================================
@@ -238,6 +385,15 @@ class PytestDeepAnalysisChecker(BaseChecker):
         qualname = get_call_qualname(node)
         if not qualname:
             return
+
+        # Track mock verification calls (for W9015)
+        mock_verify_methods = {
+            "assert_called", "assert_called_once", "assert_called_with",
+            "assert_called_once_with", "assert_any_call", "assert_has_calls",
+            "assert_not_called"
+        }
+        if any(qualname.endswith(f".{method}") for method in mock_verify_methods):
+            self._test_has_mock_verifications = True
 
         # PYTEST-FLK-001: Check for time.sleep()
         if qualname == "time.sleep" or qualname == "sleep":
@@ -372,6 +528,10 @@ class PytestDeepAnalysisChecker(BaseChecker):
         if not self._in_test_function:
             return
 
+        # Track that this test has assertions (for E9014)
+        self._test_has_assertions = True
+        self._test_has_state_assertions = True  # Most asserts are state checks
+
         # PYTEST-MNT-002: Check for magic constants in asserts
         self._check_magic_constants_in_assert(node)
 
@@ -440,6 +600,9 @@ class PytestDeepAnalysisChecker(BaseChecker):
 
         # Category 3: Check for stateful session fixtures (PYTEST-FIX-006)
         self._check_stateful_session_fixtures()
+
+        # W9018: Check for complex fixtures without contracts (DbC)
+        self._check_fixtures_without_contracts()
 
     def _check_fixture_scope_dependencies(self) -> None:
         """Check for invalid fixture scope dependencies.
@@ -551,5 +714,85 @@ class PytestDeepAnalysisChecker(BaseChecker):
             except (astroid.InferenceError, AttributeError, StopIteration):
                 # Inference failed, not considered mutable
                 pass
+
+        return False
+
+    def _check_fixtures_without_contracts(self) -> None:
+        """Check for complex fixtures without formal contracts (DbC).
+
+        W9018: Suggests icontract decorators for fixtures with:
+        - Multiple statements (complex logic)
+        - Database/network operations
+        - Resource management (yield fixtures)
+        """
+        for fixture_name, fixture_infos in self.fixture_graph.items():
+            for fixture_info in fixture_infos:
+                # Check if fixture already has contract decorators
+                if self._has_contract_decorators(fixture_info.node):
+                    continue
+
+                # Check if fixture is complex enough to warrant contracts
+                if self._is_complex_fixture(fixture_info.node):
+                    self.add_message(
+                        "pytest-no-contract-hint",
+                        node=fixture_info.node,
+                        line=fixture_info.node.lineno,
+                        args=(fixture_name,),
+                    )
+
+    def _has_contract_decorators(self, node: astroid.FunctionDef) -> bool:
+        """Check if function has icontract decorators.
+
+        Args:
+            node: The function node
+
+        Returns:
+            True if icontract decorators are present
+        """
+        if not node.decorators:
+            return False
+
+        for decorator in node.decorators.nodes:
+            dec_str = decorator.as_string()
+            if "icontract" in dec_str or "require" in dec_str or "ensure" in dec_str:
+                return True
+
+        return False
+
+    def _is_complex_fixture(self, node: astroid.FunctionDef) -> bool:
+        """Check if fixture is complex enough to warrant contracts.
+
+        Args:
+            node: The fixture function node
+
+        Returns:
+            True if fixture is complex
+        """
+        # Count statements (excluding docstring)
+        body = node.body
+        if body and isinstance(body[0], astroid.Expr) and isinstance(body[0].value, astroid.Const):
+            # Skip docstring
+            body = body[1:]
+
+        statement_count = len(body)
+
+        # Complex if >3 statements
+        if statement_count > 3:
+            return True
+
+        # Check for database/network keywords in code
+        complexity_indicators = {
+            "connection", "cursor", "execute", "commit", "rollback",
+            "session", "transaction", "database", "db",
+            "request", "response", "http", "api"
+        }
+
+        code_str = node.as_string().lower()
+        if any(indicator in code_str for indicator in complexity_indicators):
+            return True
+
+        # Check for yield (resource management fixtures)
+        for yield_node in node.nodes_of_class(astroid.Yield):
+            return True
 
         return False
