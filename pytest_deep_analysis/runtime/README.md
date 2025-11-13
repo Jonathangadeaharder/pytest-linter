@@ -6,7 +6,7 @@
 
 ## Overview
 
-The **runtime semantic validation plugin** provides deep runtime analysis that's impossible to perform statically. It hooks into pytest execution to validate that:
+The **runtime semantic validation plugin** provides comprehensive execution-level analysis that's fundamentally impossible to perform statically. It hooks into pytest execution to validate that:
 
 - **BDD**: Gherkin steps actually execute (not just declared)
 - **PBT**: Hypothesis strategies generate diverse, meaningful inputs

@@ -57,7 +57,7 @@ class SemanticReporter:
             for ctx in self.test_contexts.values()
         ) + len(self.global_issues)
 
-        print(f"\nSummary:")
+        print("\nSummary:")
         print(f"  Total tests analyzed: {total_tests}")
         print(f"  Tests with semantic issues: {tests_with_issues}")
         print(f"  Total semantic issues: {total_issues}")

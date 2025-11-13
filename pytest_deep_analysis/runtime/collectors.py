@@ -140,6 +140,8 @@ class AssertionCounter:
                 if instr.opname == "LOAD_ASSERTION_ERROR":
                     count += 1
         except (AttributeError, TypeError):
+            # Bytecode inspection may fail for built-in functions or special methods
+            # that don't have __code__ attribute. Return 0 count for these cases.
             pass
 
         return count
@@ -158,6 +160,8 @@ class AssertionCounter:
                 if instr.opname == "LOAD_ATTR" and instr.argval == "raises":
                     return True
         except (AttributeError, TypeError):
+            # Bytecode inspection may fail for built-in functions or special methods.
+            # Assume no pytest.raises() for these cases.
             pass
 
         return False

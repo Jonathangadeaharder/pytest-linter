@@ -7,6 +7,7 @@ and apply it to linter rules.
 
 from typing import Any, Set, Optional
 import sys
+import logging
 from pathlib import Path
 
 # Use tomllib for Python 3.11+, tomli for earlier versions
@@ -28,7 +29,9 @@ class PytestDeepAnalysisConfig:
         Args:
             config_file: Path to pyproject.toml file. If None, searches upward.
         """
-        self.magic_assert_allowlist: Set[Any] = {0, 1, -1, True, False, None, ""}
+        # Note: 0 and False are equal in sets, as are 1 and True. We include both
+        # for clarity, but the set will automatically deduplicate them.
+        self.magic_assert_allowlist: Set[Any] = {-1, 0, 1, None, ""}
         self.config_path: Optional[Path] = None
 
         if config_file:
@@ -79,9 +82,15 @@ class PytestDeepAnalysisConfig:
                     # Add configured values to the default allowlist
                     self.magic_assert_allowlist.update(allowlist)
 
-        except (FileNotFoundError, KeyError, Exception):
-            # If config loading fails, just use defaults
-            pass
+        except FileNotFoundError:
+            # Config file not found, use defaults
+            logging.debug(f"Config file not found: {self.config_path}")
+        except (KeyError, ValueError, TypeError) as e:
+            # Invalid config structure or values, use defaults
+            logging.warning(f"Error parsing config from {self.config_path}: {e}")
+        except Exception as e:
+            # Unexpected error, use defaults but log it
+            logging.error(f"Unexpected error loading config from {self.config_path}: {e}")
 
     def is_magic_constant(self, value: Any) -> bool:
         """Check if a constant value is 'magic' considering configuration.

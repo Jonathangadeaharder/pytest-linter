@@ -157,7 +157,7 @@ When proposing new linter rules:
 
 ## Project Structure
 
-```
+```text
 pytest-deep-analysis/
 ├── pytest_deep_analysis/
 │   ├── __init__.py          # Plugin registration
