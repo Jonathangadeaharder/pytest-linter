@@ -67,14 +67,16 @@ class PytestDeepAnalysisChecker(BaseChecker):
 
     def __init__(self, linter: "PyLinter"):
         super().__init__(linter)
-        # Fixture graph: maps fixture name to FixtureInfo
-        self.fixture_graph: Dict[str, FixtureInfo] = {}
+        # Fixture graph: maps fixture name to LIST of FixtureInfo (supports shadowing)
+        self.fixture_graph: Dict[str, List[FixtureInfo]] = {}
         # Track which tests use which fixtures
         self.test_fixture_usage: Dict[str, List[str]] = {}
         # Track if we're inside a test function for Category 1 checks
         self._in_test_function = False
         # Track pass completion
         self._pass1_complete = False
+        # Track processed fixture nodes to avoid duplicates
+        self._processed_fixtures: Set[int] = set()
 
     # =========================================================================
     # Pass 1: Fixture Discovery
@@ -100,12 +102,18 @@ class PytestDeepAnalysisChecker(BaseChecker):
         if not is_pytest_fixture(node):
             return
 
+        # Avoid processing the same fixture node twice
+        node_id = id(node)
+        if node_id in self._processed_fixtures:
+            return
+        self._processed_fixtures.add(node_id)
+
         # Extract fixture metadata
         scope, autouse = get_fixture_decorator_args(node)
         dependencies = get_fixture_dependencies(node)
         file_path = node.root().file if node.root().file else "<unknown>"
 
-        # Store in the fixture graph
+        # Store in the fixture graph (supports multiple definitions per name)
         fixture_info = FixtureInfo(
             name=node.name,
             scope=scope,
@@ -114,7 +122,9 @@ class PytestDeepAnalysisChecker(BaseChecker):
             file_path=file_path,
             node=node,
         )
-        self.fixture_graph[node.name] = fixture_info
+        if node.name not in self.fixture_graph:
+            self.fixture_graph[node.name] = []
+        self.fixture_graph[node.name].append(fixture_info)
 
         # Category 2: Check for autouse=True (PYTEST-FIX-001)
         if autouse:
@@ -172,7 +182,8 @@ class PytestDeepAnalysisChecker(BaseChecker):
 
             # Track fixture usage for unused fixture detection
             if arg.name in self.fixture_graph:
-                self.fixture_graph[arg.name].used_by.add(test_name)
+                for fixture_info in self.fixture_graph[arg.name]:
+                    fixture_info.used_by.add(test_name)
 
             # Category 3: Check for shadowed fixtures (PYTEST-FIX-004)
             self._check_shadowed_fixture(arg, node)
@@ -190,20 +201,25 @@ class PytestDeepAnalysisChecker(BaseChecker):
         """
         fixture_name = arg.name
 
-        # Count how many definitions exist
-        definitions = []
-        for name, info in self.fixture_graph.items():
-            if name == fixture_name:
-                definitions.append(info)
+        # Get all definitions for this fixture name
+        if fixture_name not in self.fixture_graph:
+            return
+
+        definitions = self.fixture_graph[fixture_name]
 
         if len(definitions) > 1:
-            # Fixture is shadowed
+            # Fixture is shadowed - multiple definitions exist
             files = [info.file_path for info in definitions]
+            # Get unique file paths
+            unique_files = list(dict.fromkeys(files))  # Preserve order
+
+            # Warn about shadowing even in same file (redefinition)
+            # or across different files (conftest shadowing)
             self.add_message(
                 "pytest-fix-shadowed",
                 node=test_node,
                 line=arg.lineno,
-                args=(fixture_name, files[0], files[1]),
+                args=(fixture_name, files[0], files[-1] if len(unique_files) > 1 else files[0]),
             )
 
     # =========================================================================
@@ -431,94 +447,109 @@ class PytestDeepAnalysisChecker(BaseChecker):
         A fixture cannot depend on a fixture with a narrower scope.
         For example, a session fixture cannot depend on a function fixture.
         """
-        for fixture_name, fixture_info in self.fixture_graph.items():
-            my_scope = fixture_info.scope
+        for fixture_name, fixture_infos in self.fixture_graph.items():
+            for fixture_info in fixture_infos:
+                my_scope = fixture_info.scope
 
-            for dep_name in fixture_info.dependencies:
-                if dep_name not in self.fixture_graph:
-                    # Dependency is a built-in fixture or not found
-                    continue
+                for dep_name in fixture_info.dependencies:
+                    if dep_name not in self.fixture_graph:
+                        # Dependency is a built-in fixture or not found
+                        continue
 
-                dep_info = self.fixture_graph[dep_name]
-                dep_scope = dep_info.scope
+                    # Check against first definition (pytest uses first found)
+                    dep_info = self.fixture_graph[dep_name][0]
+                    dep_scope = dep_info.scope
 
-                # Check if my scope is broader than dependency scope
-                if compare_fixture_scopes(my_scope, dep_scope) > 0:
-                    self.add_message(
-                        "pytest-fix-invalid-scope",
-                        node=fixture_info.node,
-                        line=fixture_info.node.lineno,
-                        args=(fixture_name, my_scope, dep_name, dep_scope),
-                    )
+                    # Check if my scope is broader than dependency scope
+                    if compare_fixture_scopes(my_scope, dep_scope) > 0:
+                        self.add_message(
+                            "pytest-fix-invalid-scope",
+                            node=fixture_info.node,
+                            line=fixture_info.node.lineno,
+                            args=(fixture_name, my_scope, dep_name, dep_scope),
+                        )
 
     def _check_unused_fixtures(self) -> None:
         """Check for fixtures that are defined but never used."""
-        for fixture_name, fixture_info in self.fixture_graph.items():
-            # Skip autouse fixtures (they're used implicitly)
-            if fixture_info.autouse:
-                continue
+        for fixture_name, fixture_infos in self.fixture_graph.items():
+            for fixture_info in fixture_infos:
+                # Skip autouse fixtures (they're used implicitly)
+                if fixture_info.autouse:
+                    continue
 
-            # Check if any tests or other fixtures use this fixture
-            is_used = len(fixture_info.used_by) > 0
+                # Check if any tests or other fixtures use this fixture
+                is_used = len(fixture_info.used_by) > 0
 
-            # Also check if other fixtures depend on it
-            for other_fixture in self.fixture_graph.values():
-                if fixture_name in other_fixture.dependencies:
-                    is_used = True
-                    break
+                # Also check if other fixtures depend on it
+                for other_fixture_list in self.fixture_graph.values():
+                    for other_fixture in other_fixture_list:
+                        if fixture_name in other_fixture.dependencies:
+                            is_used = True
+                            break
+                    if is_used:
+                        break
 
-            if not is_used:
-                self.add_message(
-                    "pytest-fix-unused",
-                    node=fixture_info.node,
-                    line=fixture_info.node.lineno,
-                    args=(fixture_name,),
-                )
+                if not is_used:
+                    self.add_message(
+                        "pytest-fix-unused",
+                        node=fixture_info.node,
+                        line=fixture_info.node.lineno,
+                        args=(fixture_name,),
+                    )
 
     def _check_stateful_session_fixtures(self) -> None:
         """Check for session-scoped fixtures that return mutable objects.
 
-        This is a simplified heuristic check. A full implementation would
-        require deeper type inference.
+        Uses astroid's type inference for more accurate detection.
         """
-        for fixture_name, fixture_info in self.fixture_graph.items():
-            if fixture_info.scope != "session":
-                continue
+        for fixture_name, fixture_infos in self.fixture_graph.items():
+            for fixture_info in fixture_infos:
+                if fixture_info.scope != "session":
+                    continue
 
-            # Look for return statements in the fixture body
-            for node in fixture_info.node.body:
-                if isinstance(node, astroid.Return) and node.value:
-                    # Check if returning a mutable type
-                    if isinstance(
-                        node.value,
-                        (
-                            astroid.List,
-                            astroid.Dict,
-                            astroid.Set,
-                            astroid.Call,
-                        ),
-                    ):
-                        # Check for common mutable return patterns
-                        if isinstance(node.value, astroid.Call):
-                            qualname = get_call_qualname(node.value)
-                            mutable_constructors = {
-                                "list",
-                                "dict",
-                                "set",
-                                "[]",
-                                "{}",
-                            }
-                            if qualname in mutable_constructors:
-                                self.add_message(
-                                    "pytest-fix-stateful-session",
-                                    node=fixture_info.node,
-                                    line=fixture_info.node.lineno,
-                                    args=(fixture_name,),
-                                )
-                        else:
-                            self.add_message(
-                                "pytest-fix-stateful-session",
-                                node=fixture_info.node,
-                                line=fixture_info.node.lineno,
-                                args=(fixture_name,),
-                            )
+                # Look for return statements in the fixture body (recursively)
+                for node in fixture_info.node.nodes_of_class(astroid.Return):
+                    if node.value and self._is_mutable_return(node.value):
+                        self.add_message(
+                            "pytest-fix-stateful-session",
+                            node=fixture_info.node,
+                            line=fixture_info.node.lineno,
+                            args=(fixture_name,),
+                        )
+                        break  # Only report once per fixture
+
+    def _is_mutable_return(self, value_node: astroid.NodeNG) -> bool:
+        """Check if a return value is mutable using type inference.
+
+        Args:
+            value_node: The value being returned
+
+        Returns:
+            True if the value is likely mutable
+        """
+        # Direct mutable literals - these are definitely mutable
+        if isinstance(value_node, (astroid.List, astroid.Dict, astroid.Set)):
+            return True
+
+        # Call nodes - use inference for better accuracy
+        if isinstance(value_node, astroid.Call):
+            # First try qualified name check (fast path)
+            qualname = get_call_qualname(value_node)
+            if qualname in {"list", "dict", "set"}:
+                return True
+
+            # Try astroid's inference engine for better detection
+            try:
+                for inferred in value_node.infer():
+                    if inferred is astroid.Uninferable:
+                        continue
+                    # Check if inferred type is a mutable collection instance
+                    if hasattr(inferred, "pytype"):
+                        pytype = inferred.pytype()
+                        if pytype in ("builtins.list", "builtins.dict", "builtins.set"):
+                            return True
+            except (astroid.InferenceError, AttributeError, StopIteration):
+                # Inference failed, not considered mutable
+                pass
+
+        return False

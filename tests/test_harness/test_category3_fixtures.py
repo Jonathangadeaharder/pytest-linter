@@ -407,12 +407,7 @@ class TestShadowedFixtures(PytestDeepAnalysisTestCase):
     """
 
     def test_shadowed_fixture_basic(self):
-        """Known limitation: Single-file shadowing not currently detected.
-
-        The current implementation uses a dict keyed by fixture name, so the
-        second definition overwrites the first within the same file. Shadowing
-        detection requires tracking multiple conftest.py files.
-        """
+        """Should detect when the same fixture name is defined twice in same file."""
         code = """
         import pytest
 
@@ -421,7 +416,7 @@ class TestShadowedFixtures(PytestDeepAnalysisTestCase):
             return "first"
 
         @pytest.fixture
-        def my_fixture():  # This overwrites the first in fixture_graph
+        def my_fixture():  # Line 8 - Shadows the first definition
             return "second"
 
         def test_something(my_fixture):
@@ -436,9 +431,6 @@ class TestShadowedFixtures(PytestDeepAnalysisTestCase):
         self.checker.close()
 
         messages = self.linter.release_messages()
-        # KNOWN LIMITATION: The current implementation uses dict keyed by name,
-        # so same-file shadowing is not detected. This would require refactoring
-        # the fixture graph to track multiple definitions per name.
+        # With refactored fixture graph, we now detect same-file shadowing!
         shadowed_messages = [m for m in messages if m.msg_id == "pytest-fix-shadowed"]
-        # For now, this is expected to NOT detect shadowing in the same file
-        assert len(shadowed_messages) == 0  # Known limitation
+        assert len(shadowed_messages) == 1
