@@ -89,6 +89,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Multi-format reports**: Terminal (colorized), HTML (with charts), JSON (CI integration)
   - **Low overhead**: Selective validation via `--semantic-checks=bdd,pbt,dbc,coverage`
   - Complete documentation in `pytest_deep_analysis/runtime/README.md`
+- **Academic Test Smell Detection** (based on PyNose research):
+  - **W9019** (`pytest-mnt-assertion-roulette`): Detects tests with >3 assertions without explanation (Assertion Roulette smell)
+    - Automatically skips parametrized tests where multiple assertions are justified
+    - Encourages focused, single-concept tests or explicit assertion messages
+  - **W9020** (`pytest-mnt-raw-exception-handling`): Detects raw try/except in tests (Exception Handling smell)
+    - Recommends `pytest.raises()` for clearer intent and better failure messages
+    - Automatically skips try/except inside `pytest.raises()` context (for testing exception attributes)
+  - These rules systematically implement academically-validated test smells from the PyNose taxonomy
+  - Bridges the gap between ad-hoc linting and evidence-based test quality research
 
 ### Fixed
 - Fixture shadowing detection now works for same-file redefinitions (previously a known limitation)

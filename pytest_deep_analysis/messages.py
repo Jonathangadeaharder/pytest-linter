@@ -153,4 +153,19 @@ MESSAGES = {
         "altered by tests creates stateful dependencies and flakiness. Either use a "
         "narrower scope or ensure the fixture returns immutable objects.",
     ),
+    "W9019": (
+        "Test contains %d assertions without explanation (assertion roulette)",
+        "pytest-mnt-assertion-roulette",
+        "A test with many assertions (>3) without explanatory messages makes failures "
+        "hard to debug. Consider splitting into multiple focused tests, adding assertion "
+        "messages (assert x == y, 'expected y to equal x'), or using pytest.mark.parametrize "
+        "for data-driven testing.",
+    ),
+    "W9020": (
+        "Test uses raw try/except instead of pytest.raises()",
+        "pytest-mnt-raw-exception-handling",
+        "Using try/except in tests obscures intent and provides poor failure messages. "
+        "Use 'with pytest.raises(ExpectedException):' to explicitly declare expected "
+        "exceptions and get better test failure reporting.",
+    ),
 }

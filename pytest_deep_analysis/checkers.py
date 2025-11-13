@@ -158,6 +158,7 @@ class PytestDeepAnalysisChecker(BaseChecker):
             self._test_has_assertions = False
             self._test_has_state_assertions = False
             self._test_has_mock_verifications = False
+            self._assertion_count = 0
             self._check_test_function(node)
             # Continue visiting children for Category 1 checks
 
@@ -170,6 +171,10 @@ class PytestDeepAnalysisChecker(BaseChecker):
         if is_test_function(node):
             # Check for semantic quality issues before leaving
             self._check_test_semantic_quality(node)
+
+            # W9019: Check for assertion roulette (too many assertions)
+            self._check_assertion_roulette(node)
+
             self._in_test_function = False
             self._current_test_node = None
 
@@ -531,6 +536,7 @@ class PytestDeepAnalysisChecker(BaseChecker):
         # Track that this test has assertions (for E9014)
         self._test_has_assertions = True
         self._test_has_state_assertions = True  # Most asserts are state checks
+        self._assertion_count += 1
 
         # PYTEST-MNT-002: Check for magic constants in asserts
         self._check_magic_constants_in_assert(node)
@@ -579,6 +585,59 @@ class PytestDeepAnalysisChecker(BaseChecker):
                                 node=node,
                                 line=node.lineno,
                             )
+
+    def _check_assertion_roulette(self, node: astroid.FunctionDef) -> None:
+        """Check for assertion roulette (W9019): too many assertions without explanation.
+
+        Args:
+            node: The test function node
+        """
+        threshold = 3
+
+        # Skip if test is parametrized (multiple assertions are justified)
+        if node.decorators:
+            for decorator in node.decorators.nodes:
+                # Check for @pytest.mark.parametrize
+                if isinstance(decorator, astroid.Call):
+                    if get_call_qualname(decorator) in {
+                        "pytest.mark.parametrize",
+                        "parametrize",
+                    }:
+                        return
+
+        # Check assertion count
+        if self._assertion_count > threshold:
+            self.add_message(
+                "pytest-mnt-assertion-roulette",
+                node=node,
+                line=node.lineno,
+                args=(self._assertion_count,),
+            )
+
+    def visit_try(self, node: astroid.Try) -> None:
+        """Check for raw exception handling (W9020) in tests.
+
+        Args:
+            node: The try/except node
+        """
+        if not self._in_test_function:
+            return
+
+        # Only flag if there are exception handlers
+        if not node.handlers:
+            return
+
+        # Check if this try/except is inside a pytest.raises context
+        # If so, it's acceptable (testing exception attributes)
+        if is_in_context_manager(node, "raises"):
+            return
+
+        # Raw try/except in a test is a smell
+        self.add_message(
+            "pytest-mnt-raw-exception-handling",
+            node=node,
+            line=node.lineno,
+        )
 
     # =========================================================================
     # Pass 2 Finalization: Fixture Graph Validation (Category 3)

@@ -131,6 +131,8 @@ See `pyproject.toml.example` for a complete configuration template.
 | **W9011** | `pytest-mnt-test-logic` | Conditional logic (if/for/while) in test. Follow Arrange-Act-Assert pattern. |
 | **W9012** | `pytest-mnt-magic-assert` | Magic number/string in assert. Extract to named constants. |
 | **W9013** | `pytest-mnt-suboptimal-assert` | Use direct `assert x == y` instead of `assertTrue(x == y)`. |
+| **W9019** | `pytest-mnt-assertion-roulette` | Too many assertions (>3) without explanation. Split into focused tests. |
+| **W9020** | `pytest-mnt-raw-exception-handling` | Use `pytest.raises()` instead of raw `try/except` in tests. |
 
 ### Category 2: Fixture Definition Smells
 
