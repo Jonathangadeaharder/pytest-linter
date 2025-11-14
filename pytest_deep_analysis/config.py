@@ -90,7 +90,9 @@ class PytestDeepAnalysisConfig:
             logging.warning(f"Error parsing config from {self.config_path}: {e}")
         except Exception as e:
             # Unexpected error, use defaults but log it
-            logging.error(f"Unexpected error loading config from {self.config_path}: {e}")
+            logging.error(
+                f"Unexpected error loading config from {self.config_path}: {e}"
+            )
 
     def is_magic_constant(self, value: Any) -> bool:
         """Check if a constant value is 'magic' considering configuration.

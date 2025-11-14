@@ -101,7 +101,8 @@ class SemanticValidationPlugin:
             return {}
 
         try:
-            return json.loads(task_file.read_text())
+            data = json.loads(task_file.read_text())
+            return data if isinstance(data, dict) else {}
         except (IOError, OSError, json.JSONDecodeError) as e:
             print(
                 f"Warning: Failed to load validation tasks: {e}",
@@ -143,7 +144,7 @@ class SemanticValidationPlugin:
 
         return context
 
-    def _extract_gherkin_steps(self, docstring: str) -> List[str]:
+    def _extract_gherkin_steps(self, docstring: str) -> Optional[List[str]]:
         """Extract Gherkin steps from docstring."""
         steps = []
         for line in docstring.split("\n"):

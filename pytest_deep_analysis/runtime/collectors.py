@@ -15,6 +15,7 @@ import threading
 @dataclass
 class FunctionCallTrace:
     """Trace of a single function call."""
+
     function_name: str
     module: str
     args: tuple
@@ -61,11 +62,7 @@ class ExecutionTraceCollector:
         # Store traces in context
         if self.current_context:
             self.current_context.function_calls = [
-                {
-                    "name": t.function_name,
-                    "module": t.module,
-                    "line": t.lineno
-                }
+                {"name": t.function_name, "module": t.module, "line": t.lineno}
                 for t in self.traces
             ]
 
@@ -84,7 +81,10 @@ class ExecutionTraceCollector:
         lineno = frame.f_lineno
 
         # Skip internal pytest/plugin code
-        if any(skip in module for skip in ["pytest", "_pytest", "pluggy", "pytest_deep_analysis.runtime"]):
+        if any(
+            skip in module
+            for skip in ["pytest", "_pytest", "pluggy", "pytest_deep_analysis.runtime"]
+        ):
             return self._trace_calls
 
         # Capture call events
@@ -94,7 +94,7 @@ class ExecutionTraceCollector:
                 module=module,
                 args=(),  # Simplified for now
                 kwargs={},
-                lineno=lineno
+                lineno=lineno,
             )
             self.traces.append(trace)
 
@@ -182,7 +182,7 @@ class MockVerificationDetector:
         "assert_called_once_with",
         "assert_any_call",
         "assert_has_calls",
-        "assert_not_called"
+        "assert_not_called",
     }
 
     def __init__(self):

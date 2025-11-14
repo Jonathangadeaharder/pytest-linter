@@ -33,10 +33,7 @@ class PytestDeepAnalysisTestCase(CheckerTestCase):
     FILTER_SEMANTIC_CHECKS = True  # Filter BDD/PBT/DbC checks by default
 
     def assert_adds_messages(
-        self,
-        code: str,
-        *expected_messages: MessageTest,
-        filename: str = "test.py"
+        self, code: str, *expected_messages: MessageTest, filename: str = "test.py"
     ) -> None:
         """Assert that the given code produces the expected messages.
 
@@ -65,15 +62,14 @@ class PytestDeepAnalysisTestCase(CheckerTestCase):
                 "pytest-mock-only-verify",
                 "pytest-bdd-missing-scenario",
                 "pytest-no-property-test-hint",
-                "pytest-no-contract-hint"
+                "pytest-no-contract-hint",
             }
             expected_ids = {msg.msg_id for msg in expected_messages}
 
             # Only filter if we're NOT explicitly testing semantic checks
             if not any(msg_id in semantic_checks for msg_id in expected_ids):
                 actual_messages = [
-                    msg for msg in actual_messages
-                    if msg.msg_id not in semantic_checks
+                    msg for msg in actual_messages if msg.msg_id not in semantic_checks
                 ]
 
         # Compare messages (only msg_id and line)
@@ -102,9 +98,7 @@ class PytestDeepAnalysisTestCase(CheckerTestCase):
         self.assert_adds_messages(code, filename=filename)
 
     def assert_file_adds_messages(
-        self,
-        file_path: str,
-        *expected_messages: MessageTest
+        self, file_path: str, *expected_messages: MessageTest
     ) -> None:
         """Assert that linting a file produces the expected messages.
 
@@ -112,7 +106,7 @@ class PytestDeepAnalysisTestCase(CheckerTestCase):
             file_path: Path to the file to lint
             *expected_messages: Expected MessageTest instances
         """
-        with open(file_path, 'r') as f:
+        with open(file_path, "r") as f:
             code = f.read()
 
         node = astroid.parse(code, module_name=file_path)
@@ -210,9 +204,7 @@ class MultiFileTestCase:
         return messages
 
     def assert_messages(
-        self,
-        expected: List[Tuple[str, str, int]],
-        files: List[str]
+        self, expected: List[Tuple[str, str, int]], files: List[str]
     ) -> None:
         """Assert that linting produces the expected messages.
 
@@ -241,6 +233,7 @@ class MultiFileTestCase:
         """Clean up temporary directory."""
         if self.temp_dir:
             import shutil
+
             shutil.rmtree(self.temp_dir)
             self.temp_dir = None
 
@@ -250,7 +243,7 @@ def msg(
     line: Optional[int] = None,
     node: Optional[str] = None,
     args: Optional[tuple] = None,
-    **kwargs
+    **kwargs,
 ) -> MessageTest:
     """Helper to create MessageTest instances with less boilerplate.
 
@@ -274,7 +267,4 @@ def msg(
         msg_kwargs["args"] = args
     msg_kwargs.update(kwargs)
 
-    return MessageTest(
-        msg_id=message_id,
-        **msg_kwargs
-    )
+    return MessageTest(msg_id=message_id, **msg_kwargs)

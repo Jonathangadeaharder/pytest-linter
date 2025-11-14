@@ -18,6 +18,7 @@ from difflib import SequenceMatcher
 @dataclass
 class GherkinStep:
     """Parsed Gherkin step with execution status."""
+
     keyword: str  # Given, When, Then, And, But
     text: str
     executed: bool = False
@@ -42,8 +43,7 @@ class BDDValidator:
 
     def __init__(self):
         self.step_pattern = re.compile(
-            r'^\s*(Given|When|Then|And|But)\s+(.+)$',
-            re.MULTILINE
+            r"^\s*(Given|When|Then|And|But)\s+(.+)$", re.MULTILINE
         )
 
     def parse_gherkin_steps(self, text: str) -> List[GherkinStep]:
@@ -54,17 +54,12 @@ class BDDValidator:
             keyword = match.group(1)
             step_text = match.group(2).strip()
 
-            steps.append(GherkinStep(
-                keyword=keyword,
-                text=step_text
-            ))
+            steps.append(GherkinStep(keyword=keyword, text=step_text))
 
         return steps
 
     def validate_scenario_execution(
-        self,
-        gherkin_steps: List[str],
-        function_calls: List[Dict[str, Any]]
+        self, gherkin_steps: List[str], function_calls: List[Dict[str, Any]]
     ) -> List[str]:
         """
         Validate that Gherkin steps actually executed.
@@ -84,10 +79,9 @@ class BDDValidator:
             for step_str in gherkin_steps:
                 match = self.step_pattern.match(step_str)
                 if match:
-                    parsed_steps.append(GherkinStep(
-                        keyword=match.group(1),
-                        text=match.group(2).strip()
-                    ))
+                    parsed_steps.append(
+                        GherkinStep(keyword=match.group(1), text=match.group(2).strip())
+                    )
             gherkin_steps = parsed_steps
 
         if not gherkin_steps:
@@ -124,9 +118,7 @@ class BDDValidator:
         return issues
 
     def _match_step_to_functions(
-        self,
-        step: GherkinStep,
-        function_names: List[str]
+        self, step: GherkinStep, function_names: List[str]
     ) -> List[str]:
         """
         Match a Gherkin step to function names using heuristics.
@@ -157,17 +149,14 @@ class BDDValidator:
                 continue
 
             # 3. Keyword overlap (>50% of step words in function name)
-            func_words = set(re.findall(r'[a-z]+', func_lower))
+            func_words = set(re.findall(r"[a-z]+", func_lower))
             overlap = len(step_words & func_words)
             if overlap > 0 and overlap / len(step_words) > 0.5:
                 matches.append(func_name)
 
         return matches
 
-    def generate_rtm(
-        self,
-        test_contexts: Dict[str, Any]
-    ) -> Dict[str, Any]:
+    def generate_rtm(self, test_contexts: Dict[str, Any]) -> Dict[str, Any]:
         """
         Generate Requirements Traceability Matrix (RTM).
 
@@ -182,26 +171,28 @@ class BDDValidator:
                 "total_scenarios": 0,
                 "traced_scenarios": 0,
                 "orphan_steps": 0,
-                "coverage_percentage": 0.0
-            }
+                "coverage_percentage": 0.0,
+            },
         }
 
         for test_id, context in test_contexts.items():
             if not context.gherkin_steps:
                 continue
 
-            rtm["scenarios"].append({
-                "test_id": test_id,
-                "scenario": context.scenario_reference or "Inline docstring",
-                "steps": [
-                    {
-                        "text": f"{s.keyword} {s.text}",
-                        "executed": s.executed,
-                        "mapped_functions": s.matched_functions
-                    }
-                    for s in context.gherkin_steps
-                ]
-            })
+            rtm["scenarios"].append(
+                {
+                    "test_id": test_id,
+                    "scenario": context.scenario_reference or "Inline docstring",
+                    "steps": [
+                        {
+                            "text": f"{s.keyword} {s.text}",
+                            "executed": s.executed,
+                            "mapped_functions": s.matched_functions,
+                        }
+                        for s in context.gherkin_steps
+                    ],
+                }
+            )
 
             rtm["coverage_summary"]["total_scenarios"] += 1
             if all(s.executed for s in context.gherkin_steps):

@@ -159,9 +159,7 @@ def is_in_comprehension(node: astroid.NodeNG) -> bool:
     """
     current = node.parent
     while current:
-        if isinstance(
-            current, (astroid.ListComp, astroid.DictComp, astroid.SetComp)
-        ):
+        if isinstance(current, (astroid.ListComp, astroid.DictComp, astroid.SetComp)):
             return True
         current = current.parent
     return False

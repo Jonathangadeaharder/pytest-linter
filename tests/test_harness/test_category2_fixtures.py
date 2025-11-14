@@ -25,10 +25,7 @@ class TestAutouseFixture(PytestDeepAnalysisTestCase):
             yield
             print("Cleanup")
         """
-        self.assert_adds_messages(
-            code,
-            msg("pytest-fix-autouse", line=4)
-        )
+        self.assert_adds_messages(code, msg("pytest-fix-autouse", line=4))
 
     def test_autouse_true_with_scope(self):
         """Should warn when autouse=True is used with scope."""
@@ -41,10 +38,7 @@ class TestAutouseFixture(PytestDeepAnalysisTestCase):
             yield
             print("Session teardown")
         """
-        self.assert_adds_messages(
-            code,
-            msg("pytest-fix-autouse", line=4)
-        )
+        self.assert_adds_messages(code, msg("pytest-fix-autouse", line=4))
 
     def test_autouse_false(self):
         """Should NOT warn when autouse=False (default)."""
@@ -77,10 +71,7 @@ class TestAutouseFixture(PytestDeepAnalysisTestCase):
         def function_auto():
             yield
         """
-        self.assert_adds_messages(
-            code,
-            msg("pytest-fix-autouse", line=4)
-        )
+        self.assert_adds_messages(code, msg("pytest-fix-autouse", line=4))
 
     def test_autouse_with_scope_module(self):
         """Should warn for module-scoped autouse fixture."""
@@ -91,10 +82,7 @@ class TestAutouseFixture(PytestDeepAnalysisTestCase):
         def module_auto():
             yield
         """
-        self.assert_adds_messages(
-            code,
-            msg("pytest-fix-autouse", line=4)
-        )
+        self.assert_adds_messages(code, msg("pytest-fix-autouse", line=4))
 
     def test_regular_fixture_with_scope(self):
         """Should NOT warn for regular fixture with scope."""

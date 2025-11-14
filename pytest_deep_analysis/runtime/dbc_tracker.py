@@ -17,6 +17,7 @@ from dataclasses import dataclass
 @dataclass
 class ContractViolation:
     """Record of a contract violation."""
+
     contract_type: str  # "precondition" or "postcondition"
     function_name: str
     condition: str
@@ -67,8 +68,10 @@ class DbCTracker:
         # This might indicate overly permissive contracts
         if len(contracts_checked) > 0 and len(violations) == 0:
             # Only flag if test has obvious error cases
-            if any("error" in call["name"].lower() or "invalid" in call["name"].lower()
-                   for call in test_context.function_calls):
+            if any(
+                "error" in call["name"].lower() or "invalid" in call["name"].lower()
+                for call in test_context.function_calls
+            ):
                 issues.append(
                     "DBC-VACUOUS-CONTRACTS: Contracts checked but no violations detected. "
                     "Contracts may be too permissive or test isn't checking error cases."
@@ -96,8 +99,7 @@ class DbCTracker:
         self.contract_violations.append(violation)
 
     def analyze_contract_effectiveness(
-        self,
-        all_test_contexts: Dict[str, Any]
+        self, all_test_contexts: Dict[str, Any]
     ) -> Dict[str, Any]:
         """
         Analyze overall contract effectiveness across all tests.
@@ -114,7 +116,7 @@ class DbCTracker:
             "contracts_tested": len(tested_functions),
             "violations_detected": len(self.contract_violations),
             "coverage_percentage": 0.0,
-            "effectiveness_score": 0.0
+            "effectiveness_score": 0.0,
         }
 
         # Calculate contract coverage

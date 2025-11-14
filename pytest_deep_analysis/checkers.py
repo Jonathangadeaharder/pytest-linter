@@ -139,7 +139,10 @@ class PytestDeepAnalysisChecker(BaseChecker):
 
         try:
             cache_data = json.loads(cache_file.read_text())
-            return cache_data.get("tests_with_semantic_validation", {})
+            if isinstance(cache_data, dict):
+                validation_data = cache_data.get("tests_with_semantic_validation", {})
+                return validation_data if isinstance(validation_data, dict) else {}
+            return {}
         except (IOError, OSError, json.JSONDecodeError) as e:
             # Log warning but continue - cache is optional
             import sys
