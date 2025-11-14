@@ -9,6 +9,7 @@ from typing import Optional, List, Dict, Any, Set
 import sys
 import inspect
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -26,6 +27,7 @@ from pytest_deep_analysis.runtime.semantic_reporter import SemanticReporter
 @dataclass
 class TestExecutionContext:
     """Context for a single test execution."""
+
     test_id: str
     test_name: str
     test_file: str
@@ -93,7 +95,6 @@ class SemanticValidationPlugin:
     def _load_validation_tasks(self) -> Dict[str, List[str]]:
         """Load validation tasks from static linter (Phase 1)."""
         import json
-        from pathlib import Path
 
         task_file = Path(".pytest_deep_analysis_tasks.json")
         if not task_file.exists():
@@ -101,7 +102,11 @@ class SemanticValidationPlugin:
 
         try:
             return json.loads(task_file.read_text())
-        except Exception:
+        except (IOError, OSError, json.JSONDecodeError) as e:
+            print(
+                f"Warning: Failed to load validation tasks: {e}",
+                file=sys.stderr,
+            )
             return {}
 
     def should_check(self, check_type: str) -> bool:
@@ -121,7 +126,7 @@ class SemanticValidationPlugin:
             test_id=test_id,
             test_name=test_name,
             test_file=test_file,
-            test_function=test_function
+            test_function=test_function,
         )
 
         # Extract BDD markers
@@ -132,16 +137,18 @@ class SemanticValidationPlugin:
 
             # Extract Gherkin from docstring
             if test_function.__doc__:
-                context.gherkin_steps = self._extract_gherkin_steps(test_function.__doc__)
+                context.gherkin_steps = self._extract_gherkin_steps(
+                    test_function.__doc__
+                )
 
         return context
 
     def _extract_gherkin_steps(self, docstring: str) -> List[str]:
         """Extract Gherkin steps from docstring."""
         steps = []
-        for line in docstring.split('\n'):
+        for line in docstring.split("\n"):
             line = line.strip()
-            if line.startswith(('Given ', 'When ', 'Then ', 'And ', 'But ')):
+            if line.startswith(("Given ", "When ", "Then ", "And ", "But ")):
                 steps.append(line)
         return steps if steps else None
 
@@ -159,7 +166,7 @@ class SemanticValidationPlugin:
         if not self.current_context:
             return
 
-        self.current_context.passed = (outcome == "passed")
+        self.current_context.passed = outcome == "passed"
 
         # Stop trace collection
         self.trace_collector.stop_trace()
@@ -182,8 +189,7 @@ class SemanticValidationPlugin:
         # 1. BDD Validation: Gherkin steps actually executed
         if self.should_check("bdd") and context.gherkin_steps:
             bdd_issues = self.bdd_validator.validate_scenario_execution(
-                context.gherkin_steps,
-                context.function_calls
+                context.gherkin_steps, context.function_calls
             )
             context.semantic_issues.extend(bdd_issues)
 
@@ -222,13 +228,11 @@ class SemanticValidationPlugin:
 
     def _get_timestamp(self) -> str:
         """Get current timestamp in ISO format."""
-        from datetime import datetime
         return datetime.now().isoformat()
 
     def _write_validation_cache(self):
         """Write validation cache for static linter (Phase 2)."""
         import json
-        from pathlib import Path
 
         cache_data = {
             "tests_with_semantic_validation": self.validation_results,
@@ -238,16 +242,18 @@ class SemanticValidationPlugin:
         cache_file = Path(".pytest_deep_analysis_cache.json")
         try:
             cache_file.write_text(json.dumps(cache_data, indent=2))
-        except Exception:
-            # Fail silently if we can't write the cache
-            pass
+        except (IOError, OSError) as e:
+            print(
+                f"Warning: Failed to write validation cache: {e}",
+                file=sys.stderr,
+            )
 
     def generate_report(self):
         """Generate semantic validation report."""
         reporter = SemanticReporter(
             test_contexts=self.test_contexts,
             global_issues=self.global_issues,
-            format=self.report_format
+            format=self.report_format,
         )
         reporter.generate()
 
@@ -267,14 +273,14 @@ def pytest_addoption(parser):
         "--semantic-validate",
         action="store_true",
         default=False,
-        help="Enable runtime semantic validation"
+        help="Enable runtime semantic validation",
     )
 
     group.addoption(
         "--semantic-checks",
         action="store",
         default="all",
-        help="Comma-separated list of checks: bdd,pbt,dbc,coverage (default: all)"
+        help="Comma-separated list of checks: bdd,pbt,dbc,coverage (default: all)",
     )
 
     group.addoption(
@@ -282,7 +288,7 @@ def pytest_addoption(parser):
         action="store",
         default="terminal",
         choices=["terminal", "html", "json"],
-        help="Report format (default: terminal)"
+        help="Report format (default: terminal)",
     )
 
 
@@ -297,11 +303,10 @@ def pytest_configure(config: Config):
         # Register markers
         config.addinivalue_line(
             "markers",
-            "scenario(feature, scenario): Mark test with BDD scenario reference"
+            "scenario(feature, scenario): Mark test with BDD scenario reference",
         )
         config.addinivalue_line(
-            "markers",
-            "property(description): Mark test as property-based test"
+            "markers", "property(description): Mark test as property-based test"
         )
 
 
@@ -316,8 +321,10 @@ def pytest_collection_modifyitems(config: Config, items: List[Item]):
         if _plugin_instance.should_check("bdd"):
             if not item.get_closest_marker("scenario"):
                 if hasattr(item.obj, "__doc__") and item.obj.__doc__:
-                    if not any(kw in item.obj.__doc__.lower()
-                             for kw in ["given", "when", "then", "scenario"]):
+                    if not any(
+                        kw in item.obj.__doc__.lower()
+                        for kw in ["given", "when", "then", "scenario"]
+                    ):
                         _plugin_instance.global_issues.append(
                             f"BDD-MISSING: {item.nodeid} lacks scenario marker or Gherkin docstring"
                         )

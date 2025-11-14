@@ -82,10 +82,47 @@ class PytestDeepAnalysisChecker(BaseChecker):
         self._test_has_assertions: bool = False
         self._test_has_state_assertions: bool = False
         self._test_has_mock_verifications: bool = False
+        self._assertion_count: int = 0
         # Semantic feedback loop: Track which tests need semantic validation
         self._semantic_validation_tasks: Dict[str, List[str]] = {}
         # Semantic feedback loop Phase 2: Load validation cache from runtime
-        self._validation_cache: Dict[str, Dict[str, Any]] = self._load_validation_cache()
+        self._validation_cache: Dict[str, Dict[str, Any]] = (
+            self._load_validation_cache()
+        )
+        # Cache project root for test ID normalization
+        self._project_root: Optional[str] = None
+
+    def _get_project_root(self) -> str:
+        """Get the project root directory (cwd where pylint was invoked)."""
+        if self._project_root is None:
+            import os
+
+            self._project_root = os.getcwd()
+        return self._project_root
+
+    def _get_test_id(self, node: astroid.FunctionDef) -> str:
+        """Get test ID in pytest nodeid format (relative path from project root).
+
+        Args:
+            node: The test function node
+
+        Returns:
+            Test ID string like "tests/test_api.py::test_user_creation"
+        """
+        import os
+        from pathlib import Path
+
+        file_path = node.root().file if node.root().file else "<unknown>"
+        if file_path == "<unknown>":
+            return f"{file_path}::{node.name}"
+
+        # Convert absolute path to relative path from project root
+        try:
+            rel_path = os.path.relpath(file_path, self._get_project_root())
+            return f"{rel_path}::{node.name}"
+        except ValueError:
+            # If paths are on different drives (Windows), use absolute
+            return f"{file_path}::{node.name}"
 
     def _load_validation_cache(self) -> Dict[str, Dict[str, Any]]:
         """Load the validation cache written by the runtime plugin (Phase 2).
@@ -103,8 +140,11 @@ class PytestDeepAnalysisChecker(BaseChecker):
         try:
             cache_data = json.loads(cache_file.read_text())
             return cache_data.get("tests_with_semantic_validation", {})
-        except Exception:
-            # Fail silently if cache is corrupted
+        except (IOError, OSError, json.JSONDecodeError) as e:
+            # Log warning but continue - cache is optional
+            import sys
+
+            print(f"Warning: Failed to load validation cache: {e}", file=sys.stderr)
             return {}
 
     # =========================================================================
@@ -260,7 +300,11 @@ class PytestDeepAnalysisChecker(BaseChecker):
                 "pytest-fix-shadowed",
                 node=test_node,
                 line=arg.lineno,
-                args=(fixture_name, files[0], files[-1] if len(unique_files) > 1 else files[0]),
+                args=(
+                    fixture_name,
+                    files[0],
+                    files[-1] if len(unique_files) > 1 else files[0],
+                ),
             )
 
     def _check_test_semantic_quality(self, node: astroid.FunctionDef) -> None:
@@ -298,8 +342,7 @@ class PytestDeepAnalysisChecker(BaseChecker):
             )
 
         # Build test ID for cache lookup (semantic feedback loop Phase 2)
-        file_path = node.root().file if node.root().file else "<unknown>"
-        test_id = f"{file_path}::{node.name}"
+        test_id = self._get_test_id(node)
         test_cache = self._validation_cache.get(test_id, {})
 
         # W9016: Check for BDD traceability
@@ -432,9 +475,13 @@ class PytestDeepAnalysisChecker(BaseChecker):
 
         # Track mock verification calls (for W9015)
         mock_verify_methods = {
-            "assert_called", "assert_called_once", "assert_called_with",
-            "assert_called_once_with", "assert_any_call", "assert_has_calls",
-            "assert_not_called"
+            "assert_called",
+            "assert_called_once",
+            "assert_called_with",
+            "assert_called_once_with",
+            "assert_any_call",
+            "assert_has_calls",
+            "assert_not_called",
         }
         if any(qualname.endswith(f".{method}") for method in mock_verify_methods):
             self._test_has_mock_verifications = True
@@ -715,9 +762,8 @@ class PytestDeepAnalysisChecker(BaseChecker):
             node: The test function node
             validation_type: Type of validation needed ("bdd", "pbt", "dbc")
         """
-        # Build test identifier: file_path::test_name
-        file_path = node.root().file if node.root().file else "<unknown>"
-        test_id = f"{file_path}::{node.name}"
+        # Build test identifier in pytest nodeid format
+        test_id = self._get_test_id(node)
 
         # Add validation type to this test's task list
         if test_id not in self._semantic_validation_tasks:
@@ -740,14 +786,20 @@ class PytestDeepAnalysisChecker(BaseChecker):
         # This runs regardless of whether there's a fixture graph
         if self._semantic_validation_tasks:
             import json
+            import sys
             from pathlib import Path
 
             task_file = Path(".pytest_deep_analysis_tasks.json")
             try:
-                task_file.write_text(json.dumps(self._semantic_validation_tasks, indent=2))
-            except Exception:
-                # Fail silently if we can't write the task file
-                pass
+                task_file.write_text(
+                    json.dumps(self._semantic_validation_tasks, indent=2)
+                )
+            except (IOError, OSError) as e:
+                # Log warning but continue - task file is optional
+                print(
+                    f"Warning: Failed to write validation task file: {e}",
+                    file=sys.stderr,
+                )
 
         # Early return if no fixture graph available
         if not self.fixture_graph:
@@ -931,7 +983,11 @@ class PytestDeepAnalysisChecker(BaseChecker):
         """
         # Count statements (excluding docstring)
         body = node.body
-        if body and isinstance(body[0], astroid.Expr) and isinstance(body[0].value, astroid.Const):
+        if (
+            body
+            and isinstance(body[0], astroid.Expr)
+            and isinstance(body[0].value, astroid.Const)
+        ):
             # Skip docstring
             body = body[1:]
 
@@ -943,9 +999,19 @@ class PytestDeepAnalysisChecker(BaseChecker):
 
         # Check for database/network keywords in code
         complexity_indicators = {
-            "connection", "cursor", "execute", "commit", "rollback",
-            "session", "transaction", "database", "db",
-            "request", "response", "http", "api"
+            "connection",
+            "cursor",
+            "execute",
+            "commit",
+            "rollback",
+            "session",
+            "transaction",
+            "database",
+            "db",
+            "request",
+            "response",
+            "http",
+            "api",
         }
 
         code_str = node.as_string().lower()

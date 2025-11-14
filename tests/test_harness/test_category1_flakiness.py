@@ -6,6 +6,7 @@ Tests for rules:
 - W9002: pytest-flk-io-open
 - W9003: pytest-flk-network-import
 - W9004: pytest-flk-cwd-dependency
+- W9005: pytest-flk-mystery-guest
 """
 
 import pytest
@@ -27,10 +28,7 @@ class TestTimeSleep(PytestDeepAnalysisTestCase):
             time.sleep(2)  # Line 6
             assert result
         """
-        self.assert_adds_messages(
-            code,
-            msg("pytest-flk-time-sleep", line=6)
-        )
+        self.assert_adds_messages(code, msg("pytest-flk-time-sleep", line=6))
 
     def test_sleep_direct_import(self):
         """Should warn when sleep is imported directly."""
@@ -42,10 +40,7 @@ class TestTimeSleep(PytestDeepAnalysisTestCase):
             sleep(1)  # Line 6
             assert result
         """
-        self.assert_adds_messages(
-            code,
-            msg("pytest-flk-time-sleep", line=6)
-        )
+        self.assert_adds_messages(code, msg("pytest-flk-time-sleep", line=6))
 
     def test_sleep_outside_test_function(self):
         """Should NOT warn when sleep is outside a test function."""
@@ -73,10 +68,7 @@ class TestFileIO(PytestDeepAnalysisTestCase):
                 f.write("data")
             assert True
         """
-        self.assert_adds_messages(
-            code,
-            msg("pytest-flk-mystery-guest", line=3)
-        )
+        self.assert_adds_messages(code, msg("pytest-flk-mystery-guest", line=3))
 
     def test_open_with_tmp_path_fixture(self):
         """Should still warn even with tmp_path fixture (open itself is the issue)."""
@@ -87,10 +79,7 @@ class TestFileIO(PytestDeepAnalysisTestCase):
             with open(test_file, "w") as f:  # Line 5
                 f.write("data")
         """
-        self.assert_adds_messages(
-            code,
-            msg("pytest-flk-io-open", line=5)
-        )
+        self.assert_adds_messages(code, msg("pytest-flk-io-open", line=5))
 
     def test_open_outside_test(self):
         """Should NOT warn when open is outside a test function."""
@@ -120,7 +109,7 @@ class TestNetworkImports(PytestDeepAnalysisTestCase):
         self.assert_adds_messages(
             code,
             msg("pytest-flk-network-import", line=2),
-            msg("pytest-mnt-magic-assert", line=6)  # 200 is a magic number
+            msg("pytest-mnt-magic-assert", line=6),  # 200 is a magic number
         )
 
     def test_socket_import(self):
@@ -132,10 +121,7 @@ class TestNetworkImports(PytestDeepAnalysisTestCase):
             sock = socket.socket()
             assert sock
         """
-        self.assert_adds_messages(
-            code,
-            msg("pytest-flk-network-import", line=2)
-        )
+        self.assert_adds_messages(code, msg("pytest-flk-network-import", line=2))
 
     def test_from_import_requests(self):
         """Should warn when importing from requests."""
@@ -146,10 +132,7 @@ class TestNetworkImports(PytestDeepAnalysisTestCase):
             response = get("http://example.com")
             assert response
         """
-        self.assert_adds_messages(
-            code,
-            msg("pytest-flk-network-import", line=2)
-        )
+        self.assert_adds_messages(code, msg("pytest-flk-network-import", line=2))
 
     def test_httpx_import(self):
         """Should warn when httpx is imported."""
@@ -160,10 +143,7 @@ class TestNetworkImports(PytestDeepAnalysisTestCase):
             client = httpx.Client()
             assert client
         """
-        self.assert_adds_messages(
-            code,
-            msg("pytest-flk-network-import", line=2)
-        )
+        self.assert_adds_messages(code, msg("pytest-flk-network-import", line=2))
 
     def test_aiohttp_import(self):
         """Should warn when aiohttp is imported."""
@@ -174,10 +154,7 @@ class TestNetworkImports(PytestDeepAnalysisTestCase):
             session = aiohttp.ClientSession()
             assert session
         """
-        self.assert_adds_messages(
-            code,
-            msg("pytest-flk-network-import", line=2)
-        )
+        self.assert_adds_messages(code, msg("pytest-flk-network-import", line=2))
 
     def test_urllib3_import(self):
         """Should warn when urllib3 is imported."""
@@ -188,10 +165,7 @@ class TestNetworkImports(PytestDeepAnalysisTestCase):
             http = urllib3.PoolManager()
             assert http
         """
-        self.assert_adds_messages(
-            code,
-            msg("pytest-flk-network-import", line=2)
-        )
+        self.assert_adds_messages(code, msg("pytest-flk-network-import", line=2))
 
     def test_non_network_import(self):
         """Should NOT warn for non-network imports."""
@@ -218,10 +192,7 @@ class TestCWDDependency(PytestDeepAnalysisTestCase):
             current_dir = os.getcwd()  # Line 5
             assert current_dir
         """
-        self.assert_adds_messages(
-            code,
-            msg("pytest-flk-cwd-dependency", line=5)
-        )
+        self.assert_adds_messages(code, msg("pytest-flk-cwd-dependency", line=5))
 
     def test_os_chdir(self):
         """Should warn when os.chdir() is used in a test."""
@@ -232,10 +203,7 @@ class TestCWDDependency(PytestDeepAnalysisTestCase):
             os.chdir("/tmp")  # Line 5
             assert True
         """
-        self.assert_adds_messages(
-            code,
-            msg("pytest-flk-cwd-dependency", line=5)
-        )
+        self.assert_adds_messages(code, msg("pytest-flk-cwd-dependency", line=5))
 
     def test_path_cwd(self):
         """Should warn when Path.cwd() is used in a test."""
@@ -246,10 +214,7 @@ class TestCWDDependency(PytestDeepAnalysisTestCase):
             current = Path.cwd()  # Line 5
             assert current
         """
-        self.assert_adds_messages(
-            code,
-            msg("pytest-flk-cwd-dependency", line=5)
-        )
+        self.assert_adds_messages(code, msg("pytest-flk-cwd-dependency", line=5))
 
     def test_getcwd_direct_import(self):
         """Should warn when getcwd is imported directly."""
@@ -260,10 +225,7 @@ class TestCWDDependency(PytestDeepAnalysisTestCase):
             cwd = getcwd()  # Line 5
             assert cwd
         """
-        self.assert_adds_messages(
-            code,
-            msg("pytest-flk-cwd-dependency", line=5)
-        )
+        self.assert_adds_messages(code, msg("pytest-flk-cwd-dependency", line=5))
 
     def test_cwd_outside_test(self):
         """Should NOT warn when CWD functions are outside tests."""

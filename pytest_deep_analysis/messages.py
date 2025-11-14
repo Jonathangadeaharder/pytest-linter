@@ -12,7 +12,6 @@ MESSAGES = {
     # =========================================================================
     # Category 1: Test Body Smells (ast-based)
     # =========================================================================
-
     # PYTEST-FLK: Flakiness checks
     "W9001": (
         "time.sleep() found in test function. Use explicit waits instead.",
@@ -49,7 +48,6 @@ MESSAGES = {
         "an external resource of unclear origin. Tests should use tmp_path fixture to ensure "
         "isolation, cleanup, and clarity about what files are being used.",
     ),
-
     # PYTEST-MNT: Maintenance checks
     "W9011": (
         "Conditional logic (if/for/while) found in test function.",
@@ -107,11 +105,9 @@ MESSAGES = {
         "For fixtures with complex setup/teardown logic, consider using @icontract.require() and "
         "@icontract.ensure() decorators to formalize contracts instead of relying on informal docstrings.",
     ),
-
     # =========================================================================
     # Category 2: Fixture Definition Smells (ast-based)
     # =========================================================================
-
     "W9021": (
         "@pytest.fixture(autouse=True) detected. Avoid 'magic' fixtures.",
         "pytest-fix-autouse",
@@ -120,11 +116,9 @@ MESSAGES = {
         "making it impossible to know what setup a test is running without cross-referencing "
         "all conftest.py files. Make fixture dependencies explicit in test signatures.",
     ),
-
     # =========================================================================
     # Category 3: Fixture Interaction Smells (astroid-based)
     # =========================================================================
-
     "E9031": (
         "Session-scoped fixture '%s' mutates a global variable.",
         "pytest-fix-session-mutation",

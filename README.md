@@ -133,7 +133,7 @@ When you run `pylint`, it generates `.pytest_deep_analysis_tasks.json` containin
 }
 ```
 
-The runtime plugin reads this file and **selectively enables validators** only for flagged tests, reducing overhead.
+The runtime plugin reads this file and **records validation results** only for flagged tests in the feedback cache.
 
 ### Phase 2: Dynamic → Static (Suppression Cache)
 
@@ -154,7 +154,7 @@ The next `pylint` run reads this cache and **suppresses warnings** (W9016/W9017)
 ### Benefits
 
 - **Eliminates false positives**: Tests lacking static markers but valid at runtime no longer trigger warnings
-- **Reduces runtime overhead**: Only flagged tests are validated, not entire test suite
+- **Focused feedback**: Only validation results for flagged tests are cached for static analysis
 - **Evidence-based linting**: Static suggestions refined by dynamic execution evidence
 - **Seamless workflow**: No manual intervention needed - the loop runs automatically
 
