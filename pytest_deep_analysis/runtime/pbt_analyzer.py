@@ -21,7 +21,7 @@ class HypothesisExecutionStats:
     examples_tried: int = 0
     falsifying_example: Optional[Any] = None
     shrink_steps: int = 0
-    strategy_coverage: Dict[str, int] = None
+    strategy_coverage: Optional[Dict[str, int]] = None
     trivial_examples: int = 0
 
     def __post_init__(self):
@@ -96,7 +96,7 @@ class PBTAnalyzer:
 
         diversity_ratio = unique_examples / total_examples if total_examples > 0 else 0
 
-        analysis = {
+        analysis: Dict[str, Any] = {
             "total_examples": total_examples,
             "unique_examples": unique_examples,
             "diversity_ratio": diversity_ratio,
