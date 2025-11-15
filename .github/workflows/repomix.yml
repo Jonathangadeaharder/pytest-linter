@@ -29,13 +29,18 @@ jobs:
 
     - name: Generate repomixed codebase
       run: |
-        # Run repomix to generate the combined codebase
-        repomix --output repomix-output.txt
+        # Run repomix to generate the combined codebase in plain text format
+        # Configuration is read from repomix.config.json (style: "plain")
+        repomix --style plain --output repomix-output.txt
 
         # Display some stats about the generated file
         echo "📊 Repomix Statistics:"
+        echo "Format: Plain Text"
         echo "File size: $(du -h repomix-output.txt | cut -f1)"
         echo "Line count: $(wc -l < repomix-output.txt)"
+
+        # Verify it's plain text
+        echo "File type: $(file repomix-output.txt)"
 
         # Create a metadata file with run information
         cat > repomix-metadata.json << EOF
@@ -45,6 +50,7 @@ jobs:
           "branch": "${{ github.ref_name }}",
           "commit": "${{ github.sha }}",
           "workflow_run": "${{ github.run_id }}",
+          "format": "plain",
           "file_size_bytes": $(stat -f%z repomix-output.txt 2>/dev/null || stat -c%s repomix-output.txt),
           "line_count": $(wc -l < repomix-output.txt)
         }
@@ -69,11 +75,12 @@ jobs:
         echo "**Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### 📊 Statistics" >> $GITHUB_STEP_SUMMARY
+        echo "- **Format:** Plain Text" >> $GITHUB_STEP_SUMMARY
         echo "- **File Size:** $(du -h repomix-output.txt | cut -f1)" >> $GITHUB_STEP_SUMMARY
         echo "- **Line Count:** $(wc -l < repomix-output.txt | tr -d ' ')" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### 📥 Download" >> $GITHUB_STEP_SUMMARY
-        echo "The repomixed codebase has been uploaded as an artifact and will be available for 30 days." >> $GITHUB_STEP_SUMMARY
+        echo "The repomixed codebase has been uploaded as a plain text artifact and will be available for 30 days." >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "You can download it from the [workflow run artifacts](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})." >> $GITHUB_STEP_SUMMARY
 
@@ -87,15 +94,16 @@ jobs:
 
           const comment = `## 📦 Repomix Codebase Generated
 
-          A combined view of the codebase has been generated using repomix.
+          A combined view of the codebase has been generated using repomix in **plain text** format.
 
           ### 📊 Statistics
+          - **Format:** Plain Text
           - **File Size:** ${(metadata.file_size_bytes / 1024).toFixed(2)} KB
           - **Line Count:** ${metadata.line_count.toLocaleString()}
           - **Commit:** \`${metadata.commit.substring(0, 7)}\`
 
           ### 📥 Download
-          Download the artifact from the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}).
+          Download the plain text artifact from the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}).
 
           The artifact will be available for 30 days.`;
 
