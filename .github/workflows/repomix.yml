@@ -22,16 +22,23 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: '20'
-        cache: 'npm'
 
     - name: Install repomix
       run: npm install -g repomix
 
     - name: Generate repomixed codebase
       run: |
-        # Run repomix to generate the combined codebase in plain text format
-        # Configuration is read from repomix.config.json (style: "plain")
-        repomix --style plain --output repomix-output.txt
+        set -e  # Exit immediately if any command fails
+
+        # Run repomix to generate the combined codebase
+        # Configuration is read from repomix.config.json
+        repomix
+
+        # Verify output file was created
+        if [ ! -f "repomix-output.txt" ]; then
+          echo "Error: repomix-output.txt was not generated"
+          exit 1
+        fi
 
         # Display some stats about the generated file
         echo "📊 Repomix Statistics:"
@@ -43,18 +50,22 @@ jobs:
         echo "File type: $(file repomix-output.txt)"
 
         # Create a metadata file with run information
-        cat > repomix-metadata.json << EOF
-        {
-          "generated_at": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
-          "repository": "${{ github.repository }}",
-          "branch": "${{ github.ref_name }}",
-          "commit": "${{ github.sha }}",
-          "workflow_run": "${{ github.run_id }}",
-          "format": "plain",
-          "file_size_bytes": $(stat -f%z repomix-output.txt 2>/dev/null || stat -c%s repomix-output.txt),
-          "line_count": $(wc -l < repomix-output.txt)
-        }
-        EOF
+        FILE_SIZE=$(stat -c%s repomix-output.txt)
+        LINE_COUNT=$(wc -l < repomix-output.txt)
+        GENERATED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+        cat > repomix-metadata.json <<EOF
+{
+  "generated_at": "${GENERATED_AT}",
+  "repository": "${{ github.repository }}",
+  "branch": "${{ github.ref_name }}",
+  "commit": "${{ github.sha }}",
+  "workflow_run": "${{ github.run_id }}",
+  "format": "plain",
+  "file_size_bytes": ${FILE_SIZE},
+  "line_count": ${LINE_COUNT}
+}
+EOF
 
     - name: Upload repomix output as artifact
       uses: actions/upload-artifact@v4

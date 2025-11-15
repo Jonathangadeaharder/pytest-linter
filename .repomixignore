@@ -55,6 +55,11 @@ ENV/
 # Logs
 *.log
 
+# Environment variables (security - may contain sensitive information)
+.env
+*.env
+.env.*
+
 # Type checking
 .mypy_cache/
 .dmypy.json
