@@ -11,6 +11,9 @@ jobs:
   repomix:
     name: Generate Repomixed Codebase
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
 
     steps:
     - name: Checkout repository
@@ -123,3 +126,4 @@ jobs:
             repo: context.repo.repo,
             body: comment
           });
+
