@@ -3,7 +3,7 @@ Utility functions for pytest-deep-analysis checker.
 """
 
 import ast
-from typing import Optional, Set, List, Any
+from typing import Optional, Set, List, Any, Tuple
 
 from astroid import nodes
 
@@ -52,7 +52,7 @@ def is_pytest_fixture(node: nodes.FunctionDef) -> bool:
 
 def get_fixture_decorator_args(
     node: nodes.FunctionDef,
-) -> tuple[str, bool]:
+) -> Tuple[str, bool]:
     """Extract scope and autouse parameters from a @pytest.fixture decorator.
 
     Args:
