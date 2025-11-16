@@ -79,19 +79,34 @@ jobs:
 
     - name: Install dependencies
       run: |
+        echo "=== Installing dependencies ==="
         python -m pip install --upgrade pip
         pip install -e ".[dev]"
         pip install pylint mypy black
+        echo "=== Installed versions ==="
+        pip list | grep -E "(black|mypy|pylint|astroid)"
 
     - name: Check code formatting with black
-      run: black --check pytest_deep_analysis/ tests/test_harness/
+      run: |
+        echo "=== Running black ==="
+        black --version
+        black --check pytest_deep_analysis/ tests/test_harness/
+        echo "=== Black passed ==="
 
     - name: Type check with mypy
       continue-on-error: true  # Don't fail build on mypy issues
-      run: mypy pytest_deep_analysis/ --ignore-missing-imports
+      run: |
+        echo "=== Running mypy ==="
+        mypy --version
+        mypy pytest_deep_analysis/ --ignore-missing-imports
+        echo "=== Mypy completed ==="
 
     - name: Lint with pylint
-      run: pylint pytest_deep_analysis/ --disable=all --enable=import-error,undefined-variable
+      run: |
+        echo "=== Running pylint ==="
+        pylint --version
+        pylint pytest_deep_analysis/ --disable=all --enable=import-error,undefined-variable
+        echo "=== Pylint passed ==="
 
   coverage:
     name: Test Coverage
