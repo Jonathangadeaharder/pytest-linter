@@ -1,0 +1,129 @@
+name: Repomix Codebase
+
+on:
+  push:
+    branches: [ main, master, develop ]
+  pull_request:
+    branches: [ main, master, develop ]
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  repomix:
+    name: Generate Repomixed Codebase
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Fetch full history for better context
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+
+    - name: Install repomix
+      run: npm install -g repomix
+
+    - name: Generate repomixed codebase
+      run: |
+        set -e  # Exit immediately if any command fails
+
+        # Run repomix to generate the combined codebase
+        # Configuration is read from repomix.config.json
+        repomix
+
+        # Verify output file was created
+        if [ ! -f "repomix-output.txt" ]; then
+          echo "Error: repomix-output.txt was not generated"
+          exit 1
+        fi
+
+        # Display some stats about the generated file
+        echo "📊 Repomix Statistics:"
+        echo "Format: Plain Text"
+        echo "File size: $(du -h repomix-output.txt | cut -f1)"
+        echo "Line count: $(wc -l < repomix-output.txt)"
+
+        # Verify it's plain text
+        echo "File type: $(file repomix-output.txt)"
+
+        # Create a metadata file with run information
+        FILE_SIZE=$(stat -c%s repomix-output.txt)
+        LINE_COUNT=$(wc -l < repomix-output.txt)
+        GENERATED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+        # Generate JSON metadata file
+        printf '{\n' > repomix-metadata.json
+        printf '  "generated_at": "%s",\n' "${GENERATED_AT}" >> repomix-metadata.json
+        printf '  "repository": "%s",\n' "${{ github.repository }}" >> repomix-metadata.json
+        printf '  "branch": "%s",\n' "${{ github.ref_name }}" >> repomix-metadata.json
+        printf '  "commit": "%s",\n' "${{ github.sha }}" >> repomix-metadata.json
+        printf '  "workflow_run": "%s",\n' "${{ github.run_id }}" >> repomix-metadata.json
+        printf '  "format": "plain",\n' >> repomix-metadata.json
+        printf '  "file_size_bytes": %s,\n' "${FILE_SIZE}" >> repomix-metadata.json
+        printf '  "line_count": %s\n' "${LINE_COUNT}" >> repomix-metadata.json
+        printf '}\n' >> repomix-metadata.json
+
+    - name: Upload repomix output as artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: repomix-codebase-${{ github.sha }}
+        path: |
+          repomix-output.txt
+          repomix-metadata.json
+        retention-days: 30
+        compression-level: 9
+
+    - name: Create summary
+      run: |
+        echo "## 📦 Repomix Codebase Generated" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Repository:** ${{ github.repository }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 📊 Statistics" >> $GITHUB_STEP_SUMMARY
+        echo "- **Format:** Plain Text" >> $GITHUB_STEP_SUMMARY
+        echo "- **File Size:** $(du -h repomix-output.txt | cut -f1)" >> $GITHUB_STEP_SUMMARY
+        echo "- **Line Count:** $(wc -l < repomix-output.txt | tr -d ' ')" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 📥 Download" >> $GITHUB_STEP_SUMMARY
+        echo "The repomixed codebase has been uploaded as a plain text artifact and will be available for 30 days." >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "You can download it from the [workflow run artifacts](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})." >> $GITHUB_STEP_SUMMARY
+
+    - name: Comment on PR (if applicable)
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const fs = require('fs');
+          const metadata = JSON.parse(fs.readFileSync('repomix-metadata.json', 'utf8'));
+
+          const comment = `## 📦 Repomix Codebase Generated
+
+          A combined view of the codebase has been generated using repomix in **plain text** format.
+
+          ### 📊 Statistics
+          - **Format:** Plain Text
+          - **File Size:** ${(metadata.file_size_bytes / 1024).toFixed(2)} KB
+          - **Line Count:** ${metadata.line_count.toLocaleString()}
+          - **Commit:** \`${metadata.commit.substring(0, 7)}\`
+
+          ### 📥 Download
+          Download the plain text artifact from the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}).
+
+          The artifact will be available for 30 days.`;
+
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: comment
+          });
+
