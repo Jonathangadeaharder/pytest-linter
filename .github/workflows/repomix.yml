@@ -54,18 +54,17 @@ jobs:
         LINE_COUNT=$(wc -l < repomix-output.txt)
         GENERATED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-        cat > repomix-metadata.json <<EOF
-{
-  "generated_at": "${GENERATED_AT}",
-  "repository": "${{ github.repository }}",
-  "branch": "${{ github.ref_name }}",
-  "commit": "${{ github.sha }}",
-  "workflow_run": "${{ github.run_id }}",
-  "format": "plain",
-  "file_size_bytes": ${FILE_SIZE},
-  "line_count": ${LINE_COUNT}
-}
-EOF
+        # Generate JSON metadata file
+        printf '{\n' > repomix-metadata.json
+        printf '  "generated_at": "%s",\n' "${GENERATED_AT}" >> repomix-metadata.json
+        printf '  "repository": "%s",\n' "${{ github.repository }}" >> repomix-metadata.json
+        printf '  "branch": "%s",\n' "${{ github.ref_name }}" >> repomix-metadata.json
+        printf '  "commit": "%s",\n' "${{ github.sha }}" >> repomix-metadata.json
+        printf '  "workflow_run": "%s",\n' "${{ github.run_id }}" >> repomix-metadata.json
+        printf '  "format": "plain",\n' >> repomix-metadata.json
+        printf '  "file_size_bytes": %s,\n' "${FILE_SIZE}" >> repomix-metadata.json
+        printf '  "line_count": %s\n' "${LINE_COUNT}" >> repomix-metadata.json
+        printf '}\n' >> repomix-metadata.json
 
     - name: Upload repomix output as artifact
       uses: actions/upload-artifact@v4
