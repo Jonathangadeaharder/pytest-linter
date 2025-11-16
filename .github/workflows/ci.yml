@@ -108,6 +108,13 @@ jobs:
         pylint pytest_deep_analysis/ --disable=all --enable=import-error,undefined-variable
         echo "=== Pylint passed ==="
 
+    - name: Upload logs on failure
+      if: failure()
+      run: |
+        echo "=== Job failed, creating failure marker ==="
+        echo "Code Quality job failed at: $(date)" > code_quality_failure.txt
+        echo "Last completed step logged above" >> code_quality_failure.txt
+
   coverage:
     name: Test Coverage
     runs-on: ubuntu-latest
