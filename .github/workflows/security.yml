@@ -43,18 +43,28 @@ jobs:
         echo "Dependency Review completed with outcome: ${{ steps.dependency-review.outcome }}" | tee dependency-review.log
         echo "Job status: ${{ job.status }}" | tee -a dependency-review.log
 
+        # Configure git
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+
+        # Check out the actual branch (not the merge commit)
+        BRANCH_NAME="${{ github.head_ref || github.ref_name }}"
+        echo "Checking out branch: $BRANCH_NAME" | tee -a dependency-review.log
+        git fetch origin "$BRANCH_NAME"
+        git checkout "$BRANCH_NAME"
+
+        # Add log file
+        git add -f dependency-review.log
+
         if [ "${{ steps.dependency-review.outcome }}" != "success" ]; then
           echo "FAILED: Dependency Review found issues" | tee -a dependency-review.log
-
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add -f dependency-review.log
-          git commit -m "Add Dependency Review failure log [skip ci]" || true
-          git push origin HEAD:${{ github.head_ref || github.ref_name }} || true
-
+          git commit -m "Add Dependency Review failure log [skip ci]"
+          git push origin "$BRANCH_NAME"
           exit 1
         else
           echo "SUCCESS: Dependency Review passed" | tee -a dependency-review.log
+          git commit -m "Add Dependency Review success log [skip ci]"
+          git push origin "$BRANCH_NAME"
         fi
 
   safety-check:

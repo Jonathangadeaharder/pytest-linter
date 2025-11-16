@@ -123,10 +123,21 @@ jobs:
       if: always()
       run: |
         echo "=== Committing logs (job status: ${{ job.status }}) ==="
+        echo "Current ref: ${{ github.ref }}"
+        echo "Head ref: ${{ github.head_ref }}"
+        echo "Ref name: ${{ github.ref_name }}"
+
         ls -la *.log 2>/dev/null || echo "No log files found"
 
+        # Configure git
         git config user.name "github-actions[bot]"
         git config user.email "github-actions[bot]@users.noreply.github.com"
+
+        # Check out the actual branch (not the merge commit)
+        BRANCH_NAME="${{ github.head_ref || github.ref_name }}"
+        echo "Checking out branch: $BRANCH_NAME"
+        git fetch origin "$BRANCH_NAME"
+        git checkout "$BRANCH_NAME"
 
         # Add all log files
         git add -f *.log 2>/dev/null || true
@@ -137,13 +148,8 @@ jobs:
         else
           echo "Committing log files..."
           git commit -m "Add Code Quality execution logs [skip ci]"
-          echo "Pushing to branch..."
-          git push origin HEAD:${{ github.head_ref || github.ref_name }} || {
-            echo "Push failed, retrying with fetch first..."
-            git fetch origin ${{ github.head_ref || github.ref_name }}
-            git rebase origin/${{ github.head_ref || github.ref_name }}
-            git push origin HEAD:${{ github.head_ref || github.ref_name }}
-          }
+          echo "Pushing to branch: $BRANCH_NAME"
+          git push origin "$BRANCH_NAME"
           echo "Logs committed and pushed successfully"
         fi
 
