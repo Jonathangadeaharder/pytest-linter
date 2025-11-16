@@ -78,42 +78,71 @@ jobs:
         cache: 'pip'
 
     - name: Install dependencies
+      id: install
       run: |
-        echo "=== Installing dependencies ==="
-        python -m pip install --upgrade pip
-        pip install -e ".[dev]"
-        pip install pylint mypy black
-        echo "=== Installed versions ==="
-        pip list | grep -E "(black|mypy|pylint|astroid)"
+        set -o pipefail
+        echo "=== Installing dependencies ===" | tee install.log
+        python -m pip install --upgrade pip 2>&1 | tee -a install.log
+        pip install -e ".[dev]" 2>&1 | tee -a install.log
+        pip install pylint mypy black 2>&1 | tee -a install.log
+        echo "=== Installed versions ===" | tee -a install.log
+        pip list | grep -E "(black|mypy|pylint|astroid)" 2>&1 | tee -a install.log
 
     - name: Check code formatting with black
+      id: black
       run: |
-        echo "=== Running black ==="
-        black --version
-        black --check pytest_deep_analysis/ tests/test_harness/
-        echo "=== Black passed ==="
+        set -o pipefail
+        echo "=== Running black ===" | tee black.log
+        black --version 2>&1 | tee -a black.log
+        black --check pytest_deep_analysis/ tests/test_harness/ 2>&1 | tee -a black.log
+        echo "=== Black completed ===" | tee -a black.log
 
     - name: Type check with mypy
-      continue-on-error: true  # Don't fail build on mypy issues
+      id: mypy
+      continue-on-error: true
       run: |
-        echo "=== Running mypy ==="
-        mypy --version
-        mypy pytest_deep_analysis/ --ignore-missing-imports
-        echo "=== Mypy completed ==="
+        set -o pipefail
+        echo "=== Running mypy ===" | tee mypy.log
+        mypy --version 2>&1 | tee -a mypy.log
+        mypy pytest_deep_analysis/ --ignore-missing-imports 2>&1 | tee -a mypy.log
+        echo "=== Mypy completed ===" | tee -a mypy.log
 
     - name: Lint with pylint
+      id: pylint
       run: |
-        echo "=== Running pylint ==="
-        pylint --version
-        pylint pytest_deep_analysis/ --disable=all --enable=import-error,undefined-variable
-        echo "=== Pylint passed ==="
+        set -o pipefail
+        echo "=== Running pylint ===" | tee pylint.log
+        pylint --version 2>&1 | tee -a pylint.log
+        pylint pytest_deep_analysis/ --disable=all --enable=import-error,undefined-variable 2>&1 | tee -a pylint.log
+        echo "=== Pylint completed ===" | tee -a pylint.log
 
-    - name: Upload logs on failure
-      if: failure()
+    - name: Commit and push logs
+      if: always()
       run: |
-        echo "=== Job failed, creating failure marker ==="
-        echo "Code Quality job failed at: $(date)" > code_quality_failure.txt
-        echo "Last completed step logged above" >> code_quality_failure.txt
+        echo "=== Committing logs (job status: ${{ job.status }}) ==="
+        ls -la *.log 2>/dev/null || echo "No log files found"
+
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+
+        # Add all log files
+        git add -f *.log 2>/dev/null || true
+
+        # Check if we have anything to commit
+        if git diff --staged --quiet; then
+          echo "No log files to commit"
+        else
+          echo "Committing log files..."
+          git commit -m "Add Code Quality execution logs [skip ci]"
+          echo "Pushing to branch..."
+          git push origin HEAD:${{ github.head_ref || github.ref_name }} || {
+            echo "Push failed, retrying with fetch first..."
+            git fetch origin ${{ github.head_ref || github.ref_name }}
+            git rebase origin/${{ github.head_ref || github.ref_name }}
+            git push origin HEAD:${{ github.head_ref || github.ref_name }}
+          }
+          echo "Logs committed and pushed successfully"
+        fi
 
   coverage:
     name: Test Coverage
