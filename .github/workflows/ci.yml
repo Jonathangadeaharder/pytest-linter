@@ -82,10 +82,14 @@ jobs:
         set +e
         python -m pip install --upgrade pip > install.log 2>&1
         pip install -e ".[dev]" >> install.log 2>&1
-        pip install pylint mypy black >> install.log 2>&1
+        # Install quality tools explicitly to ensure latest versions
+        pip install 'pylint>=4.0' 'mypy>=1.0' 'black>=22.0' >> install.log 2>&1
         exit_code=$?
         cat install.log
-        exit $exit_code
+        if [ $exit_code -ne 0 ]; then
+          echo "Dependency installation failed with exit code $exit_code"
+          exit $exit_code
+        fi
 
     - name: Check code formatting with black
       run: |
