@@ -119,10 +119,14 @@ class PytestDeepAnalysisChecker(BaseChecker):
         # Convert absolute path to relative path from project root
         try:
             rel_path = os.path.relpath(file_path, self._get_project_root())
+            # Normalize to forward slashes (pytest nodeid format uses / even on Windows)
+            rel_path = rel_path.replace(os.sep, "/")
             return f"{rel_path}::{node.name}"
         except ValueError:
             # If paths are on different drives (Windows), use absolute
-            return f"{file_path}::{node.name}"
+            # Still normalize to forward slashes
+            normalized_path = file_path.replace(os.sep, "/")
+            return f"{normalized_path}::{node.name}"
 
     def _load_validation_cache(self) -> Dict[str, Dict[str, Any]]:
         """Load the validation cache written by the runtime plugin (Phase 2).
