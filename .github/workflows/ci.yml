@@ -74,6 +74,28 @@ jobs:
         token: ${{ secrets.GITHUB_TOKEN }}
         persist-credentials: true
 
+    - name: Test commit mechanism
+      run: |
+        echo "Testing if commits work from CI..."
+        echo "CI run started at: $(date)" > ci_run_test.txt
+        echo "Workflow: ${{ github.workflow }}" >> ci_run_test.txt
+        echo "Event: ${{ github.event_name }}" >> ci_run_test.txt
+        echo "Ref: ${{ github.ref }}" >> ci_run_test.txt
+        echo "Head ref: ${{ github.head_ref }}" >> ci_run_test.txt
+
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+
+        BRANCH_NAME="${{ github.head_ref || github.ref_name }}"
+        echo "Branch: $BRANCH_NAME" >> ci_run_test.txt
+
+        git fetch origin "$BRANCH_NAME"
+        git checkout "$BRANCH_NAME"
+        git add ci_run_test.txt
+        git commit -m "Test: CI commit mechanism [skip ci]"
+        git push origin "$BRANCH_NAME"
+        echo "Test commit successful!"
+
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
