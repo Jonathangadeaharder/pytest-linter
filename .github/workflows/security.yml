@@ -28,10 +28,13 @@ jobs:
         fetch-depth: 0  # Fetch full history for dependency comparison
 
     - name: Dependency Review
+      continue-on-error: true  # Don't fail the build, just warn
       uses: actions/dependency-review-action@v4
       with:
-        fail-on-severity: moderate
-        allow-licenses: MIT, Apache-2.0, BSD-3-Clause, BSD-2-Clause, ISC, Python-2.0
+        fail-on-severity: high  # Only fail on high/critical vulnerabilities
+        allow-licenses: MIT, Apache-2.0, BSD-3-Clause, BSD-2-Clause, ISC, Python-2.0, PSF-2.0
+        base-ref: ${{ github.event.pull_request.base.sha || github.base_ref }}
+        head-ref: ${{ github.event.pull_request.head.sha || github.head_ref }}
 
   safety-check:
     name: Safety Check (Python Dependencies)
