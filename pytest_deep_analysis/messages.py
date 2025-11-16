@@ -12,7 +12,6 @@ MESSAGES = {
     # =========================================================================
     # Category 1: Test Body Smells (ast-based)
     # =========================================================================
-
     # PYTEST-FLK: Flakiness checks
     "W9001": (
         "time.sleep() found in test function. Use explicit waits instead.",
@@ -41,7 +40,14 @@ MESSAGES = {
         "Tests that rely on the current working directory are brittle and fail when run "
         "from different directories. Use absolute paths or the 'tmp_path' fixture instead.",
     ),
-
+    "W9005": (
+        "Mystery Guest: Test uses file I/O without a resource fixture (tmp_path, tmpdir).",
+        "pytest-flk-mystery-guest",
+        "This test calls open() or file operations without depending on pytest's resource "
+        "fixtures (tmp_path, tmp_path_factory, tmpdir). This is the 'Mystery Guest' smell: "
+        "an external resource of unclear origin. Tests should use tmp_path fixture to ensure "
+        "isolation, cleanup, and clarity about what files are being used.",
+    ),
     # PYTEST-MNT: Maintenance checks
     "W9011": (
         "Conditional logic (if/for/while) found in test function.",
@@ -99,11 +105,9 @@ MESSAGES = {
         "For fixtures with complex setup/teardown logic, consider using @icontract.require() and "
         "@icontract.ensure() decorators to formalize contracts instead of relying on informal docstrings.",
     ),
-
     # =========================================================================
     # Category 2: Fixture Definition Smells (ast-based)
     # =========================================================================
-
     "W9021": (
         "@pytest.fixture(autouse=True) detected. Avoid 'magic' fixtures.",
         "pytest-fix-autouse",
@@ -112,11 +116,9 @@ MESSAGES = {
         "making it impossible to know what setup a test is running without cross-referencing "
         "all conftest.py files. Make fixture dependencies explicit in test signatures.",
     ),
-
     # =========================================================================
     # Category 3: Fixture Interaction Smells (astroid-based)
     # =========================================================================
-
     "E9031": (
         "Session-scoped fixture '%s' mutates a global variable.",
         "pytest-fix-session-mutation",
@@ -152,5 +154,20 @@ MESSAGES = {
         "A session-scoped, mutable object (like a shared database connection) that is "
         "altered by tests creates stateful dependencies and flakiness. Either use a "
         "narrower scope or ensure the fixture returns immutable objects.",
+    ),
+    "W9019": (
+        "Test contains %d assertions without explanation (assertion roulette)",
+        "pytest-mnt-assertion-roulette",
+        "A test with many assertions (>3) without explanatory messages makes failures "
+        "hard to debug. Consider splitting into multiple focused tests, adding assertion "
+        "messages (assert x == y, 'expected y to equal x'), or using pytest.mark.parametrize "
+        "for data-driven testing.",
+    ),
+    "W9020": (
+        "Test uses raw try/except instead of pytest.raises()",
+        "pytest-mnt-raw-exception-handling",
+        "Using try/except in tests obscures intent and provides poor failure messages. "
+        "Use 'with pytest.raises(ExpectedException):' to explicitly declare expected "
+        "exceptions and get better test failure reporting.",
     ),
 }

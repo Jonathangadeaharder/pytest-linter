@@ -17,7 +17,7 @@ def is_test_function(node: astroid.FunctionDef) -> bool:
     Returns:
         True if the function is a test function (name starts with 'test_')
     """
-    return node.name.startswith("test_")
+    return bool(node.name.startswith("test_"))
 
 
 def is_pytest_fixture(node: astroid.FunctionDef) -> bool:
@@ -159,9 +159,7 @@ def is_in_comprehension(node: astroid.NodeNG) -> bool:
     """
     current = node.parent
     while current:
-        if isinstance(
-            current, (astroid.ListComp, astroid.DictComp, astroid.SetComp)
-        ):
+        if isinstance(current, (astroid.ListComp, astroid.DictComp, astroid.SetComp)):
             return True
         current = current.parent
     return False
@@ -197,17 +195,17 @@ def get_call_qualname(node: astroid.Call) -> Optional[str]:
     func = node.func
 
     if isinstance(func, astroid.Name):
-        return func.name
+        return str(func.name) if func.name else None
     elif isinstance(func, astroid.Attribute):
         # Try to build the qualified name
-        parts = [func.attrname]
+        parts = [str(func.attrname)]
         current = func.expr
         while current:
             if isinstance(current, astroid.Name):
-                parts.append(current.name)
+                parts.append(str(current.name))
                 break
             elif isinstance(current, astroid.Attribute):
-                parts.append(current.attrname)
+                parts.append(str(current.attrname))
                 current = current.expr
             else:
                 break

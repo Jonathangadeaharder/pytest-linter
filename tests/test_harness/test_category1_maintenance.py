@@ -29,7 +29,7 @@ class TestLogicInTests(PytestDeepAnalysisTestCase):
         self.assert_adds_messages(
             code,
             msg("pytest-mnt-test-logic", line=4),
-            msg("pytest-mnt-magic-assert", line=5)
+            msg("pytest-mnt-magic-assert", line=5),
         )
 
     def test_for_loop_in_test(self):
@@ -40,10 +40,7 @@ class TestLogicInTests(PytestDeepAnalysisTestCase):
             for item in items:  # Line 4
                 assert item is not None
         """
-        self.assert_adds_messages(
-            code,
-            msg("pytest-mnt-test-logic", line=4)
-        )
+        self.assert_adds_messages(code, msg("pytest-mnt-test-logic", line=4))
 
     def test_while_loop_in_test(self):
         """Should warn when while loop is used in a test."""
@@ -57,7 +54,7 @@ class TestLogicInTests(PytestDeepAnalysisTestCase):
         self.assert_adds_messages(
             code,
             msg("pytest-mnt-test-logic", line=4),
-            msg("pytest-mnt-magic-assert", line=6)
+            msg("pytest-mnt-magic-assert", line=6),
         )
 
     def test_list_comprehension_allowed(self):
@@ -69,8 +66,7 @@ class TestLogicInTests(PytestDeepAnalysisTestCase):
             assert len(filtered) == 3  # Line 5 - 3 is magic
         """
         self.assert_adds_messages(
-            code,
-            msg("pytest-mnt-magic-assert", line=5)  # 3 is a magic number
+            code, msg("pytest-mnt-magic-assert", line=5)  # 3 is a magic number
         )
 
     def test_dict_comprehension_allowed(self):
@@ -82,8 +78,7 @@ class TestLogicInTests(PytestDeepAnalysisTestCase):
             assert doubled["a"] == 2  # Line 5 - 2 is magic
         """
         self.assert_adds_messages(
-            code,
-            msg("pytest-mnt-magic-assert", line=5)  # 2 is a magic number
+            code, msg("pytest-mnt-magic-assert", line=5)  # 2 is a magic number
         )
 
     def test_if_in_pytest_raises_allowed(self):
@@ -111,8 +106,7 @@ class TestLogicInTests(PytestDeepAnalysisTestCase):
             assert helper_function() == "yes"  # Line 8 - "yes" is magic
         """
         self.assert_adds_messages(
-            code,
-            msg("pytest-mnt-magic-assert", line=8)  # "yes" is a magic string
+            code, msg("pytest-mnt-magic-assert", line=8)  # "yes" is a magic string
         )
 
 
@@ -126,10 +120,7 @@ class TestMagicConstants(PytestDeepAnalysisTestCase):
             response = get_response()
             assert response.status_code == 250  # Line 4
         """
-        self.assert_adds_messages(
-            code,
-            msg("pytest-mnt-magic-assert", line=4)
-        )
+        self.assert_adds_messages(code, msg("pytest-mnt-magic-assert", line=4))
 
     def test_magic_string_in_assert(self):
         """Should warn for magic strings in assertions."""
@@ -138,10 +129,7 @@ class TestMagicConstants(PytestDeepAnalysisTestCase):
             user = get_user()
             assert user.role == "super_admin_level_3"  # Line 4
         """
-        self.assert_adds_messages(
-            code,
-            msg("pytest-mnt-magic-assert", line=4)
-        )
+        self.assert_adds_messages(code, msg("pytest-mnt-magic-assert", line=4))
 
     def test_non_magic_zero(self):
         """Should NOT warn for 0 (not considered magic)."""
@@ -229,7 +217,7 @@ class TestSuboptimalAssert(PytestDeepAnalysisTestCase):
         """
         self.assert_adds_messages(
             code,
-            msg("pytest-mnt-suboptimal-assert", line=4)
+            msg("pytest-mnt-suboptimal-assert", line=4),
             # Note: 42 inside assertTrue() argument is not caught by magic-assert
             # checker (it only looks at direct assert comparisons)
         )
@@ -243,7 +231,7 @@ class TestSuboptimalAssert(PytestDeepAnalysisTestCase):
         """
         self.assert_adds_messages(
             code,
-            msg("pytest-mnt-suboptimal-assert", line=4)
+            msg("pytest-mnt-suboptimal-assert", line=4),
             # Note: 42 inside assertFalse() argument is not caught by magic-assert
             # checker (it only looks at direct assert comparisons)
         )
@@ -257,7 +245,7 @@ class TestSuboptimalAssert(PytestDeepAnalysisTestCase):
         """
         self.assert_adds_messages(
             code,
-            msg("pytest-mnt-suboptimal-assert", line=4)
+            msg("pytest-mnt-suboptimal-assert", line=4),
             # True is not magic
         )
 
@@ -269,8 +257,7 @@ class TestSuboptimalAssert(PytestDeepAnalysisTestCase):
             assert result == 42  # Line 4 - 42 is magic though!
         """
         self.assert_adds_messages(
-            code,
-            msg("pytest-mnt-magic-assert", line=4)  # 42 is a magic number
+            code, msg("pytest-mnt-magic-assert", line=4)  # 42 is a magic number
         )
 
     def test_assert_with_boolean(self):

@@ -82,6 +82,77 @@ class PytestDeepAnalysisChecker(BaseChecker):
         self._test_has_assertions: bool = False
         self._test_has_state_assertions: bool = False
         self._test_has_mock_verifications: bool = False
+        self._assertion_count: int = 0
+        # Semantic feedback loop: Track which tests need semantic validation
+        self._semantic_validation_tasks: Dict[str, List[str]] = {}
+        # Semantic feedback loop Phase 2: Load validation cache from runtime
+        self._validation_cache: Dict[str, Dict[str, Any]] = (
+            self._load_validation_cache()
+        )
+        # Cache project root for test ID normalization
+        self._project_root: Optional[str] = None
+
+    def _get_project_root(self) -> str:
+        """Get the project root directory (cwd where pylint was invoked)."""
+        if self._project_root is None:
+            import os
+
+            self._project_root = os.getcwd()
+        return self._project_root
+
+    def _get_test_id(self, node: astroid.FunctionDef) -> str:
+        """Get test ID in pytest nodeid format (relative path from project root).
+
+        Args:
+            node: The test function node
+
+        Returns:
+            Test ID string like "tests/test_api.py::test_user_creation"
+        """
+        import os
+        from pathlib import Path
+
+        file_path = node.root().file if node.root().file else "<unknown>"
+        if file_path == "<unknown>":
+            return f"{file_path}::{node.name}"
+
+        # Convert absolute path to relative path from project root
+        try:
+            rel_path = os.path.relpath(file_path, self._get_project_root())
+            # Normalize to forward slashes (pytest nodeid format uses / even on Windows)
+            rel_path = rel_path.replace(os.sep, "/")
+            return f"{rel_path}::{node.name}"
+        except ValueError:
+            # If paths are on different drives (Windows), use absolute
+            # Still normalize to forward slashes
+            normalized_path = file_path.replace(os.sep, "/")
+            return f"{normalized_path}::{node.name}"
+
+    def _load_validation_cache(self) -> Dict[str, Dict[str, Any]]:
+        """Load the validation cache written by the runtime plugin (Phase 2).
+
+        Returns:
+            Dictionary mapping test IDs to their validation status
+        """
+        import json
+        from pathlib import Path
+
+        cache_file = Path(".pytest_deep_analysis_cache.json")
+        if not cache_file.exists():
+            return {}
+
+        try:
+            cache_data = json.loads(cache_file.read_text())
+            if isinstance(cache_data, dict):
+                validation_data = cache_data.get("tests_with_semantic_validation", {})
+                return validation_data if isinstance(validation_data, dict) else {}
+            return {}
+        except (IOError, OSError, json.JSONDecodeError) as e:
+            # Log warning but continue - cache is optional
+            import sys
+
+            print(f"Warning: Failed to load validation cache: {e}", file=sys.stderr)
+            return {}
 
     # =========================================================================
     # Pass 1: Fixture Discovery
@@ -158,6 +229,7 @@ class PytestDeepAnalysisChecker(BaseChecker):
             self._test_has_assertions = False
             self._test_has_state_assertions = False
             self._test_has_mock_verifications = False
+            self._assertion_count = 0
             self._check_test_function(node)
             # Continue visiting children for Category 1 checks
 
@@ -170,6 +242,10 @@ class PytestDeepAnalysisChecker(BaseChecker):
         if is_test_function(node):
             # Check for semantic quality issues before leaving
             self._check_test_semantic_quality(node)
+
+            # W9019: Check for assertion roulette (too many assertions)
+            self._check_assertion_roulette(node)
+
             self._in_test_function = False
             self._current_test_node = None
 
@@ -231,7 +307,11 @@ class PytestDeepAnalysisChecker(BaseChecker):
                 "pytest-fix-shadowed",
                 node=test_node,
                 line=arg.lineno,
-                args=(fixture_name, files[0], files[-1] if len(unique_files) > 1 else files[0]),
+                args=(
+                    fixture_name,
+                    files[0],
+                    files[-1] if len(unique_files) > 1 else files[0],
+                ),
             )
 
     def _check_test_semantic_quality(self, node: astroid.FunctionDef) -> None:
@@ -268,23 +348,37 @@ class PytestDeepAnalysisChecker(BaseChecker):
                 args=(test_name,),
             )
 
+        # Build test ID for cache lookup (semantic feedback loop Phase 2)
+        test_id = self._get_test_id(node)
+        test_cache = self._validation_cache.get(test_id, {})
+
         # W9016: Check for BDD traceability
         if not self._has_bdd_traceability(node):
-            self.add_message(
-                "pytest-bdd-missing-scenario",
-                node=node,
-                line=node.lineno,
-                args=(test_name,),
-            )
+            # Semantic feedback loop Phase 2: Check if runtime validated this test
+            bdd_validated = test_cache.get("bdd", {}).get("validated", False)
+            if not bdd_validated:
+                self.add_message(
+                    "pytest-bdd-missing-scenario",
+                    node=node,
+                    line=node.lineno,
+                    args=(test_name,),
+                )
+                # Semantic feedback loop Phase 1: Track that this test needs validation
+                self._track_semantic_validation_task(node, "bdd")
 
         # W9017: Check if parametrize could be PBT
         if self._should_suggest_pbt(node):
-            self.add_message(
-                "pytest-no-property-test-hint",
-                node=node,
-                line=node.lineno,
-                args=(test_name,),
-            )
+            # Semantic feedback loop Phase 2: Check if runtime validated this test
+            pbt_validated = test_cache.get("pbt", {}).get("validated", False)
+            if not pbt_validated:
+                self.add_message(
+                    "pytest-no-property-test-hint",
+                    node=node,
+                    line=node.lineno,
+                    args=(test_name,),
+                )
+                # Semantic feedback loop Phase 1: Track that this test needs validation
+                self._track_semantic_validation_task(node, "pbt")
 
     def _has_pytest_raises(self, node: astroid.FunctionDef) -> bool:
         """Check if test uses pytest.raises context manager.
@@ -388,9 +482,13 @@ class PytestDeepAnalysisChecker(BaseChecker):
 
         # Track mock verification calls (for W9015)
         mock_verify_methods = {
-            "assert_called", "assert_called_once", "assert_called_with",
-            "assert_called_once_with", "assert_any_call", "assert_has_calls",
-            "assert_not_called"
+            "assert_called",
+            "assert_called_once",
+            "assert_called_with",
+            "assert_called_once_with",
+            "assert_any_call",
+            "assert_has_calls",
+            "assert_not_called",
         }
         if any(qualname.endswith(f".{method}") for method in mock_verify_methods):
             self._test_has_mock_verifications = True
@@ -403,13 +501,41 @@ class PytestDeepAnalysisChecker(BaseChecker):
                 line=node.lineno,
             )
 
-        # PYTEST-FLK-002: Check for open()
+        # PYTEST-FLK-002/W9005: Check for open() and Mystery Guest pattern
         if qualname == "open":
-            self.add_message(
-                "pytest-flk-io-open",
-                node=node,
-                line=node.lineno,
-            )
+            # Enhanced check: Determine if this is a "Mystery Guest"
+            # A Mystery Guest is file I/O without a resource fixture dependency
+            has_resource_fixture = False
+
+            if self._current_test_node:
+                # Get fixture dependencies of the current test
+                test_fixtures = set(get_fixture_dependencies(self._current_test_node))
+
+                # Known pytest resource fixtures
+                resource_fixtures = {
+                    "tmp_path",
+                    "tmp_path_factory",
+                    "tmpdir",
+                    "tmpdir_factory",
+                }
+
+                # Check if test uses any resource fixture
+                has_resource_fixture = bool(test_fixtures & resource_fixtures)
+
+            if not has_resource_fixture:
+                # Mystery Guest: File I/O without clear resource management
+                self.add_message(
+                    "pytest-flk-mystery-guest",
+                    node=node,
+                    line=node.lineno,
+                )
+            else:
+                # Has resource fixture, still flag but less severe
+                self.add_message(
+                    "pytest-flk-io-open",
+                    node=node,
+                    line=node.lineno,
+                )
 
         # PYTEST-FLK-004: Check for CWD-sensitive functions
         cwd_functions = {
@@ -531,6 +657,7 @@ class PytestDeepAnalysisChecker(BaseChecker):
         # Track that this test has assertions (for E9014)
         self._test_has_assertions = True
         self._test_has_state_assertions = True  # Most asserts are state checks
+        self._assertion_count += 1
 
         # PYTEST-MNT-002: Check for magic constants in asserts
         self._check_magic_constants_in_assert(node)
@@ -580,6 +707,78 @@ class PytestDeepAnalysisChecker(BaseChecker):
                                 line=node.lineno,
                             )
 
+    def _check_assertion_roulette(self, node: astroid.FunctionDef) -> None:
+        """Check for assertion roulette (W9019): too many assertions without explanation.
+
+        Args:
+            node: The test function node
+        """
+        threshold = 3
+
+        # Skip if test is parametrized (multiple assertions are justified)
+        if node.decorators:
+            for decorator in node.decorators.nodes:
+                # Check for @pytest.mark.parametrize
+                if isinstance(decorator, astroid.Call):
+                    if get_call_qualname(decorator) in {
+                        "pytest.mark.parametrize",
+                        "parametrize",
+                    }:
+                        return
+
+        # Check assertion count
+        if self._assertion_count > threshold:
+            self.add_message(
+                "pytest-mnt-assertion-roulette",
+                node=node,
+                line=node.lineno,
+                args=(self._assertion_count,),
+            )
+
+    def visit_try(self, node: astroid.Try) -> None:
+        """Check for raw exception handling (W9020) in tests.
+
+        Args:
+            node: The try/except node
+        """
+        if not self._in_test_function:
+            return
+
+        # Only flag if there are exception handlers
+        if not node.handlers:
+            return
+
+        # Check if this try/except is inside a pytest.raises context
+        # If so, it's acceptable (testing exception attributes)
+        if is_in_context_manager(node, "raises"):
+            return
+
+        # Raw try/except in a test is a smell
+        self.add_message(
+            "pytest-mnt-raw-exception-handling",
+            node=node,
+            line=node.lineno,
+        )
+
+    def _track_semantic_validation_task(
+        self, node: astroid.FunctionDef, validation_type: str
+    ) -> None:
+        """Track that a test needs semantic validation (feedback loop Phase 1).
+
+        Args:
+            node: The test function node
+            validation_type: Type of validation needed ("bdd", "pbt", "dbc")
+        """
+        # Build test identifier in pytest nodeid format
+        test_id = self._get_test_id(node)
+
+        # Add validation type to this test's task list
+        if test_id not in self._semantic_validation_tasks:
+            self._semantic_validation_tasks[test_id] = []
+
+        if validation_type not in self._semantic_validation_tasks[test_id]:
+            self._semantic_validation_tasks[test_id].append(validation_type)
+
     # =========================================================================
     # Pass 2 Finalization: Fixture Graph Validation (Category 3)
     # =========================================================================
@@ -589,6 +788,27 @@ class PytestDeepAnalysisChecker(BaseChecker):
 
         This performs Category 3 checks that require the complete fixture graph.
         """
+        # Semantic feedback loop Phase 1: Write task file for runtime plugin
+        # This tells the runtime plugin which tests need validation
+        # This runs regardless of whether there's a fixture graph
+        if self._semantic_validation_tasks:
+            import json
+            import sys
+            from pathlib import Path
+
+            task_file = Path(".pytest_deep_analysis_tasks.json")
+            try:
+                task_file.write_text(
+                    json.dumps(self._semantic_validation_tasks, indent=2)
+                )
+            except (IOError, OSError) as e:
+                # Log warning but continue - task file is optional
+                print(
+                    f"Warning: Failed to write validation task file: {e}",
+                    file=sys.stderr,
+                )
+
+        # Early return if no fixture graph available
         if not self.fixture_graph:
             return
 
@@ -770,7 +990,11 @@ class PytestDeepAnalysisChecker(BaseChecker):
         """
         # Count statements (excluding docstring)
         body = node.body
-        if body and isinstance(body[0], astroid.Expr) and isinstance(body[0].value, astroid.Const):
+        if (
+            body
+            and isinstance(body[0], astroid.Expr)
+            and isinstance(body[0].value, astroid.Const)
+        ):
             # Skip docstring
             body = body[1:]
 
@@ -782,9 +1006,19 @@ class PytestDeepAnalysisChecker(BaseChecker):
 
         # Check for database/network keywords in code
         complexity_indicators = {
-            "connection", "cursor", "execute", "commit", "rollback",
-            "session", "transaction", "database", "db",
-            "request", "response", "http", "api"
+            "connection",
+            "cursor",
+            "execute",
+            "commit",
+            "rollback",
+            "session",
+            "transaction",
+            "database",
+            "db",
+            "request",
+            "response",
+            "http",
+            "api",
         }
 
         code_str = node.as_string().lower()

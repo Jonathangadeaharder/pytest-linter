@@ -25,7 +25,7 @@ class SemanticReporter:
         self,
         test_contexts: Dict[str, Any],
         global_issues: List[str],
-        format: str = "terminal"
+        format: str = "terminal",
     ):
         self.test_contexts = test_contexts
         self.global_issues = global_issues
@@ -49,12 +49,10 @@ class SemanticReporter:
         # Summary statistics
         total_tests = len(self.test_contexts)
         tests_with_issues = sum(
-            1 for ctx in self.test_contexts.values()
-            if ctx.semantic_issues
+            1 for ctx in self.test_contexts.values() if ctx.semantic_issues
         )
         total_issues = sum(
-            len(ctx.semantic_issues)
-            for ctx in self.test_contexts.values()
+            len(ctx.semantic_issues) for ctx in self.test_contexts.values()
         ) + len(self.global_issues)
 
         print("\nSummary:")
@@ -81,7 +79,9 @@ class SemanticReporter:
                 print(f"\n  {self._colorize(test_id, 'cyan')}:")
                 for issue in ctx.semantic_issues:
                     severity = self._get_issue_severity(issue)
-                    color = {"ERROR": "red", "WARNING": "yellow", "INFO": "blue"}.get(severity, "white")
+                    color = {"ERROR": "red", "WARNING": "yellow", "INFO": "blue"}.get(
+                        severity, "white"
+                    )
                     print(f"    • {self._colorize(issue, color)}")
 
         # Recommendations
@@ -229,7 +229,9 @@ class SemanticReporter:
             for test_id, ctx in tests_with_problems:
                 html += f'<div class="test-section"><strong>{test_id}</strong>'
                 for issue in ctx.semantic_issues:
-                    severity = "error" if "ERROR" in issue or "CRITICAL" in issue else ""
+                    severity = (
+                        "error" if "ERROR" in issue or "CRITICAL" in issue else ""
+                    )
                     html += f'<div class="issue {severity}">{issue}</div>'
                 html += "</div>"
 
@@ -258,7 +260,8 @@ class SemanticReporter:
                 ),
                 "total_issues": sum(
                     len(ctx.semantic_issues) for ctx in self.test_contexts.values()
-                ) + len(self.global_issues)
+                )
+                + len(self.global_issues),
             },
             "global_issues": self.global_issues,
             "test_issues": {
@@ -266,12 +269,12 @@ class SemanticReporter:
                     "test_name": ctx.test_name,
                     "test_file": ctx.test_file,
                     "passed": ctx.passed,
-                    "issues": ctx.semantic_issues
+                    "issues": ctx.semantic_issues,
                 }
                 for test_id, ctx in self.test_contexts.items()
                 if ctx.semantic_issues
             },
-            "recommendations": self._get_recommendations()
+            "recommendations": self._get_recommendations(),
         }
 
         report_path = Path("semantic-validation-report.json")
@@ -287,7 +290,7 @@ class SemanticReporter:
             "blue": "\033[94m",
             "cyan": "\033[96m",
             "white": "\033[97m",
-            "reset": "\033[0m"
+            "reset": "\033[0m",
         }
         return f"{colors.get(color, '')}{text}{colors['reset']}"
 

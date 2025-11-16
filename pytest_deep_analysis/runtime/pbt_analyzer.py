@@ -17,10 +17,11 @@ from dataclasses import dataclass
 @dataclass
 class HypothesisExecutionStats:
     """Statistics from Hypothesis test execution."""
+
     examples_tried: int = 0
     falsifying_example: Optional[Any] = None
     shrink_steps: int = 0
-    strategy_coverage: Dict[str, int] = None
+    strategy_coverage: Optional[Dict[str, int]] = None
     trivial_examples: int = 0
 
     def __post_init__(self):
@@ -78,8 +79,7 @@ class PBTAnalyzer:
         return issues
 
     def analyze_strategy_diversity(
-        self,
-        generated_examples: List[Any]
+        self, generated_examples: List[Any]
     ) -> Dict[str, Any]:
         """
         Analyze diversity of generated test inputs.
@@ -96,10 +96,10 @@ class PBTAnalyzer:
 
         diversity_ratio = unique_examples / total_examples if total_examples > 0 else 0
 
-        analysis = {
+        analysis: Dict[str, Any] = {
             "total_examples": total_examples,
             "unique_examples": unique_examples,
-            "diversity_ratio": diversity_ratio
+            "diversity_ratio": diversity_ratio,
         }
 
         if diversity_ratio < 0.5:
@@ -111,9 +111,7 @@ class PBTAnalyzer:
         return analysis
 
     def suggest_better_strategy(
-        self,
-        test_function: Any,
-        current_strategy: str
+        self, test_function: Any, current_strategy: str
     ) -> Optional[str]:
         """
         Suggest improvements to Hypothesis strategies based on runtime analysis.

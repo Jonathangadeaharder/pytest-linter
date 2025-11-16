@@ -26,16 +26,37 @@ jobs:
 
     - name: Install dependencies
       run: |
-        python -m pip install --upgrade pip
-        pip install -e ".[dev]"
+        set +e
+        python -m pip install --upgrade pip > install.log 2>&1
+        pip install -e ".[dev]" >> install.log 2>&1
+        exit_code=$?
+        cat install.log
+        exit $exit_code
 
     - name: Run automated test harness
       run: |
-        python -m pytest tests/test_harness/ -v --tb=short
+        set +e
+        python -m pytest tests/test_harness/ -v --tb=short > pytest.log 2>&1
+        exit_code=$?
+        cat pytest.log
+        exit $exit_code
 
     - name: Run linter on example test files
       run: |
-        pylint --disable=all --enable=pytest-deep-analysis tests/test_category*.py tests/conftest.py
+        set +e
+        pylint --load-plugins=pytest_deep_analysis --disable=all --enable=pytest-deep-analysis tests/test_category*.py tests/conftest.py > linter.log 2>&1
+        exit_code=$?
+        cat linter.log
+        exit $exit_code
+
+    - name: Commit logs on failure
+      if: failure()
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        git add -f install.log pytest.log linter.log 2>/dev/null || true
+        git commit --amend --no-edit || git commit -m "Add CI failure logs for Python ${{ matrix.python-version }}"
+        git push --force-with-lease origin HEAD:${{ github.head_ref || github.ref_name }}
 
   lint:
     name: Code Quality
@@ -52,21 +73,46 @@ jobs:
 
     - name: Install dependencies
       run: |
-        python -m pip install --upgrade pip
-        pip install -e ".[dev]"
-        pip install pylint mypy black
+        set +e
+        python -m pip install --upgrade pip > install.log 2>&1
+        pip install -e ".[dev]" >> install.log 2>&1
+        pip install pylint mypy black >> install.log 2>&1
+        exit_code=$?
+        cat install.log
+        exit $exit_code
 
     - name: Check code formatting with black
       run: |
-        black --check pytest_deep_analysis/ tests/test_harness/
+        set +e
+        black --check pytest_deep_analysis/ tests/test_harness/ > black.log 2>&1
+        exit_code=$?
+        cat black.log
+        exit $exit_code
 
     - name: Type check with mypy
       run: |
-        mypy pytest_deep_analysis/ --ignore-missing-imports
+        set +e
+        mypy pytest_deep_analysis/ --ignore-missing-imports > mypy.log 2>&1
+        exit_code=$?
+        cat mypy.log
+        exit $exit_code
 
     - name: Lint with pylint
       run: |
-        pylint pytest_deep_analysis/ --disable=all --enable=import-error,undefined-variable
+        set +e
+        pylint pytest_deep_analysis/ --disable=all --enable=import-error,undefined-variable > pylint.log 2>&1
+        exit_code=$?
+        cat pylint.log
+        exit $exit_code
+
+    - name: Commit logs on failure
+      if: failure()
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        git add -f install.log black.log mypy.log pylint.log 2>/dev/null || true
+        git commit --amend --no-edit || git commit -m "Add Code Quality failure logs"
+        git push --force-with-lease origin HEAD:${{ github.head_ref || github.ref_name }}
 
   coverage:
     name: Test Coverage
@@ -83,15 +129,32 @@ jobs:
 
     - name: Install dependencies
       run: |
-        python -m pip install --upgrade pip
-        pip install -e ".[dev]"
+        set +e
+        python -m pip install --upgrade pip > install.log 2>&1
+        pip install -e ".[dev]" >> install.log 2>&1
+        exit_code=$?
+        cat install.log
+        exit $exit_code
 
     - name: Run tests with coverage
       run: |
-        python -m pytest tests/test_harness/ --cov=pytest_deep_analysis --cov-report=xml --cov-report=html
+        set +e
+        python -m pytest tests/test_harness/ --cov=pytest_deep_analysis --cov-report=xml --cov-report=html > coverage.log 2>&1
+        exit_code=$?
+        cat coverage.log
+        exit $exit_code
 
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v4
       with:
         file: ./coverage.xml
         fail_ci_if_error: false
+
+    - name: Commit logs on failure
+      if: failure()
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        git add -f install.log coverage.log 2>/dev/null || true
+        git commit --amend --no-edit || git commit -m "Add Coverage failure logs"
+        git push --force-with-lease origin HEAD:${{ github.head_ref || github.ref_name }}

@@ -31,6 +31,7 @@ class TestInvalidScopeDependency(PytestDeepAnalysisTestCase):
         """
         # Create a module and walk it to trigger close()
         import astroid
+
         node = astroid.parse(code, module_name="test.py")
         node.file = "test.py"
 
@@ -61,6 +62,7 @@ class TestInvalidScopeDependency(PytestDeepAnalysisTestCase):
             return {"session": module_fixture}
         """
         import astroid
+
         node = astroid.parse(code, module_name="test.py")
         node.file = "test.py"
 
@@ -88,6 +90,7 @@ class TestInvalidScopeDependency(PytestDeepAnalysisTestCase):
             return func_fixture
         """
         import astroid
+
         node = astroid.parse(code, module_name="test.py")
         node.file = "test.py"
 
@@ -117,6 +120,7 @@ class TestInvalidScopeDependency(PytestDeepAnalysisTestCase):
             assert func_fixture
         """
         import astroid
+
         node = astroid.parse(code, module_name="test.py")
         node.file = "test.py"
 
@@ -143,6 +147,7 @@ class TestInvalidScopeDependency(PytestDeepAnalysisTestCase):
             return session_fixture
         """
         import astroid
+
         node = astroid.parse(code, module_name="test.py")
         node.file = "test.py"
 
@@ -171,6 +176,7 @@ class TestUnusedFixtures(PytestDeepAnalysisTestCase):
             assert True
         """
         import astroid
+
         node = astroid.parse(code, module_name="test.py")
         node.file = "test.py"
 
@@ -195,6 +201,7 @@ class TestUnusedFixtures(PytestDeepAnalysisTestCase):
             assert used_fixture == "data"
         """
         import astroid
+
         node = astroid.parse(code, module_name="test.py")
         node.file = "test.py"
 
@@ -216,6 +223,7 @@ class TestUnusedFixtures(PytestDeepAnalysisTestCase):
             yield
         """
         import astroid
+
         node = astroid.parse(code, module_name="test.py")
         node.file = "test.py"
 
@@ -244,6 +252,7 @@ class TestUnusedFixtures(PytestDeepAnalysisTestCase):
             assert derived_fixture
         """
         import astroid
+
         node = astroid.parse(code, module_name="test.py")
         node.file = "test.py"
 
@@ -269,6 +278,7 @@ class TestStatefulSessionFixtures(PytestDeepAnalysisTestCase):
             return []
         """
         import astroid
+
         node = astroid.parse(code, module_name="test.py")
         node.file = "test.py"
 
@@ -277,7 +287,9 @@ class TestStatefulSessionFixtures(PytestDeepAnalysisTestCase):
         self.checker.close()
 
         messages = self.linter.release_messages()
-        stateful_messages = [m for m in messages if m.msg_id == "pytest-fix-stateful-session"]
+        stateful_messages = [
+            m for m in messages if m.msg_id == "pytest-fix-stateful-session"
+        ]
         assert len(stateful_messages) == 1
 
     def test_session_returns_dict(self):
@@ -290,6 +302,7 @@ class TestStatefulSessionFixtures(PytestDeepAnalysisTestCase):
             return {}
         """
         import astroid
+
         node = astroid.parse(code, module_name="test.py")
         node.file = "test.py"
 
@@ -298,7 +311,9 @@ class TestStatefulSessionFixtures(PytestDeepAnalysisTestCase):
         self.checker.close()
 
         messages = self.linter.release_messages()
-        stateful_messages = [m for m in messages if m.msg_id == "pytest-fix-stateful-session"]
+        stateful_messages = [
+            m for m in messages if m.msg_id == "pytest-fix-stateful-session"
+        ]
         assert len(stateful_messages) == 1
 
     def test_session_returns_set(self):
@@ -311,6 +326,7 @@ class TestStatefulSessionFixtures(PytestDeepAnalysisTestCase):
             return set()
         """
         import astroid
+
         node = astroid.parse(code, module_name="test.py")
         node.file = "test.py"
 
@@ -319,7 +335,9 @@ class TestStatefulSessionFixtures(PytestDeepAnalysisTestCase):
         self.checker.close()
 
         messages = self.linter.release_messages()
-        stateful_messages = [m for m in messages if m.msg_id == "pytest-fix-stateful-session"]
+        stateful_messages = [
+            m for m in messages if m.msg_id == "pytest-fix-stateful-session"
+        ]
         # Note: set() is a Call node, so it should be detected
         assert len(stateful_messages) >= 1
 
@@ -336,6 +354,7 @@ class TestStatefulSessionFixtures(PytestDeepAnalysisTestCase):
             assert session_tuple
         """
         import astroid
+
         node = astroid.parse(code, module_name="test.py")
         node.file = "test.py"
 
@@ -344,7 +363,9 @@ class TestStatefulSessionFixtures(PytestDeepAnalysisTestCase):
         self.checker.close()
 
         messages = self.linter.release_messages()
-        stateful_messages = [m for m in messages if m.msg_id == "pytest-fix-stateful-session"]
+        stateful_messages = [
+            m for m in messages if m.msg_id == "pytest-fix-stateful-session"
+        ]
         assert len(stateful_messages) == 0
 
     def test_session_returns_string(self):
@@ -360,6 +381,7 @@ class TestStatefulSessionFixtures(PytestDeepAnalysisTestCase):
             assert session_string
         """
         import astroid
+
         node = astroid.parse(code, module_name="test.py")
         node.file = "test.py"
 
@@ -368,7 +390,9 @@ class TestStatefulSessionFixtures(PytestDeepAnalysisTestCase):
         self.checker.close()
 
         messages = self.linter.release_messages()
-        stateful_messages = [m for m in messages if m.msg_id == "pytest-fix-stateful-session"]
+        stateful_messages = [
+            m for m in messages if m.msg_id == "pytest-fix-stateful-session"
+        ]
         assert len(stateful_messages) == 0
 
     def test_function_scope_returns_list(self):
@@ -384,6 +408,7 @@ class TestStatefulSessionFixtures(PytestDeepAnalysisTestCase):
             assert function_list is not None
         """
         import astroid
+
         node = astroid.parse(code, module_name="test.py")
         node.file = "test.py"
 
@@ -392,7 +417,9 @@ class TestStatefulSessionFixtures(PytestDeepAnalysisTestCase):
         self.checker.close()
 
         messages = self.linter.release_messages()
-        stateful_messages = [m for m in messages if m.msg_id == "pytest-fix-stateful-session"]
+        stateful_messages = [
+            m for m in messages if m.msg_id == "pytest-fix-stateful-session"
+        ]
         assert len(stateful_messages) == 0
 
 
@@ -420,6 +447,7 @@ class TestShadowedFixtures(PytestDeepAnalysisTestCase):
             assert my_fixture
         """
         import astroid
+
         node = astroid.parse(code, module_name="test.py")
         node.file = "test.py"
 
