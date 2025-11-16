@@ -7,7 +7,8 @@ on:
     branches: [ main, master, develop ]
 
 permissions:
-  contents: read
+  contents: write  # Allow pushing log commits on failure
+  pull-requests: write
 
 jobs:
   test:
