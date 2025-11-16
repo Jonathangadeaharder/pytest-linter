@@ -13,8 +13,7 @@ The checker uses a multi-pass architecture:
 
 from typing import Optional, Dict, List, Set, Any, TYPE_CHECKING
 
-import astroid
-from astroid import nodes
+from astroid import nodes, Uninferable, InferenceError
 from pylint.checkers import BaseChecker
 
 from pytest_deep_analysis.messages import MESSAGES
@@ -44,7 +43,7 @@ class FixtureInfo:
         autouse: bool,
         dependencies: List[str],
         file_path: str,
-        node: astroid.FunctionDef,
+        node: nodes.FunctionDef,
     ):
         self.name = name
         self.scope = scope
@@ -78,7 +77,7 @@ class PytestDeepAnalysisChecker(BaseChecker):
         # Track processed fixture nodes to avoid duplicates
         self._processed_fixtures: Set[int] = set()
         # Track current test function for assertion counting
-        self._current_test_node: Optional[astroid.FunctionDef] = None
+        self._current_test_node: Optional[nodes.FunctionDef] = None
         self._test_has_assertions: bool = False
         self._test_has_state_assertions: bool = False
         self._test_has_mock_verifications: bool = False
@@ -100,7 +99,7 @@ class PytestDeepAnalysisChecker(BaseChecker):
             self._project_root = os.getcwd()
         return self._project_root
 
-    def _get_test_id(self, node: astroid.FunctionDef) -> str:
+    def _get_test_id(self, node: nodes.FunctionDef) -> str:
         """Get test ID in pytest nodeid format (relative path from project root).
 
         Args:
@@ -158,7 +157,7 @@ class PytestDeepAnalysisChecker(BaseChecker):
     # Pass 1: Fixture Discovery
     # =========================================================================
 
-    def visit_module(self, node: astroid.Module) -> None:
+    def visit_module(self, node: nodes.Module) -> None:
         """Visit a module to discover fixtures (Pass 1).
 
         Args:
@@ -166,10 +165,10 @@ class PytestDeepAnalysisChecker(BaseChecker):
         """
         # Traverse all function definitions in this module
         for child in node.body:
-            if isinstance(child, astroid.FunctionDef):
+            if isinstance(child, nodes.FunctionDef):
                 self._process_potential_fixture(child)
 
-    def _process_potential_fixture(self, node: astroid.FunctionDef) -> None:
+    def _process_potential_fixture(self, node: nodes.FunctionDef) -> None:
         """Process a function that might be a pytest fixture.
 
         Args:
@@ -214,7 +213,7 @@ class PytestDeepAnalysisChecker(BaseChecker):
     # Pass 2: Test and Fixture Analysis
     # =========================================================================
 
-    def visit_functiondef(self, node: astroid.FunctionDef) -> None:
+    def visit_functiondef(self, node: nodes.FunctionDef) -> None:
         """Visit a function definition for analysis (Pass 2).
 
         This handles both test functions (Category 1) and fixture interaction
@@ -233,7 +232,7 @@ class PytestDeepAnalysisChecker(BaseChecker):
             self._check_test_function(node)
             # Continue visiting children for Category 1 checks
 
-    def leave_functiondef(self, node: astroid.FunctionDef) -> None:
+    def leave_functiondef(self, node: nodes.FunctionDef) -> None:
         """Leave a function definition.
 
         Args:
@@ -249,7 +248,7 @@ class PytestDeepAnalysisChecker(BaseChecker):
             self._in_test_function = False
             self._current_test_node = None
 
-    def _check_test_function(self, node: astroid.FunctionDef) -> None:
+    def _check_test_function(self, node: nodes.FunctionDef) -> None:
         """Analyze a test function for fixture usage (Category 3).
 
         Args:
@@ -279,7 +278,7 @@ class PytestDeepAnalysisChecker(BaseChecker):
         self.test_fixture_usage[test_name] = fixtures_used
 
     def _check_shadowed_fixture(
-        self, arg: astroid.AssignName, test_node: astroid.FunctionDef
+        self, arg: nodes.AssignName, test_node: nodes.FunctionDef
     ) -> None:
         """Check if a fixture is shadowed across conftest.py files.
 
@@ -314,7 +313,7 @@ class PytestDeepAnalysisChecker(BaseChecker):
                 ),
             )
 
-    def _check_test_semantic_quality(self, node: astroid.FunctionDef) -> None:
+    def _check_test_semantic_quality(self, node: nodes.FunctionDef) -> None:
         """Check test function for semantic quality issues (BDD/PBT/DbC alignment).
 
         This implements the new semantic checks:
@@ -380,7 +379,7 @@ class PytestDeepAnalysisChecker(BaseChecker):
                 # Semantic feedback loop Phase 1: Track that this test needs validation
                 self._track_semantic_validation_task(node, "pbt")
 
-    def _has_pytest_raises(self, node: astroid.FunctionDef) -> bool:
+    def _has_pytest_raises(self, node: nodes.FunctionDef) -> bool:
         """Check if test uses pytest.raises context manager.
 
         Args:
@@ -389,16 +388,16 @@ class PytestDeepAnalysisChecker(BaseChecker):
         Returns:
             True if pytest.raises is used
         """
-        for with_node in node.nodes_of_class(astroid.With):
+        for with_node in node.nodes_of_class(nodes.With):
             for item in with_node.items:
                 context_expr = item[0]
-                if isinstance(context_expr, astroid.Call):
+                if isinstance(context_expr, nodes.Call):
                     qualname = get_call_qualname(context_expr)
                     if qualname in {"pytest.raises", "raises"}:
                         return True
         return False
 
-    def _has_bdd_traceability(self, node: astroid.FunctionDef) -> bool:
+    def _has_bdd_traceability(self, node: nodes.FunctionDef) -> bool:
         """Check if test has BDD traceability markers.
 
         Args:
@@ -411,10 +410,10 @@ class PytestDeepAnalysisChecker(BaseChecker):
         if node.decorators:
             for decorator in node.decorators.nodes:
                 qualname = ""
-                if isinstance(decorator, astroid.Attribute):
+                if isinstance(decorator, nodes.Attribute):
                     qualname = decorator.as_string()
-                elif isinstance(decorator, astroid.Call):
-                    if isinstance(decorator.func, astroid.Attribute):
+                elif isinstance(decorator, nodes.Call):
+                    if isinstance(decorator.func, nodes.Attribute):
                         qualname = decorator.func.as_string()
 
                 if "scenario" in qualname or "feature" in qualname:
@@ -429,7 +428,7 @@ class PytestDeepAnalysisChecker(BaseChecker):
 
         return False
 
-    def _should_suggest_pbt(self, node: astroid.FunctionDef) -> bool:
+    def _should_suggest_pbt(self, node: nodes.FunctionDef) -> bool:
         """Check if test should use property-based testing.
 
         Args:
@@ -441,9 +440,9 @@ class PytestDeepAnalysisChecker(BaseChecker):
         # Check for @pytest.mark.parametrize with many parameters
         if node.decorators:
             for decorator in node.decorators.nodes:
-                if isinstance(decorator, astroid.Call):
+                if isinstance(decorator, nodes.Call):
                     qualname = ""
-                    if isinstance(decorator.func, astroid.Attribute):
+                    if isinstance(decorator.func, nodes.Attribute):
                         qualname = decorator.func.as_string()
 
                     if "parametrize" in qualname:
@@ -457,7 +456,7 @@ class PytestDeepAnalysisChecker(BaseChecker):
                         if len(decorator.args) >= 2:
                             param_values = decorator.args[1]
                             # If it's a list with >3 items, suggest PBT
-                            if isinstance(param_values, astroid.List):
+                            if isinstance(param_values, nodes.List):
                                 if len(param_values.elts) > 3:
                                     return True
 
@@ -467,7 +466,7 @@ class PytestDeepAnalysisChecker(BaseChecker):
     # Category 1: Test Body Smells (ast-based checks)
     # =========================================================================
 
-    def visit_call(self, node: astroid.Call) -> None:
+    def visit_call(self, node: nodes.Call) -> None:
         """Visit a function call for Category 1 checks.
 
         Args:
@@ -553,7 +552,7 @@ class PytestDeepAnalysisChecker(BaseChecker):
                 line=node.lineno,
             )
 
-    def visit_import(self, node: astroid.Import) -> None:
+    def visit_import(self, node: nodes.Import) -> None:
         """Visit an import statement for Category 1 checks.
 
         Args:
@@ -571,7 +570,7 @@ class PytestDeepAnalysisChecker(BaseChecker):
                 )
                 break
 
-    def visit_importfrom(self, node: astroid.ImportFrom) -> None:
+    def visit_importfrom(self, node: nodes.ImportFrom) -> None:
         """Visit a from...import statement for Category 1 checks.
 
         Args:
@@ -589,7 +588,7 @@ class PytestDeepAnalysisChecker(BaseChecker):
                     line=node.lineno,
                 )
 
-    def visit_if(self, node: astroid.If) -> None:
+    def visit_if(self, node: nodes.If) -> None:
         """Visit an if statement for Category 1 checks.
 
         Args:
@@ -609,7 +608,7 @@ class PytestDeepAnalysisChecker(BaseChecker):
             line=node.lineno,
         )
 
-    def visit_for(self, node: astroid.For) -> None:
+    def visit_for(self, node: nodes.For) -> None:
         """Visit a for loop for Category 1 checks.
 
         Args:
@@ -629,7 +628,7 @@ class PytestDeepAnalysisChecker(BaseChecker):
             line=node.lineno,
         )
 
-    def visit_while(self, node: astroid.While) -> None:
+    def visit_while(self, node: nodes.While) -> None:
         """Visit a while loop for Category 1 checks.
 
         Args:
@@ -645,7 +644,7 @@ class PytestDeepAnalysisChecker(BaseChecker):
             line=node.lineno,
         )
 
-    def visit_assert(self, node: astroid.Assert) -> None:
+    def visit_assert(self, node: nodes.Assert) -> None:
         """Visit an assert statement for Category 1 checks.
 
         Args:
@@ -665,17 +664,17 @@ class PytestDeepAnalysisChecker(BaseChecker):
         # PYTEST-MNT-003: Check for suboptimal asserts
         self._check_suboptimal_assert(node)
 
-    def _check_magic_constants_in_assert(self, node: astroid.Assert) -> None:
+    def _check_magic_constants_in_assert(self, node: nodes.Assert) -> None:
         """Check for magic constants in assert statements.
 
         Args:
             node: The assert node
         """
         # Traverse the test expression looking for constants
-        if isinstance(node.test, astroid.Compare):
+        if isinstance(node.test, nodes.Compare):
             # In astroid, Compare has 'ops' attribute: list of (operator, operand) tuples
             for _operator, operand in node.test.ops:
-                if isinstance(operand, astroid.Const):
+                if isinstance(operand, nodes.Const):
                     if is_magic_constant(operand.value):
                         self.add_message(
                             "pytest-mnt-magic-assert",
@@ -684,7 +683,7 @@ class PytestDeepAnalysisChecker(BaseChecker):
                         )
                         return
 
-    def _check_suboptimal_assert(self, node: astroid.Assert) -> None:
+    def _check_suboptimal_assert(self, node: nodes.Assert) -> None:
         """Check for suboptimal assert patterns.
 
         Args:
@@ -692,22 +691,22 @@ class PytestDeepAnalysisChecker(BaseChecker):
         """
         # Check if assert is wrapping a comparison
         # Pattern: assert (x == y) is True or assert assertTrue(x == y)
-        if isinstance(node.test, astroid.Call):
+        if isinstance(node.test, nodes.Call):
             func = node.test.func
             # Check for assertTrue, assertFalse, etc.
-            if isinstance(func, astroid.Attribute):
+            if isinstance(func, nodes.Attribute):
                 if func.attrname in {"assertTrue", "assertFalse", "assertEqual"}:
                     # Check if argument is a comparison
                     if node.test.args:
                         arg = node.test.args[0]
-                        if isinstance(arg, (astroid.Compare, astroid.BinOp)):
+                        if isinstance(arg, (nodes.Compare, nodes.BinOp)):
                             self.add_message(
                                 "pytest-mnt-suboptimal-assert",
                                 node=node,
                                 line=node.lineno,
                             )
 
-    def _check_assertion_roulette(self, node: astroid.FunctionDef) -> None:
+    def _check_assertion_roulette(self, node: nodes.FunctionDef) -> None:
         """Check for assertion roulette (W9019): too many assertions without explanation.
 
         Args:
@@ -719,7 +718,7 @@ class PytestDeepAnalysisChecker(BaseChecker):
         if node.decorators:
             for decorator in node.decorators.nodes:
                 # Check for @pytest.mark.parametrize
-                if isinstance(decorator, astroid.Call):
+                if isinstance(decorator, nodes.Call):
                     if get_call_qualname(decorator) in {
                         "pytest.mark.parametrize",
                         "parametrize",
@@ -735,7 +734,7 @@ class PytestDeepAnalysisChecker(BaseChecker):
                 args=(self._assertion_count,),
             )
 
-    def visit_try(self, node: astroid.Try) -> None:
+    def visit_try(self, node: nodes.Try) -> None:
         """Check for raw exception handling (W9020) in tests.
 
         Args:
@@ -761,7 +760,7 @@ class PytestDeepAnalysisChecker(BaseChecker):
         )
 
     def _track_semantic_validation_task(
-        self, node: astroid.FunctionDef, validation_type: str
+        self, node: nodes.FunctionDef, validation_type: str
     ) -> None:
         """Track that a test needs semantic validation (feedback loop Phase 1).
 
@@ -891,7 +890,7 @@ class PytestDeepAnalysisChecker(BaseChecker):
                     continue
 
                 # Look for return statements in the fixture body (recursively)
-                for node in fixture_info.node.nodes_of_class(astroid.Return):
+                for node in fixture_info.node.nodes_of_class(nodes.Return):
                     if node.value and self._is_mutable_return(node.value):
                         self.add_message(
                             "pytest-fix-stateful-session",
@@ -901,7 +900,7 @@ class PytestDeepAnalysisChecker(BaseChecker):
                         )
                         break  # Only report once per fixture
 
-    def _is_mutable_return(self, value_node: astroid.NodeNG) -> bool:
+    def _is_mutable_return(self, value_node: nodes.NodeNG) -> bool:
         """Check if a return value is mutable using type inference.
 
         Args:
@@ -911,11 +910,11 @@ class PytestDeepAnalysisChecker(BaseChecker):
             True if the value is likely mutable
         """
         # Direct mutable literals - these are definitely mutable
-        if isinstance(value_node, (astroid.List, astroid.Dict, astroid.Set)):
+        if isinstance(value_node, (nodes.List, nodes.Dict, nodes.Set)):
             return True
 
         # Call nodes - use inference for better accuracy
-        if isinstance(value_node, astroid.Call):
+        if isinstance(value_node, nodes.Call):
             # First try qualified name check (fast path)
             qualname = get_call_qualname(value_node)
             if qualname in {"list", "dict", "set"}:
@@ -924,14 +923,14 @@ class PytestDeepAnalysisChecker(BaseChecker):
             # Try astroid's inference engine for better detection
             try:
                 for inferred in value_node.infer():
-                    if inferred is astroid.Uninferable:
+                    if inferred is Uninferable:
                         continue
                     # Check if inferred type is a mutable collection instance
                     if hasattr(inferred, "pytype"):
                         pytype = inferred.pytype()
                         if pytype in ("builtins.list", "builtins.dict", "builtins.set"):
                             return True
-            except (astroid.InferenceError, AttributeError, StopIteration):
+            except (InferenceError, AttributeError, StopIteration):
                 # Inference failed, not considered mutable
                 pass
 
@@ -960,7 +959,7 @@ class PytestDeepAnalysisChecker(BaseChecker):
                         args=(fixture_name,),
                     )
 
-    def _has_contract_decorators(self, node: astroid.FunctionDef) -> bool:
+    def _has_contract_decorators(self, node: nodes.FunctionDef) -> bool:
         """Check if function has icontract decorators.
 
         Args:
@@ -979,7 +978,7 @@ class PytestDeepAnalysisChecker(BaseChecker):
 
         return False
 
-    def _is_complex_fixture(self, node: astroid.FunctionDef) -> bool:
+    def _is_complex_fixture(self, node: nodes.FunctionDef) -> bool:
         """Check if fixture is complex enough to warrant contracts.
 
         Args:
@@ -992,8 +991,8 @@ class PytestDeepAnalysisChecker(BaseChecker):
         body = node.body
         if (
             body
-            and isinstance(body[0], astroid.Expr)
-            and isinstance(body[0].value, astroid.Const)
+            and isinstance(body[0], nodes.Expr)
+            and isinstance(body[0].value, nodes.Const)
         ):
             # Skip docstring
             body = body[1:]
@@ -1026,7 +1025,7 @@ class PytestDeepAnalysisChecker(BaseChecker):
             return True
 
         # Check for yield (resource management fixtures)
-        for _yield_node in node.nodes_of_class(astroid.Yield):
+        for _yield_node in node.nodes_of_class(nodes.Yield):
             return True
 
         return False

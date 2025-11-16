@@ -3,12 +3,12 @@ Utility functions for pytest-deep-analysis checker.
 """
 
 import ast
-from typing import Optional, Set, List, Any
+from typing import Optional, Set, List, Any, Tuple
 
-import astroid
+from astroid import nodes
 
 
-def is_test_function(node: astroid.FunctionDef) -> bool:
+def is_test_function(node: nodes.FunctionDef) -> bool:
     """Check if a function is a pytest test function.
 
     Args:
@@ -20,7 +20,7 @@ def is_test_function(node: astroid.FunctionDef) -> bool:
     return bool(node.name.startswith("test_"))
 
 
-def is_pytest_fixture(node: astroid.FunctionDef) -> bool:
+def is_pytest_fixture(node: nodes.FunctionDef) -> bool:
     """Check if a function is decorated with @pytest.fixture.
 
     Args:
@@ -34,25 +34,25 @@ def is_pytest_fixture(node: astroid.FunctionDef) -> bool:
 
     for decorator in node.decorators.nodes:
         # Handle both @pytest.fixture and @pytest.fixture(...)
-        if isinstance(decorator, astroid.Name):
+        if isinstance(decorator, nodes.Name):
             if decorator.name == "fixture":
                 return True
-        elif isinstance(decorator, astroid.Attribute):
+        elif isinstance(decorator, nodes.Attribute):
             if decorator.attrname == "fixture":
                 return True
-        elif isinstance(decorator, astroid.Call):
+        elif isinstance(decorator, nodes.Call):
             func = decorator.func
-            if isinstance(func, astroid.Name) and func.name == "fixture":
+            if isinstance(func, nodes.Name) and func.name == "fixture":
                 return True
-            elif isinstance(func, astroid.Attribute) and func.attrname == "fixture":
+            elif isinstance(func, nodes.Attribute) and func.attrname == "fixture":
                 return True
 
     return False
 
 
 def get_fixture_decorator_args(
-    node: astroid.FunctionDef,
-) -> tuple[str, bool]:
+    node: nodes.FunctionDef,
+) -> Tuple[str, bool]:
     """Extract scope and autouse parameters from a @pytest.fixture decorator.
 
     Args:
@@ -69,15 +69,15 @@ def get_fixture_decorator_args(
 
     for decorator in node.decorators.nodes:
         # Only process Call nodes (e.g., @pytest.fixture(...))
-        if not isinstance(decorator, astroid.Call):
+        if not isinstance(decorator, nodes.Call):
             continue
 
         # Check if it's a pytest.fixture call
         func = decorator.func
         is_fixture_call = False
-        if isinstance(func, astroid.Name) and func.name == "fixture":
+        if isinstance(func, nodes.Name) and func.name == "fixture":
             is_fixture_call = True
-        elif isinstance(func, astroid.Attribute) and func.attrname == "fixture":
+        elif isinstance(func, nodes.Attribute) and func.attrname == "fixture":
             is_fixture_call = True
 
         if not is_fixture_call:
@@ -89,13 +89,13 @@ def get_fixture_decorator_args(
                 if keyword.arg == "scope":
                     try:
                         # Get the scope value
-                        if isinstance(keyword.value, astroid.Const):
+                        if isinstance(keyword.value, nodes.Const):
                             scope = keyword.value.value
                     except Exception:
                         pass
                 elif keyword.arg == "autouse":
                     try:
-                        if isinstance(keyword.value, astroid.Const):
+                        if isinstance(keyword.value, nodes.Const):
                             autouse = keyword.value.value
                     except Exception:
                         pass
@@ -103,7 +103,7 @@ def get_fixture_decorator_args(
     return scope, autouse
 
 
-def get_fixture_dependencies(node: astroid.FunctionDef) -> List[str]:
+def get_fixture_dependencies(node: nodes.FunctionDef) -> List[str]:
     """Extract the list of fixture dependencies from a fixture's arguments.
 
     Args:
@@ -123,7 +123,7 @@ def get_fixture_dependencies(node: astroid.FunctionDef) -> List[str]:
     return dependencies
 
 
-def is_in_context_manager(node: astroid.NodeNG, context_name: str) -> bool:
+def is_in_context_manager(node: nodes.NodeNG, context_name: str) -> bool:
     """Check if a node is inside a specific context manager.
 
     Args:
@@ -135,20 +135,20 @@ def is_in_context_manager(node: astroid.NodeNG, context_name: str) -> bool:
     """
     current = node.parent
     while current:
-        if isinstance(current, astroid.With):
+        if isinstance(current, nodes.With):
             for item in current.items:
                 context_expr = item[0]
                 # Check if it's pytest.raises or similar
-                if isinstance(context_expr, astroid.Call):
+                if isinstance(context_expr, nodes.Call):
                     func = context_expr.func
-                    if isinstance(func, astroid.Attribute):
+                    if isinstance(func, nodes.Attribute):
                         if func.attrname in context_name:
                             return True
         current = current.parent
     return False
 
 
-def is_in_comprehension(node: astroid.NodeNG) -> bool:
+def is_in_comprehension(node: nodes.NodeNG) -> bool:
     """Check if a node is inside a list/dict/set comprehension.
 
     Args:
@@ -159,7 +159,7 @@ def is_in_comprehension(node: astroid.NodeNG) -> bool:
     """
     current = node.parent
     while current:
-        if isinstance(current, (astroid.ListComp, astroid.DictComp, astroid.SetComp)):
+        if isinstance(current, (nodes.ListComp, nodes.DictComp, nodes.SetComp)):
             return True
         current = current.parent
     return False
@@ -183,7 +183,7 @@ def is_magic_constant(value: Any) -> bool:
     return config.is_magic_constant(value)
 
 
-def get_call_qualname(node: astroid.Call) -> Optional[str]:
+def get_call_qualname(node: nodes.Call) -> Optional[str]:
     """Get the fully qualified name of a function call.
 
     Args:
@@ -194,17 +194,17 @@ def get_call_qualname(node: astroid.Call) -> Optional[str]:
     """
     func = node.func
 
-    if isinstance(func, astroid.Name):
+    if isinstance(func, nodes.Name):
         return str(func.name) if func.name else None
-    elif isinstance(func, astroid.Attribute):
+    elif isinstance(func, nodes.Attribute):
         # Try to build the qualified name
         parts = [str(func.attrname)]
         current = func.expr
         while current:
-            if isinstance(current, astroid.Name):
+            if isinstance(current, nodes.Name):
                 parts.append(str(current.name))
                 break
-            elif isinstance(current, astroid.Attribute):
+            elif isinstance(current, nodes.Attribute):
                 parts.append(str(current.attrname))
                 current = current.expr
             else:

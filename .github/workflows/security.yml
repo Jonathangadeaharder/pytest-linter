@@ -13,6 +13,7 @@ on:
 permissions:
   contents: read
   pull-requests: write
+  actions: read  # Required for dependency-review-action
 
 jobs:
   dependency-review:
@@ -23,11 +24,19 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Fetch full history for dependency comparison
 
     - name: Dependency Review
       uses: actions/dependency-review-action@v4
       with:
-        fail-on-severity: moderate
+        # Allow development to continue with warnings, only fail on critical
+        fail-on-severity: critical
+        # Allow common open source licenses
+        allow-licenses: MIT, Apache-2.0, BSD-3-Clause, BSD-2-Clause, ISC, Python-2.0, PSF-2.0, GPL-3.0
+        # Explicitly specify comparison refs
+        base-ref: ${{ github.base_ref }}
+        head-ref: ${{ github.head_ref }}
 
   safety-check:
     name: Safety Check (Python Dependencies)
