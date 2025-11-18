@@ -33,7 +33,8 @@ class PytestDeepAnalysisTestCase(CheckerTestCase):
     FILTER_SEMANTIC_CHECKS = True  # Filter BDD/PBT/DbC checks by default
 
     def assert_adds_messages(
-        self, code: str, *expected_messages: MessageTest, filename: str = "test.py"
+        self, code: str, *expected_messages: MessageTest, filename: str = "test.py", 
+        call_close: bool = False
     ) -> None:
         """Assert that the given code produces the expected messages.
 
@@ -41,6 +42,7 @@ class PytestDeepAnalysisTestCase(CheckerTestCase):
             code: Python code to lint
             *expected_messages: Expected MessageTest instances
             filename: Name for the temporary file (default: test.py)
+            call_close: If True, call checker.close() to trigger fixture graph validation
         """
         # Dedent the code to make test cases more readable
         code = textwrap.dedent(code)
@@ -53,7 +55,8 @@ class PytestDeepAnalysisTestCase(CheckerTestCase):
         self.walk(node)
         
         # Call close() to trigger fixture graph validation (Category 3 checks)
-        self.checker.close()
+        if call_close:
+            self.checker.close()
 
         # Get actual messages
         actual_messages = self.linter.release_messages()
@@ -91,14 +94,15 @@ class PytestDeepAnalysisTestCase(CheckerTestCase):
 
             raise AssertionError("\n".join(error_parts))
 
-    def assert_no_messages(self, code: str, filename: str = "test.py") -> None:
+    def assert_no_messages(self, code: str, filename: str = "test.py", call_close: bool = False) -> None:
         """Assert that the given code produces no messages.
 
         Args:
             code: Python code to lint
             filename: Name for the temporary file (default: test.py)
+            call_close: If True, call checker.close() to trigger fixture graph validation
         """
-        self.assert_adds_messages(code, filename=filename)
+        self.assert_adds_messages(code, filename=filename, call_close=call_close)
 
     def assert_file_adds_messages(
         self, file_path: str, *expected_messages: MessageTest
