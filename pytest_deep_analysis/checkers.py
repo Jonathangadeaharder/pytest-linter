@@ -95,9 +95,13 @@ class PytestDeepAnalysisChecker(BaseChecker):
         # Cache project root for test ID normalization
         self._project_root: Optional[str] = None
         # Track fixture usage patterns for scope optimization
-        self.fixture_usage_locations: Dict[str, Set[str]] = {}  # fixture_name -> set of file paths
+        self.fixture_usage_locations: Dict[str, Set[str]] = (
+            {}
+        )  # fixture_name -> set of file paths
         # Track fixture parameters accessed in tests
-        self._test_fixture_params: Dict[str, Set[str]] = {}  # test_name -> fixture names used
+        self._test_fixture_params: Dict[str, Set[str]] = (
+            {}
+        )  # test_name -> fixture names used
         # Track global/class variable access for xdist checking
         self._has_shared_state_access: bool = False
 
@@ -840,7 +844,7 @@ class PytestDeepAnalysisChecker(BaseChecker):
         """
         if not self._in_test_function:
             return
-        
+
         # Skip names in decorators - they're not part of the test body
         parent = node.parent
         while parent:
@@ -1154,6 +1158,7 @@ class PytestDeepAnalysisChecker(BaseChecker):
             node: The fixture function node
         """
         from pytest_deep_analysis.config import get_config
+
         config = get_config()
 
         has_commit = False
@@ -1166,7 +1171,7 @@ class PytestDeepAnalysisChecker(BaseChecker):
             yield_parent = yield_node.parent
             if isinstance(yield_parent, nodes.Expr):
                 # Find the yield statement index
-                if hasattr(node, 'body'):
+                if hasattr(node, "body"):
                     try:
                         yield_idx = node.body.index(yield_parent)
                         # Check if there's cleanup code after yield
@@ -1182,7 +1187,7 @@ class PytestDeepAnalysisChecker(BaseChecker):
             if has_database_operations(call_node):
                 qualname = get_call_qualname(call_node)
                 if qualname:
-                    method_name = qualname.split('.')[-1]
+                    method_name = qualname.split(".")[-1]
                     if method_name in config.db_commit_methods:
                         has_commit = True
                     elif method_name in config.db_rollback_methods:
@@ -1230,7 +1235,9 @@ class PytestDeepAnalysisChecker(BaseChecker):
 
         # Check if target is a fixture parameter
         if target and isinstance(target, nodes.Name):
-            test_name = f"{self._current_test_node.root().file}::{self._current_test_node.name}"
+            test_name = (
+                f"{self._current_test_node.root().file}::{self._current_test_node.name}"
+            )
             if test_name in self._test_fixture_params:
                 if target.name in self._test_fixture_params[test_name]:
                     # Check if the fixture has broader scope than function
@@ -1282,7 +1289,7 @@ class PytestDeepAnalysisChecker(BaseChecker):
         """
         # Check if expr is a class name or self/cls
         if isinstance(node.expr, nodes.Name):
-            if node.expr.name in {'self', 'cls'}:
+            if node.expr.name in {"self", "cls"}:
                 return True
             # Try to determine if it's a class
             try:
@@ -1306,6 +1313,7 @@ class PytestDeepAnalysisChecker(BaseChecker):
             node: The test function node
         """
         from pytest_deep_analysis.config import get_config
+
         config = get_config()
 
         parametrize_decorators = get_parametrize_decorators(node)
@@ -1361,7 +1369,11 @@ class PytestDeepAnalysisChecker(BaseChecker):
                     val_str = val.as_string()
                     if val_str in values_strs:
                         # Get param name for message
-                        param_name = param_names.as_string() if hasattr(param_names, 'as_string') else 'parameters'
+                        param_name = (
+                            param_names.as_string()
+                            if hasattr(param_names, "as_string")
+                            else "parameters"
+                        )
                         self.add_message(
                             "pytest-parametrize-duplicate",
                             node=node,
@@ -1418,7 +1430,12 @@ class PytestDeepAnalysisChecker(BaseChecker):
                         "pytest-fix-overly-broad-scope",
                         node=fixture_info.node,
                         line=fixture_info.node.lineno,
-                        args=(fixture_name, fixture_info.scope, scope_context, suggested_scope),
+                        args=(
+                            fixture_name,
+                            fixture_info.scope,
+                            scope_context,
+                            suggested_scope,
+                        ),
                     )
 
     def _check_xdist_fixture_io(self) -> None:
@@ -1437,15 +1454,20 @@ class PytestDeepAnalysisChecker(BaseChecker):
                     qualname = get_call_qualname(call_node)
                     if qualname:
                         # File I/O operations
-                        if qualname in {'open', 'Path', 'pathlib.Path'}:
+                        if qualname in {"open", "Path", "pathlib.Path"}:
                             has_file_io = True
                         # Check for operations on file-like objects
-                        method_name = qualname.split('.')[-1]
-                        if method_name in {'read', 'write', 'mkdir', 'touch', 'unlink'}:
+                        method_name = qualname.split(".")[-1]
+                        if method_name in {"read", "write", "mkdir", "touch", "unlink"}:
                             has_file_io = True
 
                 # Check if fixture depends on tmp_path or tmp_path_factory
-                tmp_path_fixtures = {'tmp_path', 'tmp_path_factory', 'tmpdir', 'tmpdir_factory'}
+                tmp_path_fixtures = {
+                    "tmp_path",
+                    "tmp_path_factory",
+                    "tmpdir",
+                    "tmpdir_factory",
+                }
                 if any(dep in tmp_path_fixtures for dep in fixture_info.dependencies):
                     has_tmp_path = True
 

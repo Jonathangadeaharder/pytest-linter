@@ -43,9 +43,14 @@ class PytestDeepAnalysisConfig:
 
         # Database operations to consider for commit detection
         self.db_commit_methods: Set[str] = {
-            'commit', 'save', 'create', 'update_or_create', 'bulk_create', 'bulk_update'
+            "commit",
+            "save",
+            "create",
+            "update_or_create",
+            "bulk_create",
+            "bulk_update",
         }
-        self.db_rollback_methods: Set[str] = {'rollback'}
+        self.db_rollback_methods: Set[str] = {"rollback"}
 
         if config_file:
             self.config_path = Path(config_file)
@@ -72,7 +77,9 @@ class PytestDeepAnalysisConfig:
                 return None
             current = current.parent
 
-    def _load_list_config(self, tool_config: dict, key: str, target_set: Set[Any]) -> None:
+    def _load_list_config(
+        self, tool_config: dict, key: str, target_set: Set[Any]
+    ) -> None:
         """Load a list configuration value into a target set.
 
         Args:
@@ -118,7 +125,9 @@ class PytestDeepAnalysisConfig:
             tool_config = data.get("tool", {}).get("pytest-deep-analysis", {})
 
             # Load magic assert allowlist
-            self._load_list_config(tool_config, "magic-assert-allowlist", self.magic_assert_allowlist)
+            self._load_list_config(
+                tool_config, "magic-assert-allowlist", self.magic_assert_allowlist
+            )
 
             # Load disabled rules
             self._load_list_config(tool_config, "disable-rules", self.disabled_rules)
@@ -128,7 +137,9 @@ class PytestDeepAnalysisConfig:
             if max_assertions is not None:
                 self.max_assertions = max_assertions
 
-            max_combos = self._load_int_threshold(tool_config, "max-parametrize-combinations")
+            max_combos = self._load_int_threshold(
+                tool_config, "max-parametrize-combinations"
+            )
             if max_combos is not None:
                 self.max_parametrize_combinations = max_combos
 

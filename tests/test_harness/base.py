@@ -33,8 +33,11 @@ class PytestDeepAnalysisTestCase(CheckerTestCase):
     FILTER_SEMANTIC_CHECKS = True  # Filter BDD/PBT/DbC checks by default
 
     def assert_adds_messages(
-        self, code: str, *expected_messages: MessageTest, filename: str = "test.py", 
-        call_close: bool = False
+        self,
+        code: str,
+        *expected_messages: MessageTest,
+        filename: str = "test.py",
+        call_close: bool = False,
     ) -> None:
         """Assert that the given code produces the expected messages.
 
@@ -53,7 +56,7 @@ class PytestDeepAnalysisTestCase(CheckerTestCase):
         # Run the checker and collect messages
         self.checker.visit_module(node)
         self.walk(node)
-        
+
         # Call close() to trigger fixture graph validation (Category 3 checks)
         if call_close:
             self.checker.close()
@@ -94,7 +97,9 @@ class PytestDeepAnalysisTestCase(CheckerTestCase):
 
             raise AssertionError("\n".join(error_parts))
 
-    def assert_no_messages(self, code: str, filename: str = "test.py", call_close: bool = False) -> None:
+    def assert_no_messages(
+        self, code: str, filename: str = "test.py", call_close: bool = False
+    ) -> None:
         """Assert that the given code produces no messages.
 
         Args:
