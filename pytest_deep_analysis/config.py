@@ -34,6 +34,19 @@ class PytestDeepAnalysisConfig:
         self.magic_assert_allowlist: Set[Any] = {-1, 0, 1, None, ""}
         self.config_path: Optional[Path] = None
 
+        # Rule configuration
+        self.disabled_rules: Set[str] = set()
+
+        # Thresholds for rules
+        self.max_assertions = 3  # For W9019 assertion roulette
+        self.max_parametrize_combinations = 20  # For W9027 parametrize explosion
+
+        # Database operations to consider for commit detection
+        self.db_commit_methods: Set[str] = {
+            'commit', 'save', 'create', 'update_or_create', 'bulk_create', 'bulk_update'
+        }
+        self.db_rollback_methods: Set[str] = {'rollback'}
+
         if config_file:
             self.config_path = Path(config_file)
         else:
@@ -59,6 +72,35 @@ class PytestDeepAnalysisConfig:
                 return None
             current = current.parent
 
+    def _load_list_config(self, tool_config: dict, key: str, target_set: Set[Any]) -> None:
+        """Load a list configuration value into a target set.
+
+        Args:
+            tool_config: Configuration dictionary
+            key: Configuration key
+            target_set: Target set to update
+        """
+        if key in tool_config:
+            value = tool_config[key]
+            if isinstance(value, list):
+                target_set.update(value)
+
+    def _load_int_threshold(self, tool_config: dict, key: str) -> Optional[int]:
+        """Load an integer threshold configuration value.
+
+        Args:
+            tool_config: Configuration dictionary
+            key: Configuration key
+
+        Returns:
+            Integer value if valid, None otherwise
+        """
+        if key in tool_config:
+            value = tool_config[key]
+            if isinstance(value, int) and value > 0:
+                return value
+        return None
+
     def _load_config(self) -> None:
         """Load configuration from pyproject.toml."""
         if not self.config_path or not self.config_path.exists():
@@ -76,11 +118,30 @@ class PytestDeepAnalysisConfig:
             tool_config = data.get("tool", {}).get("pytest-deep-analysis", {})
 
             # Load magic assert allowlist
-            if "magic-assert-allowlist" in tool_config:
-                allowlist = tool_config["magic-assert-allowlist"]
-                if isinstance(allowlist, list):
-                    # Add configured values to the default allowlist
-                    self.magic_assert_allowlist.update(allowlist)
+            self._load_list_config(tool_config, "magic-assert-allowlist", self.magic_assert_allowlist)
+
+            # Load disabled rules
+            self._load_list_config(tool_config, "disable-rules", self.disabled_rules)
+
+            # Load thresholds
+            max_assertions = self._load_int_threshold(tool_config, "max-assertions")
+            if max_assertions is not None:
+                self.max_assertions = max_assertions
+
+            max_combos = self._load_int_threshold(tool_config, "max-parametrize-combinations")
+            if max_combos is not None:
+                self.max_parametrize_combinations = max_combos
+
+            # Load database method lists
+            if "db-commit-methods" in tool_config:
+                commit_methods = tool_config["db-commit-methods"]
+                if isinstance(commit_methods, list):
+                    self.db_commit_methods = set(commit_methods)
+
+            if "db-rollback-methods" in tool_config:
+                rollback_methods = tool_config["db-rollback-methods"]
+                if isinstance(rollback_methods, list):
+                    self.db_rollback_methods = set(rollback_methods)
 
         except FileNotFoundError:
             # Config file not found, use defaults
@@ -115,6 +176,17 @@ class PytestDeepAnalysisConfig:
             return True
 
         return False
+
+    def is_rule_disabled(self, rule_symbol: str) -> bool:
+        """Check if a rule is disabled in configuration.
+
+        Args:
+            rule_symbol: The rule symbol (e.g., 'pytest-fix-db-commit-no-cleanup')
+
+        Returns:
+            True if the rule is disabled
+        """
+        return rule_symbol in self.disabled_rules
 
 
 # Global config instance (will be initialized by the checker)

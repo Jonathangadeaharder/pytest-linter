@@ -170,4 +170,71 @@ MESSAGES = {
         "Use 'with pytest.raises(ExpectedException):' to explicitly declare expected "
         "exceptions and get better test failure reporting.",
     ),
+    # =========================================================================
+    # New Enhancement Rules
+    # =========================================================================
+    "W9022": (
+        "Fixture '%s' performs database commits without explicit cleanup/rollback.",
+        "pytest-fix-db-commit-no-cleanup",
+        "Fixtures that commit to a database without cleanup can cause test pollution "
+        "and inter-test dependencies. Use transactions with rollback, or ensure explicit "
+        "cleanup in a yield fixture's teardown section. Database state should be isolated "
+        "per test to prevent flakiness.",
+    ),
+    "W9023": (
+        "Test '%s' modifies fixture return value in-place (mutation detected).",
+        "pytest-test-fixture-mutation",
+        "Tests that mutate fixture return values in-place can cause state bleeding between "
+        "tests when fixtures are cached at module/session scope. Either copy the fixture "
+        "value before mutation, use function scope for the fixture, or make the fixture "
+        "return a fresh instance each time.",
+    ),
+    "W9024": (
+        "Fixture '%s' with scope='%s' is only used by tests in a single %s. Consider narrowing scope to '%s'.",
+        "pytest-fix-overly-broad-scope",
+        "Fixtures with broader scope than necessary waste resources and increase risk of "
+        "state bleeding. If a session-scoped fixture is only used in one module, make it "
+        "module-scoped. If a module-scoped fixture is only used in one test, make it "
+        "function-scoped. Narrow scopes improve test isolation.",
+    ),
+    "W9025": (
+        "Empty parametrize: @pytest.mark.parametrize with no parameters or single value.",
+        "pytest-parametrize-empty",
+        "Using @pytest.mark.parametrize with an empty list or single value adds complexity "
+        "without benefit. Remove the decorator or add meaningful parameter variations.",
+    ),
+    "W9026": (
+        "Duplicate parametrize values detected in '%s'.",
+        "pytest-parametrize-duplicate",
+        "Duplicate values in @pytest.mark.parametrize waste test execution time and provide "
+        "no additional coverage. Remove duplicate entries to keep tests efficient.",
+    ),
+    "W9027": (
+        "Nested parametrize decorators create cartesian product (%d combinations). Consider using pytest.param with indirect=True.",
+        "pytest-parametrize-explosion",
+        "Multiple @pytest.mark.parametrize decorators create a cartesian product of test cases. "
+        "With many parameters, this leads to test explosion and slow execution. Consider "
+        "using pytest.param with indirect=True or hypothesis for property-based testing.",
+    ),
+    "W9028": (
+        "Parametrize without test variation: all parameter sets produce same assertion.",
+        "pytest-parametrize-no-variation",
+        "Parametrize decorators should test different behaviors or edge cases. If all "
+        "parameter values lead to the same assertion, the parametrization adds no value. "
+        "Either add assertions that vary by parameter or remove the decorator.",
+    ),
+    "W9029": (
+        "Test '%s' may have issues with pytest-xdist parallel execution (shared state detected).",
+        "pytest-xdist-shared-state",
+        "Tests that access shared state (global variables, class attributes, files outside "
+        "tmp_path) may fail or cause race conditions when run in parallel with pytest-xdist. "
+        "Ensure proper isolation using fixtures and temporary directories.",
+    ),
+    "W9030": (
+        "Fixture '%s' uses file I/O without tmp_path, which may conflict in parallel execution.",
+        "pytest-xdist-fixture-io",
+        "Fixtures that perform file I/O in fixed locations (not tmp_path) will conflict when "
+        "tests run in parallel with pytest-xdist. Use tmp_path_factory for session-scoped "
+        "fixtures or tmp_path for function-scoped fixtures to ensure isolation.",
+    ),
 }

@@ -27,6 +27,10 @@ from pytest_deep_analysis.utils import (
     is_magic_constant,
     get_call_qualname,
     compare_fixture_scopes,
+    has_parametrize_decorator,
+    get_parametrize_decorators,
+    is_mutation_operation,
+    has_database_operations,
 )
 
 if TYPE_CHECKING:
@@ -90,6 +94,12 @@ class PytestDeepAnalysisChecker(BaseChecker):
         )
         # Cache project root for test ID normalization
         self._project_root: Optional[str] = None
+        # Track fixture usage patterns for scope optimization
+        self.fixture_usage_locations: Dict[str, Set[str]] = {}  # fixture_name -> set of file paths
+        # Track fixture parameters accessed in tests
+        self._test_fixture_params: Dict[str, Set[str]] = {}  # test_name -> fixture names used
+        # Track global/class variable access for xdist checking
+        self._has_shared_state_access: bool = False
 
     def _get_project_root(self) -> str:
         """Get the project root directory (cwd where pylint was invoked)."""
@@ -209,6 +219,9 @@ class PytestDeepAnalysisChecker(BaseChecker):
                 line=node.lineno,
             )
 
+        # W9022: Check for database commits without cleanup
+        self._check_fixture_db_commits(node)
+
     # =========================================================================
     # Pass 2: Test and Fixture Analysis
     # =========================================================================
@@ -229,7 +242,10 @@ class PytestDeepAnalysisChecker(BaseChecker):
             self._test_has_state_assertions = False
             self._test_has_mock_verifications = False
             self._assertion_count = 0
+            self._has_shared_state_access = False
             self._check_test_function(node)
+            # Check parametrize decorators for anti-patterns
+            self._check_parametrize_antipatterns(node)
             # Continue visiting children for Category 1 checks
 
     def leave_functiondef(self, node: nodes.FunctionDef) -> None:
@@ -245,6 +261,15 @@ class PytestDeepAnalysisChecker(BaseChecker):
             # W9019: Check for assertion roulette (too many assertions)
             self._check_assertion_roulette(node)
 
+            # W9029: Check for pytest-xdist compatibility issues
+            if self._has_shared_state_access:
+                self.add_message(
+                    "pytest-xdist-shared-state",
+                    node=node,
+                    line=node.lineno,
+                    args=(node.name,),
+                )
+
             self._in_test_function = False
             self._current_test_node = None
 
@@ -259,6 +284,7 @@ class PytestDeepAnalysisChecker(BaseChecker):
             return
 
         test_name = f"{node.root().file}::{node.name}"
+        test_file = node.root().file if node.root().file else "<unknown>"
         fixtures_used = []
 
         for arg in node.args.args:
@@ -272,10 +298,16 @@ class PytestDeepAnalysisChecker(BaseChecker):
                 for fixture_info in self.fixture_graph[arg.name]:
                     fixture_info.used_by.add(test_name)
 
+            # Track fixture usage locations for scope optimization
+            if arg.name not in self.fixture_usage_locations:
+                self.fixture_usage_locations[arg.name] = set()
+            self.fixture_usage_locations[arg.name].add(test_file)
+
             # Category 3: Check for shadowed fixtures (PYTEST-FIX-004)
             self._check_shadowed_fixture(arg, node)
 
         self.test_fixture_usage[test_name] = fixtures_used
+        self._test_fixture_params[test_name] = set(fixtures_used)
 
     def _check_shadowed_fixture(
         self, arg: nodes.AssignName, test_node: nodes.FunctionDef
@@ -491,6 +523,10 @@ class PytestDeepAnalysisChecker(BaseChecker):
         }
         if any(qualname.endswith(f".{method}") for method in mock_verify_methods):
             self._test_has_mock_verifications = True
+
+        # W9023: Check for fixture mutation (mutating method calls)
+        if is_mutation_operation(node):
+            self._check_fixture_mutation(node)
 
         # PYTEST-FLK-001: Check for time.sleep()
         if qualname == "time.sleep" or qualname == "sleep":
@@ -759,6 +795,65 @@ class PytestDeepAnalysisChecker(BaseChecker):
             line=node.lineno,
         )
 
+    def visit_assign(self, node: nodes.Assign) -> None:
+        """Check for fixture mutations and shared state assignments.
+
+        Args:
+            node: The assignment node
+        """
+        if not self._in_test_function:
+            return
+
+        # W9023: Check for fixture mutation via assignment
+        if is_mutation_operation(node):
+            self._check_fixture_mutation(node)
+
+        # W9029: Check for global/class variable assignment (shared state)
+        for target in node.targets:
+            if isinstance(target, nodes.Name):
+                # Check if it's a global variable
+                if self._is_global_or_class_variable(target):
+                    self._has_shared_state_access = True
+            elif isinstance(target, nodes.Attribute):
+                # Check if it's a class attribute
+                if self._is_class_attribute_access(target):
+                    self._has_shared_state_access = True
+
+    def visit_augassign(self, node: nodes.AugAssign) -> None:
+        """Check for fixture mutations via augmented assignment.
+
+        Args:
+            node: The augmented assignment node
+        """
+        if not self._in_test_function:
+            return
+
+        # W9023: Check for fixture mutation
+        if is_mutation_operation(node):
+            self._check_fixture_mutation(node)
+
+    def visit_name(self, node: nodes.Name) -> None:
+        """Check for global variable access (shared state).
+
+        Args:
+            node: The name node
+        """
+        if not self._in_test_function:
+            return
+        
+        # Skip names in decorators - they're not part of the test body
+        parent = node.parent
+        while parent:
+            if isinstance(parent, nodes.Decorators):
+                return
+            if isinstance(parent, nodes.FunctionDef):
+                break
+            parent = parent.parent
+
+        # W9029: Check for global variable access
+        if self._is_global_or_class_variable(node):
+            self._has_shared_state_access = True
+
     def _track_semantic_validation_task(
         self, node: nodes.FunctionDef, validation_type: str
     ) -> None:
@@ -822,6 +917,12 @@ class PytestDeepAnalysisChecker(BaseChecker):
 
         # W9018: Check for complex fixtures without contracts (DbC)
         self._check_fixtures_without_contracts()
+
+        # W9024: Check for overly broad fixture scopes
+        self._check_overly_broad_scopes()
+
+        # W9030: Check for xdist fixture I/O issues
+        self._check_xdist_fixture_io()
 
     def _check_fixture_scope_dependencies(self) -> None:
         """Check for invalid fixture scope dependencies.
@@ -900,6 +1001,27 @@ class PytestDeepAnalysisChecker(BaseChecker):
                         )
                         break  # Only report once per fixture
 
+    def _infer_mutable_type(self, value_node: nodes.NodeNG) -> bool:
+        """Use astroid inference to check if value is a mutable type.
+
+        Args:
+            value_node: The value node
+
+        Returns:
+            True if inferred to be mutable
+        """
+        try:
+            for inferred in value_node.infer():
+                if inferred is Uninferable:
+                    continue
+                if hasattr(inferred, "pytype"):
+                    pytype = inferred.pytype()
+                    if pytype in ("builtins.list", "builtins.dict", "builtins.set"):
+                        return True
+        except (InferenceError, AttributeError, StopIteration):
+            pass
+        return False
+
     def _is_mutable_return(self, value_node: nodes.NodeNG) -> bool:
         """Check if a return value is mutable using type inference.
 
@@ -915,24 +1037,13 @@ class PytestDeepAnalysisChecker(BaseChecker):
 
         # Call nodes - use inference for better accuracy
         if isinstance(value_node, nodes.Call):
-            # First try qualified name check (fast path)
             qualname = get_call_qualname(value_node)
             if qualname in {"list", "dict", "set"}:
                 return True
 
             # Try astroid's inference engine for better detection
-            try:
-                for inferred in value_node.infer():
-                    if inferred is Uninferable:
-                        continue
-                    # Check if inferred type is a mutable collection instance
-                    if hasattr(inferred, "pytype"):
-                        pytype = inferred.pytype()
-                        if pytype in ("builtins.list", "builtins.dict", "builtins.set"):
-                            return True
-            except (InferenceError, AttributeError, StopIteration):
-                # Inference failed, not considered mutable
-                pass
+            if self._infer_mutable_type(value_node):
+                return True
 
         return False
 
@@ -1029,3 +1140,320 @@ class PytestDeepAnalysisChecker(BaseChecker):
             return True
 
         return False
+
+    # =========================================================================
+    # New Enhancement Methods
+    # =========================================================================
+
+    def _check_fixture_db_commits(self, node: nodes.FunctionDef) -> None:
+        """Check if fixture performs database commits without cleanup.
+
+        W9022: Detects database operations without explicit rollback or cleanup.
+
+        Args:
+            node: The fixture function node
+        """
+        from pytest_deep_analysis.config import get_config
+        config = get_config()
+
+        has_commit = False
+        has_rollback = False
+        has_yield_cleanup = False
+
+        # Check if fixture has yield (for cleanup section)
+        for yield_node in node.nodes_of_class(nodes.Yield):
+            # Check if there's code after yield (cleanup section)
+            yield_parent = yield_node.parent
+            if isinstance(yield_parent, nodes.Expr):
+                # Find the yield statement index
+                if hasattr(node, 'body'):
+                    try:
+                        yield_idx = node.body.index(yield_parent)
+                        # Check if there's cleanup code after yield
+                        if yield_idx < len(node.body) - 1:
+                            has_yield_cleanup = True
+                    except ValueError:
+                        # The yield statement's parent is not found in the function body.
+                        # This can happen in rare cases; we ignore and do not set has_yield_cleanup.
+                        pass
+
+        # Check for database operations using configured method lists
+        for call_node in node.nodes_of_class(nodes.Call):
+            if has_database_operations(call_node):
+                qualname = get_call_qualname(call_node)
+                if qualname:
+                    method_name = qualname.split('.')[-1]
+                    if method_name in config.db_commit_methods:
+                        has_commit = True
+                    elif method_name in config.db_rollback_methods:
+                        has_rollback = True
+
+        # Warn if has commit but no rollback and no yield cleanup
+        if has_commit and not has_rollback and not has_yield_cleanup:
+            self.add_message(
+                "pytest-fix-db-commit-no-cleanup",
+                node=node,
+                line=node.lineno,
+                args=(node.name,),
+            )
+
+    def _check_fixture_mutation(self, node: nodes.NodeNG) -> None:
+        """Check if test mutates a fixture value in-place.
+
+        W9023: Detects mutations of fixture return values.
+
+        Args:
+            node: The mutation node (call, assign, or augassign)
+        """
+        if not self._current_test_node:
+            return
+
+        # Get the target being mutated
+        target = None
+        if isinstance(node, nodes.Call):
+            # Mutating method call like fixture.append()
+            if isinstance(node.func, nodes.Attribute):
+                target = node.func.expr
+        elif isinstance(node, nodes.Assign):
+            # Direct assignment like fixture[0] = val
+            for assign_target in node.targets:
+                if isinstance(assign_target, (nodes.Attribute, nodes.Subscript)):
+                    if isinstance(assign_target, nodes.Subscript):
+                        target = assign_target.value
+                    elif isinstance(assign_target, nodes.Attribute):
+                        target = assign_target.expr
+                    break
+        elif isinstance(node, nodes.AugAssign):
+            # Augmented assignment like fixture += [1]
+            if isinstance(node.target, nodes.Name):
+                target = node.target
+
+        # Check if target is a fixture parameter
+        if target and isinstance(target, nodes.Name):
+            test_name = f"{self._current_test_node.root().file}::{self._current_test_node.name}"
+            if test_name in self._test_fixture_params:
+                if target.name in self._test_fixture_params[test_name]:
+                    # Check if the fixture has broader scope than function
+                    if target.name in self.fixture_graph:
+                        for fixture_info in self.fixture_graph[target.name]:
+                            if fixture_info.scope != "function":
+                                self.add_message(
+                                    "pytest-test-fixture-mutation",
+                                    node=node,
+                                    line=node.lineno,
+                                    args=(self._current_test_node.name,),
+                                )
+                                return
+
+    def _is_global_or_class_variable(self, node: nodes.Name) -> bool:
+        """Check if a name node refers to a global or class variable.
+
+        Args:
+            node: The name node
+
+        Returns:
+            True if it's a global or class variable
+        """
+        # Try to find the definition
+        try:
+            # Look up the scope
+            scope = node.scope()
+            if scope:
+                # Check if defined in module scope (global)
+                if isinstance(scope, nodes.Module):
+                    return True
+                # Check if defined in class scope
+                if isinstance(scope, nodes.ClassDef):
+                    return True
+        except (AttributeError, KeyError):
+            # If scope lookup fails, assume not global/class variable and return False.
+            pass
+
+        return False
+
+    def _is_class_attribute_access(self, node: nodes.Attribute) -> bool:
+        """Check if an attribute access is to a class attribute.
+
+        Args:
+            node: The attribute node
+
+        Returns:
+            True if it's a class attribute access
+        """
+        # Check if expr is a class name or self/cls
+        if isinstance(node.expr, nodes.Name):
+            if node.expr.name in {'self', 'cls'}:
+                return True
+            # Try to determine if it's a class
+            try:
+                for inferred in node.expr.infer():
+                    if isinstance(inferred, nodes.ClassDef):
+                        return True
+            except (InferenceError, AttributeError, StopIteration):
+                pass
+
+        return False
+
+    def _check_parametrize_antipatterns(self, node: nodes.FunctionDef) -> None:
+        """Check for parametrize anti-patterns.
+
+        Checks for:
+        - W9025: Empty or single-value parametrize
+        - W9026: Duplicate parameter values
+        - W9027: Excessive parameter combinations
+
+        Args:
+            node: The test function node
+        """
+        from pytest_deep_analysis.config import get_config
+        config = get_config()
+
+        parametrize_decorators = get_parametrize_decorators(node)
+
+        if not parametrize_decorators:
+            return
+
+        # W9027: Check for explosion (multiple parametrize decorators)
+        if len(parametrize_decorators) > 1:
+            # Calculate total combinations
+            total_combinations = 1
+            for decorator in parametrize_decorators:
+                # Try to extract parameter count
+                if decorator.args and len(decorator.args) >= 2:
+                    values_arg = decorator.args[1]
+                    if isinstance(values_arg, (nodes.List, nodes.Tuple)):
+                        total_combinations *= len(values_arg.elts)
+
+            if total_combinations > config.max_parametrize_combinations:
+                self.add_message(
+                    "pytest-parametrize-explosion",
+                    node=node,
+                    line=parametrize_decorators[0].lineno,
+                    args=(total_combinations,),
+                )
+
+        # Check each parametrize decorator
+        for decorator in parametrize_decorators:
+            if not decorator.args or len(decorator.args) < 2:
+                continue
+
+            param_names = decorator.args[0]
+            param_values = decorator.args[1]
+
+            # W9025: Check for empty or single value
+            if isinstance(param_values, (nodes.List, nodes.Tuple)):
+                if len(param_values.elts) == 0:
+                    self.add_message(
+                        "pytest-parametrize-empty",
+                        node=node,
+                        line=decorator.lineno,
+                    )
+                elif len(param_values.elts) == 1:
+                    self.add_message(
+                        "pytest-parametrize-empty",
+                        node=node,
+                        line=decorator.lineno,
+                    )
+
+                # W9026: Check for duplicates
+                values_strs = []
+                for val in param_values.elts:
+                    val_str = val.as_string()
+                    if val_str in values_strs:
+                        # Get param name for message
+                        param_name = param_names.as_string() if hasattr(param_names, 'as_string') else 'parameters'
+                        self.add_message(
+                            "pytest-parametrize-duplicate",
+                            node=node,
+                            line=decorator.lineno,
+                            args=(param_name,),
+                        )
+                        break
+                    values_strs.append(val_str)
+
+    def _check_overly_broad_scopes(self) -> None:
+        """Check for fixtures with overly broad scopes.
+
+        W9024: Detects fixtures that could be narrowed in scope.
+        """
+        for fixture_name, fixture_infos in self.fixture_graph.items():
+            for fixture_info in fixture_infos:
+                # Skip function-scoped fixtures (already narrowest)
+                if fixture_info.scope == "function":
+                    continue
+
+                # Get usage locations
+                usage_locations = self.fixture_usage_locations.get(fixture_name, set())
+
+                if not usage_locations:
+                    continue
+
+                # Determine appropriate scope based on usage
+                suggested_scope = None
+                scope_context = None
+
+                if fixture_info.scope == "session":
+                    # Check if only used in one module
+                    if len(usage_locations) == 1:
+                        suggested_scope = "module"
+                        scope_context = "module"
+                    # Could also check for class-level usage, but that's more complex
+
+                elif fixture_info.scope == "module":
+                    # Check if only used by one test
+                    test_count = len(fixture_info.used_by)
+                    if test_count == 1:
+                        suggested_scope = "function"
+                        scope_context = "test"
+
+                elif fixture_info.scope == "class":
+                    # Check if only used by one test
+                    test_count = len(fixture_info.used_by)
+                    if test_count == 1:
+                        suggested_scope = "function"
+                        scope_context = "test"
+
+                if suggested_scope:
+                    self.add_message(
+                        "pytest-fix-overly-broad-scope",
+                        node=fixture_info.node,
+                        line=fixture_info.node.lineno,
+                        args=(fixture_name, fixture_info.scope, scope_context, suggested_scope),
+                    )
+
+    def _check_xdist_fixture_io(self) -> None:
+        """Check for fixtures that perform I/O without tmp_path.
+
+        W9030: Detects fixtures that may conflict in parallel execution.
+        """
+        for fixture_name, fixture_infos in self.fixture_graph.items():
+            for fixture_info in fixture_infos:
+                # Check if fixture uses file I/O
+                has_file_io = False
+                has_tmp_path = False
+
+                # Check for file operations in fixture
+                for call_node in fixture_info.node.nodes_of_class(nodes.Call):
+                    qualname = get_call_qualname(call_node)
+                    if qualname:
+                        # File I/O operations
+                        if qualname in {'open', 'Path', 'pathlib.Path'}:
+                            has_file_io = True
+                        # Check for operations on file-like objects
+                        method_name = qualname.split('.')[-1]
+                        if method_name in {'read', 'write', 'mkdir', 'touch', 'unlink'}:
+                            has_file_io = True
+
+                # Check if fixture depends on tmp_path or tmp_path_factory
+                tmp_path_fixtures = {'tmp_path', 'tmp_path_factory', 'tmpdir', 'tmpdir_factory'}
+                if any(dep in tmp_path_fixtures for dep in fixture_info.dependencies):
+                    has_tmp_path = True
+
+                # Warn if has file I/O but no tmp_path
+                if has_file_io and not has_tmp_path:
+                    self.add_message(
+                        "pytest-xdist-fixture-io",
+                        node=fixture_info.node,
+                        line=fixture_info.node.lineno,
+                        args=(fixture_name,),
+                    )
