@@ -50,6 +50,64 @@ def is_pytest_fixture(node: nodes.FunctionDef) -> bool:
     return False
 
 
+def _is_fixture_decorator(decorator: nodes.NodeNG) -> bool:
+    """Check if decorator is a pytest.fixture call.
+
+    Args:
+        decorator: The decorator node
+
+    Returns:
+        True if it's a pytest.fixture decorator
+    """
+    if not isinstance(decorator, nodes.Call):
+        return False
+
+    func = decorator.func
+    if isinstance(func, nodes.Name):
+        return func.name == "fixture"
+    if isinstance(func, nodes.Attribute):
+        return func.attrname == "fixture"
+    return False
+
+
+def _extract_scope_from_keyword(keyword: nodes.Keyword) -> Optional[str]:
+    """Extract scope value from keyword argument.
+
+    Args:
+        keyword: The keyword node
+
+    Returns:
+        Scope value or None
+    """
+    if keyword.arg != "scope":
+        return None
+    try:
+        if isinstance(keyword.value, nodes.Const):
+            return keyword.value.value
+    except Exception:
+        pass
+    return None
+
+
+def _extract_autouse_from_keyword(keyword: nodes.Keyword) -> Optional[bool]:
+    """Extract autouse value from keyword argument.
+
+    Args:
+        keyword: The keyword node
+
+    Returns:
+        Autouse value or None
+    """
+    if keyword.arg != "autouse":
+        return None
+    try:
+        if isinstance(keyword.value, nodes.Const):
+            return keyword.value.value
+    except Exception:
+        pass
+    return None
+
+
 def get_fixture_decorator_args(
     node: nodes.FunctionDef,
 ) -> Tuple[str, bool]:
@@ -68,37 +126,19 @@ def get_fixture_decorator_args(
         return scope, autouse
 
     for decorator in node.decorators.nodes:
-        # Only process Call nodes (e.g., @pytest.fixture(...))
-        if not isinstance(decorator, nodes.Call):
-            continue
-
-        # Check if it's a pytest.fixture call
-        func = decorator.func
-        is_fixture_call = False
-        if isinstance(func, nodes.Name) and func.name == "fixture":
-            is_fixture_call = True
-        elif isinstance(func, nodes.Attribute) and func.attrname == "fixture":
-            is_fixture_call = True
-
-        if not is_fixture_call:
+        if not _is_fixture_decorator(decorator):
             continue
 
         # Extract keyword arguments
         if decorator.keywords:
             for keyword in decorator.keywords:
-                if keyword.arg == "scope":
-                    try:
-                        # Get the scope value
-                        if isinstance(keyword.value, nodes.Const):
-                            scope = keyword.value.value
-                    except Exception:
-                        pass
-                elif keyword.arg == "autouse":
-                    try:
-                        if isinstance(keyword.value, nodes.Const):
-                            autouse = keyword.value.value
-                    except Exception:
-                        pass
+                extracted_scope = _extract_scope_from_keyword(keyword)
+                if extracted_scope is not None:
+                    scope = extracted_scope
+
+                extracted_autouse = _extract_autouse_from_keyword(keyword)
+                if extracted_autouse is not None:
+                    autouse = extracted_autouse
 
     return scope, autouse
 

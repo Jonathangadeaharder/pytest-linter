@@ -992,6 +992,27 @@ class PytestDeepAnalysisChecker(BaseChecker):
                         )
                         break  # Only report once per fixture
 
+    def _infer_mutable_type(self, value_node: nodes.NodeNG) -> bool:
+        """Use astroid inference to check if value is a mutable type.
+
+        Args:
+            value_node: The value node
+
+        Returns:
+            True if inferred to be mutable
+        """
+        try:
+            for inferred in value_node.infer():
+                if inferred is Uninferable:
+                    continue
+                if hasattr(inferred, "pytype"):
+                    pytype = inferred.pytype()
+                    if pytype in ("builtins.list", "builtins.dict", "builtins.set"):
+                        return True
+        except (InferenceError, AttributeError, StopIteration):
+            pass
+        return False
+
     def _is_mutable_return(self, value_node: nodes.NodeNG) -> bool:
         """Check if a return value is mutable using type inference.
 
@@ -1007,24 +1028,13 @@ class PytestDeepAnalysisChecker(BaseChecker):
 
         # Call nodes - use inference for better accuracy
         if isinstance(value_node, nodes.Call):
-            # First try qualified name check (fast path)
             qualname = get_call_qualname(value_node)
             if qualname in {"list", "dict", "set"}:
                 return True
 
             # Try astroid's inference engine for better detection
-            try:
-                for inferred in value_node.infer():
-                    if inferred is Uninferable:
-                        continue
-                    # Check if inferred type is a mutable collection instance
-                    if hasattr(inferred, "pytype"):
-                        pytype = inferred.pytype()
-                        if pytype in ("builtins.list", "builtins.dict", "builtins.set"):
-                            return True
-            except (InferenceError, AttributeError, StopIteration):
-                # Inference failed, not considered mutable
-                pass
+            if self._infer_mutable_type(value_node):
+                return True
 
         return False
 

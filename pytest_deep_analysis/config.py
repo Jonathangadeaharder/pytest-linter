@@ -72,6 +72,35 @@ class PytestDeepAnalysisConfig:
                 return None
             current = current.parent
 
+    def _load_list_config(self, tool_config: dict, key: str, target_set: Set[Any]) -> None:
+        """Load a list configuration value into a target set.
+
+        Args:
+            tool_config: Configuration dictionary
+            key: Configuration key
+            target_set: Target set to update
+        """
+        if key in tool_config:
+            value = tool_config[key]
+            if isinstance(value, list):
+                target_set.update(value)
+
+    def _load_int_threshold(self, tool_config: dict, key: str) -> Optional[int]:
+        """Load an integer threshold configuration value.
+
+        Args:
+            tool_config: Configuration dictionary
+            key: Configuration key
+
+        Returns:
+            Integer value if valid, None otherwise
+        """
+        if key in tool_config:
+            value = tool_config[key]
+            if isinstance(value, int) and value > 0:
+                return value
+        return None
+
     def _load_config(self) -> None:
         """Load configuration from pyproject.toml."""
         if not self.config_path or not self.config_path.exists():
@@ -89,28 +118,19 @@ class PytestDeepAnalysisConfig:
             tool_config = data.get("tool", {}).get("pytest-deep-analysis", {})
 
             # Load magic assert allowlist
-            if "magic-assert-allowlist" in tool_config:
-                allowlist = tool_config["magic-assert-allowlist"]
-                if isinstance(allowlist, list):
-                    # Add configured values to the default allowlist
-                    self.magic_assert_allowlist.update(allowlist)
+            self._load_list_config(tool_config, "magic-assert-allowlist", self.magic_assert_allowlist)
 
             # Load disabled rules
-            if "disable-rules" in tool_config:
-                disabled = tool_config["disable-rules"]
-                if isinstance(disabled, list):
-                    self.disabled_rules.update(disabled)
+            self._load_list_config(tool_config, "disable-rules", self.disabled_rules)
 
             # Load thresholds
-            if "max-assertions" in tool_config:
-                max_assertions = tool_config["max-assertions"]
-                if isinstance(max_assertions, int) and max_assertions > 0:
-                    self.max_assertions = max_assertions
+            max_assertions = self._load_int_threshold(tool_config, "max-assertions")
+            if max_assertions is not None:
+                self.max_assertions = max_assertions
 
-            if "max-parametrize-combinations" in tool_config:
-                max_combos = tool_config["max-parametrize-combinations"]
-                if isinstance(max_combos, int) and max_combos > 0:
-                    self.max_parametrize_combinations = max_combos
+            max_combos = self._load_int_threshold(tool_config, "max-parametrize-combinations")
+            if max_combos is not None:
+                self.max_parametrize_combinations = max_combos
 
             # Load database method lists
             if "db-commit-methods" in tool_config:
