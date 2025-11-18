@@ -193,6 +193,8 @@ def create_default_engine(config: Optional[TestLinterConfig] = None) -> LinterEn
     from test_linter.core.config import get_default_config
     from test_linter.core.smells import get_universal_rules
     from test_linter.languages.python import PythonAdapter
+    from test_linter.languages.typescript import TypeScriptAdapter
+    from test_linter.core.models import LanguageType
 
     if config is None:
         config = get_default_config()
@@ -203,9 +205,13 @@ def create_default_engine(config: Optional[TestLinterConfig] = None) -> LinterEn
     # Register Python adapter
     adapter_registry.register(PythonAdapter())
 
+    # Register TypeScript/JavaScript adapters
+    adapter_registry.register(TypeScriptAdapter(LanguageType.TYPESCRIPT))
+    adapter_registry.register(TypeScriptAdapter(LanguageType.JAVASCRIPT))
+
     # TODO: Register other language adapters as they're implemented
-    # adapter_registry.register(TypeScriptAdapter())
     # adapter_registry.register(GoAdapter())
+    # adapter_registry.register(CppAdapter())
     # etc.
 
     # Create rule registry
