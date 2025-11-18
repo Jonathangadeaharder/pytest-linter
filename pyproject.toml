@@ -3,18 +3,18 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "pytest-deep-analysis"
-version = "0.1.0"
-description = "A Pylint plugin for deep, semantic pytest linting"
+name = "test-linter"
+version = "0.2.0"
+description = "A multi-language test linter supporting Python, TypeScript, Go, C++, Java, Rust, and C#"
 readme = "README.md"
 requires-python = ">=3.8"
 license = {text = "MIT"}
 authors = [
-    {name = "Pytest Deep Analysis Contributors"}
+    {name = "Test Linter Contributors"}
 ]
-keywords = ["pytest", "linting", "testing", "pylint", "plugin", "static-analysis"]
+keywords = ["testing", "linting", "pytest", "jest", "junit", "static-analysis", "test-quality", "multi-language"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "Topic :: Software Development :: Quality Assurance",
     "Topic :: Software Development :: Testing",
@@ -49,7 +49,10 @@ Issues = "https://github.com/yourusername/pytest-deep-analysis/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["pytest_deep_analysis*"]
+include = ["pytest_deep_analysis*", "test_linter*"]
+
+[project.scripts]
+test-linter = "test_linter.cli:main"
 
 [project.entry-points."pytest11"]
 pytest_deep_analysis_runtime = "pytest_deep_analysis.runtime.plugin"
@@ -73,7 +76,7 @@ python_functions = ["test_*"]
 addopts = "-v --tb=short"
 
 [tool.coverage.run]
-source = ["pytest_deep_analysis"]
+source = ["pytest_deep_analysis", "test_linter"]
 omit = ["*/tests/*", "*/test_*.py"]
 
 [tool.coverage.report]
@@ -87,8 +90,8 @@ exclude_lines = [
 ]
 
 [tool.pytest-deep-analysis]
-# Configuration for pytest-deep-analysis linter
-# Uncomment and customize as needed
+# Legacy configuration for pytest-deep-analysis linter
+# For new projects, use [tool.test-linter] instead
 
 # Allow specific "magic" constants that are common in your domain
 # These will not trigger pytest-mnt-magic-assert warnings
@@ -98,3 +101,49 @@ exclude_lines = [
 #     500, 502, 503,  # HTTP server error codes
 #     "GET", "POST", "PUT", "DELETE",  # HTTP methods
 # ]
+
+[tool.test-linter]
+# Multi-language test linter configuration
+
+# General settings
+languages = ["python"]  # Supported: python, typescript, javascript, go, cpp, java, rust, csharp
+auto-detect-language = true
+output-format = "terminal"  # terminal, json
+# output-file = "test-linter-report.json"
+
+# Rule settings
+max-assertions = 3
+max-parametrize-combinations = 20
+# disabled-rules = ["UNI-FLK-001"]  # Disable specific rules
+
+# Advanced settings
+cross-file-analysis = true
+parallel-processing = true
+cache-enabled = true
+
+# Python-specific configuration
+[tool.test-linter.python]
+enabled = true
+framework = "pytest"  # or "unittest"
+max-assertions = 3
+# disabled-rules = []
+# magic-assert-allowlist = [200, 201, 404]
+# db-commit-methods = ["commit", "save"]
+# db-rollback-methods = ["rollback"]
+
+# TypeScript/JavaScript configuration (example)
+# [tool.test-linter.typescript]
+# enabled = true
+# framework = "jest"  # or "mocha", "vitest"
+# max-assertions = 3
+
+# Go configuration (example)
+# [tool.test-linter.go]
+# enabled = true
+# framework = "testing"  # or "testify"
+
+# Rule severity overrides
+# [tool.test-linter.rules]
+# UNI-FLK-001 = "error"  # time-sleep rule
+# UNI-MNT-002 = "warning"  # assertion-roulette rule
+# UNI-MNT-003 = "off"  # Disable no-assertion rule

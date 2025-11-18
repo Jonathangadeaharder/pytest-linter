@@ -299,7 +299,10 @@ def has_parametrize_decorator(node: nodes.FunctionDef) -> bool:
             if isinstance(func, nodes.Attribute):
                 if func.attrname == "parametrize":
                     # Check if it's pytest.mark.parametrize
-                    if isinstance(func.expr, nodes.Attribute) and func.expr.attrname == "mark":
+                    if (
+                        isinstance(func.expr, nodes.Attribute)
+                        and func.expr.attrname == "mark"
+                    ):
                         return True
     return False
 
@@ -323,7 +326,10 @@ def get_parametrize_decorators(node: nodes.FunctionDef) -> List[nodes.Call]:
             func = decorator.func
             if isinstance(func, nodes.Attribute):
                 if func.attrname == "parametrize":
-                    if isinstance(func.expr, nodes.Attribute) and func.expr.attrname == "mark":
+                    if (
+                        isinstance(func.expr, nodes.Attribute)
+                        and func.expr.attrname == "mark"
+                    ):
                         parametrize_decorators.append(decorator)
 
     return parametrize_decorators
@@ -353,8 +359,16 @@ def is_mutation_operation(node: nodes.NodeNG) -> bool:
         func = node.func
         if isinstance(func, nodes.Attribute):
             mutating_methods = {
-                'append', 'extend', 'insert', 'remove', 'pop', 'clear',
-                'update', 'add', 'discard', 'setdefault'
+                "append",
+                "extend",
+                "insert",
+                "remove",
+                "pop",
+                "clear",
+                "update",
+                "add",
+                "discard",
+                "setdefault",
             }
             if func.attrname in mutating_methods:
                 return True
@@ -373,15 +387,23 @@ def has_database_operations(node: nodes.NodeNG) -> bool:
     """
     # Database-related method calls
     db_methods = {
-        'commit', 'rollback', 'execute', 'executemany', 'bulk_create',
-        'bulk_update', 'save', 'delete', 'create', 'update_or_create'
+        "commit",
+        "rollback",
+        "execute",
+        "executemany",
+        "bulk_create",
+        "bulk_update",
+        "save",
+        "delete",
+        "create",
+        "update_or_create",
     }
 
     if isinstance(node, nodes.Call):
         qualname = get_call_qualname(node)
         if qualname:
             # Check if it's a database method
-            method_name = qualname.split('.')[-1]
+            method_name = qualname.split(".")[-1]
             if method_name in db_methods:
                 return True
 

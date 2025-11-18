@@ -92,7 +92,7 @@ class TestFixtureMutation(PytestDeepAnalysisTestCase):
             code,
             msg("pytest-test-fixture-mutation", line=9),
             msg("pytest-fix-overly-broad-scope", line=4),
-            call_close=True
+            call_close=True,
         )
 
     def test_mutating_function_scoped_fixture(self):
@@ -196,7 +196,9 @@ class TestXdistCompatibility(PytestDeepAnalysisTestCase):
         def test_something(file_fixture):
             assert file_fixture
         """
-        self.assert_adds_messages(code, msg("pytest-xdist-fixture-io", line=4), call_close=True)
+        self.assert_adds_messages(
+            code, msg("pytest-xdist-fixture-io", line=4), call_close=True
+        )
 
     def test_fixture_io_with_tmp_path(self):
         """Should NOT warn when fixture uses tmp_path."""
