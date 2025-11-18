@@ -1,0 +1,266 @@
+# structurelint configuration
+# Enhanced with best practices for pytest-deep-analysis
+# Documentation: https://github.com/structurelint/structurelint
+
+root: true
+
+exclude:
+  - testdata/**
+  - .git/**
+  - __pycache__/**
+  - .pytest_cache/**
+  - venv/**
+  - .venv/**
+  - "*.egg-info/**"
+  - build/**
+  - dist/**
+  - .mypy_cache/**
+  - .ruff_cache/**
+  - .structurelint.yml
+
+rules:
+  # ==========================================================================
+  # Phase 0: Basic Filesystem Structure
+  # ==========================================================================
+
+  # Limit directory depth to prevent over-nesting
+  max-depth:
+    max: 5
+    exemptions:
+      - ".git/**"
+      - "**/__pycache__/**"
+
+  # Keep directories focused - max 30 files per directory
+  max-files-in-dir:
+    max: 30
+    exemptions:
+      - "tests/test_harness"  # Test files can have more
+      - ".git/**"
+
+  # Limit subdirectories for better organization
+  max-subdirs:
+    max: 15
+    exemptions:
+      - ".git/**"
+
+  # Enforce consistent naming conventions
+  naming-convention:
+    style: "snake_case"
+    apply-to:
+      - "**/*.py"
+    exemptions:
+      - "**/__pycache__/**"
+      - ".git/**"
+      - "README.md"
+      - "LICENSE"
+      - "CONTRIBUTING.md"
+      - "CHANGELOG.md"
+
+  # Ensure critical documentation exists (root level only)
+  # Note: file-existence checks all directories - use exemptions
+  file-existence:
+    "README.md":
+      rule: "exists:1"
+      exemptions:
+        - "pytest_deep_analysis/**"
+        - "tests/**"
+        - "**/__pycache__/**"
+        - "*.egg-info/**"
+    "LICENSE":
+      rule: "exists:1"
+      exemptions:
+        - "pytest_deep_analysis/**"
+        - "tests/**"
+        - "**/__pycache__/**"
+        - "*.egg-info/**"
+    "pyproject.toml":
+      rule: "exists:1"
+      exemptions:
+        - "pytest_deep_analysis/**"
+        - "tests/**"
+        - "**/__pycache__/**"
+        - "*.egg-info/**"
+    ".gitignore":
+      rule: "exists:1"
+      exemptions:
+        - "pytest_deep_analysis/**"
+        - "tests/**"
+        - "**/__pycache__/**"
+        - "*.egg-info/**"
+
+  # Disallow problematic file patterns
+  disallowed-patterns:
+    - "*.tmp"
+    - "*.bak"
+    - ".DS_Store"
+    - "*.swp"
+    - "*.swo"
+    - "*~"
+    - "Thumbs.db"
+
+  # ==========================================================================
+  # Phase 3: Test Validation
+  # ==========================================================================
+
+  # Test adjacency for Python with integration test pattern
+  test-adjacency:
+    pattern: "separate"
+    test-dir: "tests"
+    file-patterns:
+      - "**/*.py"
+    exemptions:
+      # Package/module structure files
+      - "**/__init__.py"
+      - "**/conftest.py"
+      - "setup.py"
+
+      # Plugin entry points (tested via integration tests)
+      - "pytest_deep_analysis/__init__.py"
+      - "pytest_deep_analysis/runtime/__init__.py"
+
+      # Message definitions (no logic to test)
+      - "pytest_deep_analysis/messages.py"
+
+      # Main implementation files are tested via integration tests in test_harness
+      # This is a valid pattern for linters/checkers
+      - "pytest_deep_analysis/checkers.py"
+      - "pytest_deep_analysis/config.py"
+      - "pytest_deep_analysis/utils.py"
+
+      # Runtime components tested via integration
+      - "pytest_deep_analysis/runtime/*.py"
+
+  # Test location validation
+  test-location:
+    integration-test-dir: "tests"
+    allow-adjacent: false
+    exemptions:
+      - "testdata/**"
+      - "examples/**"
+
+  # ==========================================================================
+  # Phase 1: Architectural Layers (Python Linter)
+  # ==========================================================================
+
+  layers:
+    # Public API layer
+    - name: "api"
+      paths:
+        - "pytest_deep_analysis/__init__.py"
+      can-import:
+        - "checkers"
+        - "config"
+      description: "Public plugin API"
+
+    # Core linting logic
+    - name: "checkers"
+      paths:
+        - "pytest_deep_analysis/checkers.py"
+      can-import:
+        - "messages"
+        - "utils"
+        - "config"
+      cannot-import:
+        - "runtime"  # Static analysis shouldn't depend on runtime
+      description: "Core static analysis checker"
+
+    # Utility layer
+    - name: "utils"
+      paths:
+        - "pytest_deep_analysis/utils.py"
+      can-import: []  # Pure utilities, no internal deps
+      description: "AST/astroid utilities"
+
+    # Configuration layer
+    - name: "config"
+      paths:
+        - "pytest_deep_analysis/config.py"
+      can-import: []  # Config is independent
+      description: "Configuration management"
+
+    # Message definitions
+    - name: "messages"
+      paths:
+        - "pytest_deep_analysis/messages.py"
+      can-import: []  # Pure data, no deps
+      description: "Linter message definitions"
+
+    # Runtime validation (separate from static analysis)
+    - name: "runtime"
+      paths:
+        - "pytest_deep_analysis/runtime/*.py"
+      can-import:
+        - "config"
+      cannot-import:
+        - "checkers"  # Runtime shouldn't depend on static checker
+      description: "Pytest runtime plugin for semantic validation"
+
+  # ==========================================================================
+  # Phase 2: Dead Code Detection
+  # ==========================================================================
+
+  entrypoints:
+    # Plugin entry points
+    - "pytest_deep_analysis/__init__.py"
+    - "pytest_deep_analysis/runtime/__init__.py"
+
+    # Test entry points
+    - "tests/**/test_*.py"
+    - "tests/**/*_test.py"
+    - "tests/**/conftest.py"
+
+  # ==========================================================================
+  # Code Quality: Cognitive Complexity
+  # ==========================================================================
+
+  max-cognitive-complexity:
+    max: 25  # Reasonable limit for maintainability
+    exemptions:
+      - "tests/**"  # Tests can be more complex
+      - "**/__init__.py"
+
+  # ==========================================================================
+  # Code Quality: Halstead Effort (maintainability metric)
+  # ==========================================================================
+
+  max-halstead-effort:
+    max: 50000  # Functions exceeding this are hard to maintain
+    exemptions:
+      - "tests/**"
+      - "**/__init__.py"
+
+# ==========================================================================
+# GitHub Workflow Enforcement
+# ==========================================================================
+
+github-workflows:
+  require-test-workflow: true
+  require-lint-workflow: true
+
+  required-jobs:
+    - name: "test"
+      description: "Must have test execution"
+    - name: "lint"
+      description: "Must have linting"
+
+  security-scanning:
+    require-codeql: false  # Optional for now
+    require-dependency-review: false
+
+# ==========================================================================
+# File Content Templates (Phase 4)
+# ==========================================================================
+
+file-templates:
+  "README.md":
+    required-sections:
+      - "Installation"
+      - "Usage"
+      - "Examples"
+    description: "Main project documentation"
+
+  "CONTRIBUTING.md":
+    required-sections:
+      - "Development"
+      - "Testing"
+    description: "Contributor guidelines"
