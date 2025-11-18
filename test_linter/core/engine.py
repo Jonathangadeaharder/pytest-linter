@@ -199,6 +199,7 @@ def create_default_engine(config: Optional[TestLinterConfig] = None) -> LinterEn
     from test_linter.languages.java import JavaAdapter
     from test_linter.languages.rust import RustAdapter
     from test_linter.languages.csharp import CSharpAdapter
+    from test_linter.languages.vbnet import VBNetAdapter
     from test_linter.core.models import LanguageType
 
     if config is None:
@@ -216,6 +217,7 @@ def create_default_engine(config: Optional[TestLinterConfig] = None) -> LinterEn
     adapter_registry.register(JavaAdapter())
     adapter_registry.register(RustAdapter())
     adapter_registry.register(CSharpAdapter())
+    adapter_registry.register(VBNetAdapter())
 
     # Create rule registry
     rule_registry = RuleRegistry()

@@ -12,6 +12,7 @@ examples = [
     ("Java", "examples/JavaSampleTest.java"),
     ("Rust", "examples/rust_sample_test.rs"),
     ("C#", "examples/CSharpSampleTest.cs"),
+    ("VB.NET", "examples/VBNetSampleTest.vb"),
 ]
 
 print("=" * 70)

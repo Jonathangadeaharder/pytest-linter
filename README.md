@@ -3,7 +3,7 @@
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A comprehensive, multi-language test linter that detects test smells and anti-patterns across **7 programming languages** and **17+ testing frameworks**.
+A comprehensive, multi-language test linter that detects test smells and anti-patterns across **8 programming languages** and **20+ testing frameworks**.
 
 ## 🌟 Supported Languages & Frameworks
 
@@ -17,6 +17,7 @@ A comprehensive, multi-language test linter that detects test smells and anti-pa
 | **Java** | JUnit 4, JUnit 5, TestNG | ✅ Complete |
 | **Rust** | Built-in tests, #[test] | ✅ Complete |
 | **C#** | NUnit, xUnit, MSTest | ✅ Complete |
+| **VB.NET** | NUnit, xUnit, MSTest | ✅ Complete |
 
 ## 🚀 Quick Start
 
@@ -197,6 +198,25 @@ public void TestValue()
     var result = Calculate();
     Assert.AreEqual(expected, result);
 }
+```
+
+### VB.NET (NUnit)
+```vbnet
+' ❌ BAD: Conditional logic in test (UNI-MNT-001)
+<Test>
+Public Sub TestWithLogic()
+    Dim value As Integer = 10
+    If value > 5 Then  ' Logic in test!
+        Assert.IsTrue(value > 5)
+    End If
+End Sub
+
+' ✅ GOOD: Direct assertion
+<Test>
+Public Sub TestValueGreaterThan5()
+    Dim value As Integer = GetValue()
+    Assert.Greater(value, 5)
+End Sub
 ```
 
 ## 🔧 Configuration
@@ -380,6 +400,12 @@ test_linter/
 - **Async Tests**: async Task test methods
 - **Setup/Teardown**: [SetUp], [TearDown], [OneTimeSetUp]
 
+### VB.NET
+- **Multi-Framework**: NUnit, xUnit, MSTest (same as C#)
+- **Attribute-Based**: <Test>, <Fact>, <TestMethod>
+- **Async Tests**: Async Function ... As Task
+- **Case Insensitive**: Flexible syntax matching
+
 ## 🎯 Use Cases
 
 ### Pre-Commit Hooks
@@ -489,6 +515,7 @@ Typical performance on a 2023 MacBook Pro:
 | Java | 200-250 | Annotation parsing |
 | Rust | 300-400 | Lightweight parsing |
 | C# | 200-250 | Attribute parsing |
+| VB.NET | 200-250 | Attribute parsing |
 
 **Parallel Processing**: 3-5x speedup on multi-core systems (enabled by default)
 

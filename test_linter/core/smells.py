@@ -40,6 +40,7 @@ class TimeSleepRule(UniversalRule):
         LanguageType.JAVA: {"Thread.sleep", "sleep"},
         LanguageType.RUST: {"thread::sleep", "sleep"},
         LanguageType.CSHARP: {"Thread.Sleep", "Task.Delay"},
+        LanguageType.VBNET: {"Thread.Sleep", "Task.Delay"},
     }
 
     def __init__(self):

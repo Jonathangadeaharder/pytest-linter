@@ -15,6 +15,7 @@ class LanguageType(Enum):
     JAVA = "java"
     RUST = "rust"
     CSHARP = "csharp"
+    VBNET = "vbnet"
 
 
 class TestFramework(Enum):
