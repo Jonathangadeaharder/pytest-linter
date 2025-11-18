@@ -116,6 +116,24 @@ magic-assert-allowlist = [
 
 **Example:** Without configuration, `assert response.status_code == 200` triggers a warning. With `200` in the allowlist, it's allowed.
 
+### Advanced Configuration
+
+You can customize rule behavior and thresholds:
+
+```toml
+[tool.pytest-deep-analysis]
+# Disable specific rules
+disable-rules = ["pytest-parametrize-explosion", "pytest-fix-overly-broad-scope"]
+
+# Adjust thresholds
+max-assertions = 5  # Default: 3 (for W9019 assertion roulette)
+max-parametrize-combinations = 50  # Default: 20 (for W9027 parametrize explosion)
+
+# Customize database operation detection
+db-commit-methods = ["commit", "save", "create", "flush"]
+db-rollback-methods = ["rollback", "reset"]
+```
+
 See `pyproject.toml.example` for a complete configuration template.
 
 ## Semantic Feedback Loop (Static ↔ Dynamic Integration)
@@ -195,6 +213,7 @@ See `pytest_deep_analysis/runtime/README.md` for full runtime plugin documentati
 | Rule ID | Message | Description |
 |---------|---------|-------------|
 | **W9021** | `pytest-fix-autouse` | `@pytest.fixture(autouse=True)` detected. Avoid implicit magic. |
+| **W9022** | `pytest-fix-db-commit-no-cleanup` | Fixture performs database commits without explicit cleanup/rollback. |
 
 ### Category 3: Fixture Interaction Smells (Cross-File Analysis)
 
@@ -205,6 +224,23 @@ See `pytest_deep_analysis/runtime/README.md` for full runtime plugin documentati
 | **W9033** | `pytest-fix-shadowed` | Fixture is shadowed across conftest.py files. |
 | **W9034** | `pytest-fix-unused` | Fixture is defined but never used. |
 | **E9035** | `pytest-fix-stateful-session` | Session-scoped fixture returns mutable object. |
+| **W9023** | `pytest-test-fixture-mutation` | Test modifies fixture return value in-place (causing state bleeding). |
+| **W9024** | `pytest-fix-overly-broad-scope` | Fixture scope is broader than necessary (consider narrowing). |
+| **W9030** | `pytest-xdist-fixture-io` | Fixture uses file I/O without tmp_path (may conflict in parallel execution). |
+
+### Category 4: Parametrize Anti-patterns
+
+| Rule ID | Message | Description |
+|---------|---------|-------------|
+| **W9025** | `pytest-parametrize-empty` | Empty or single-value parametrize (remove decorator or add more values). |
+| **W9026** | `pytest-parametrize-duplicate` | Duplicate values in parametrize (wastes test execution time). |
+| **W9027** | `pytest-parametrize-explosion` | Excessive parameter combinations (consider hypothesis for property-based testing). |
+
+### Category 5: pytest-xdist Compatibility
+
+| Rule ID | Message | Description |
+|---------|---------|-------------|
+| **W9029** | `pytest-xdist-shared-state` | Test accesses shared state (may fail in parallel execution). |
 
 ## Examples
 
@@ -265,6 +301,70 @@ def database():
 @pytest.fixture
 def database():  # ⚠️ PYTEST-FIX-004: Shadows parent fixture
     return {"host": "api-server"}
+```
+
+### ❌ Bad: Database Fixture Without Cleanup
+
+```python
+@pytest.fixture
+def db_with_data():
+    db = get_database()
+    db.execute("INSERT INTO users VALUES (1, 'test')")
+    db.commit()  # ⚠️ W9022: No cleanup!
+    return db
+```
+
+### ✅ Good: Proper Database Cleanup
+
+```python
+@pytest.fixture
+def db_with_data():
+    db = get_database()
+    db.execute("INSERT INTO users VALUES (1, 'test')")
+    db.commit()
+    yield db
+    db.rollback()  # ✓ Cleanup after test
+```
+
+### ❌ Bad: Test Mutates Module-Scoped Fixture
+
+```python
+@pytest.fixture(scope="module")
+def shared_cache():
+    return {}
+
+def test_first(shared_cache):
+    shared_cache["key"] = "value"  # ⚠️ W9023: Mutation!
+    assert shared_cache["key"] == "value"
+```
+
+### ✅ Good: Copy Before Mutation
+
+```python
+def test_first(shared_cache):
+    cache_copy = shared_cache.copy()  # ✓ Safe
+    cache_copy["key"] = "value"
+    assert cache_copy["key"] == "value"
+```
+
+### ❌ Bad: Parametrize Explosion
+
+```python
+@pytest.mark.parametrize("a", range(10))
+@pytest.mark.parametrize("b", range(10))
+@pytest.mark.parametrize("c", range(10))  # ⚠️ W9027: 1000 tests!
+def test_combination(a, b, c):
+    assert a + b + c >= 0
+```
+
+### ✅ Good: Use Hypothesis for Property-Based Testing
+
+```python
+from hypothesis import given, strategies as st
+
+@given(st.integers(), st.integers(), st.integers())
+def test_combination(a, b, c):
+    assert a + b + c >= a  # Property holds for all inputs
 ```
 
 ## Architecture

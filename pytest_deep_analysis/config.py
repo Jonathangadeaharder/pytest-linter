@@ -34,6 +34,19 @@ class PytestDeepAnalysisConfig:
         self.magic_assert_allowlist: Set[Any] = {-1, 0, 1, None, ""}
         self.config_path: Optional[Path] = None
 
+        # Rule configuration
+        self.disabled_rules: Set[str] = set()
+
+        # Thresholds for rules
+        self.max_assertions = 3  # For W9019 assertion roulette
+        self.max_parametrize_combinations = 20  # For W9027 parametrize explosion
+
+        # Database operations to consider for commit detection
+        self.db_commit_methods: Set[str] = {
+            'commit', 'save', 'create', 'update_or_create', 'bulk_create', 'bulk_update'
+        }
+        self.db_rollback_methods: Set[str] = {'rollback'}
+
         if config_file:
             self.config_path = Path(config_file)
         else:
@@ -82,6 +95,34 @@ class PytestDeepAnalysisConfig:
                     # Add configured values to the default allowlist
                     self.magic_assert_allowlist.update(allowlist)
 
+            # Load disabled rules
+            if "disable-rules" in tool_config:
+                disabled = tool_config["disable-rules"]
+                if isinstance(disabled, list):
+                    self.disabled_rules.update(disabled)
+
+            # Load thresholds
+            if "max-assertions" in tool_config:
+                max_assertions = tool_config["max-assertions"]
+                if isinstance(max_assertions, int) and max_assertions > 0:
+                    self.max_assertions = max_assertions
+
+            if "max-parametrize-combinations" in tool_config:
+                max_combos = tool_config["max-parametrize-combinations"]
+                if isinstance(max_combos, int) and max_combos > 0:
+                    self.max_parametrize_combinations = max_combos
+
+            # Load database method lists
+            if "db-commit-methods" in tool_config:
+                commit_methods = tool_config["db-commit-methods"]
+                if isinstance(commit_methods, list):
+                    self.db_commit_methods = set(commit_methods)
+
+            if "db-rollback-methods" in tool_config:
+                rollback_methods = tool_config["db-rollback-methods"]
+                if isinstance(rollback_methods, list):
+                    self.db_rollback_methods = set(rollback_methods)
+
         except FileNotFoundError:
             # Config file not found, use defaults
             logging.debug(f"Config file not found: {self.config_path}")
@@ -115,6 +156,17 @@ class PytestDeepAnalysisConfig:
             return True
 
         return False
+
+    def is_rule_disabled(self, rule_symbol: str) -> bool:
+        """Check if a rule is disabled in configuration.
+
+        Args:
+            rule_symbol: The rule symbol (e.g., 'pytest-fix-db-commit-no-cleanup')
+
+        Returns:
+            True if the rule is disabled
+        """
+        return rule_symbol in self.disabled_rules
 
 
 # Global config instance (will be initialized by the checker)

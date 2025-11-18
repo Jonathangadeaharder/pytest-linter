@@ -236,3 +236,111 @@ def compare_fixture_scopes(scope1: str, scope2: str) -> int:
     val1 = SCOPE_ORDER.get(scope1, 1)
     val2 = SCOPE_ORDER.get(scope2, 1)
     return val1 - val2
+
+
+def has_parametrize_decorator(node: nodes.FunctionDef) -> bool:
+    """Check if a function has @pytest.mark.parametrize decorator.
+
+    Args:
+        node: The function definition node
+
+    Returns:
+        True if the function has a parametrize decorator
+    """
+    if not node.decorators:
+        return False
+
+    for decorator in node.decorators.nodes:
+        if isinstance(decorator, nodes.Call):
+            func = decorator.func
+            # Check for pytest.mark.parametrize
+            if isinstance(func, nodes.Attribute):
+                if func.attrname == "parametrize":
+                    # Check if it's pytest.mark.parametrize
+                    if isinstance(func.expr, nodes.Attribute) and func.expr.attrname == "mark":
+                        return True
+    return False
+
+
+def get_parametrize_decorators(node: nodes.FunctionDef) -> List[nodes.Call]:
+    """Get all parametrize decorators from a function.
+
+    Args:
+        node: The function definition node
+
+    Returns:
+        List of parametrize decorator call nodes
+    """
+    parametrize_decorators = []
+
+    if not node.decorators:
+        return parametrize_decorators
+
+    for decorator in node.decorators.nodes:
+        if isinstance(decorator, nodes.Call):
+            func = decorator.func
+            if isinstance(func, nodes.Attribute):
+                if func.attrname == "parametrize":
+                    if isinstance(func.expr, nodes.Attribute) and func.expr.attrname == "mark":
+                        parametrize_decorators.append(decorator)
+
+    return parametrize_decorators
+
+
+def is_mutation_operation(node: nodes.NodeNG) -> bool:
+    """Check if a node represents a mutation operation.
+
+    Args:
+        node: The node to check
+
+    Returns:
+        True if the node is a mutation operation
+    """
+    # Check for augmented assignments (+=, -=, etc.)
+    if isinstance(node, nodes.AugAssign):
+        return True
+
+    # Check for direct attribute/subscript assignments
+    if isinstance(node, nodes.Assign):
+        for target in node.targets:
+            if isinstance(target, (nodes.Attribute, nodes.Subscript)):
+                return True
+
+    # Check for mutating method calls (append, extend, pop, etc.)
+    if isinstance(node, nodes.Call):
+        func = node.func
+        if isinstance(func, nodes.Attribute):
+            mutating_methods = {
+                'append', 'extend', 'insert', 'remove', 'pop', 'clear',
+                'update', 'add', 'discard', 'setdefault'
+            }
+            if func.attrname in mutating_methods:
+                return True
+
+    return False
+
+
+def has_database_operations(node: nodes.NodeNG) -> bool:
+    """Check if a node contains database operations.
+
+    Args:
+        node: The node to check
+
+    Returns:
+        True if database operations are detected
+    """
+    # Database-related method calls
+    db_methods = {
+        'commit', 'execute', 'executemany', 'bulk_create',
+        'bulk_update', 'save', 'delete', 'create', 'update_or_create'
+    }
+
+    if isinstance(node, nodes.Call):
+        qualname = get_call_qualname(node)
+        if qualname:
+            # Check if it's a database method
+            method_name = qualname.split('.')[-1]
+            if method_name in db_methods:
+                return True
+
+    return False
