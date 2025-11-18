@@ -373,7 +373,7 @@ def has_database_operations(node: nodes.NodeNG) -> bool:
     """
     # Database-related method calls
     db_methods = {
-        'commit', 'execute', 'executemany', 'bulk_create',
+        'commit', 'rollback', 'execute', 'executemany', 'bulk_create',
         'bulk_update', 'save', 'delete', 'create', 'update_or_create'
     }
 

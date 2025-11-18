@@ -840,6 +840,15 @@ class PytestDeepAnalysisChecker(BaseChecker):
         """
         if not self._in_test_function:
             return
+        
+        # Skip names in decorators - they're not part of the test body
+        parent = node.parent
+        while parent:
+            if isinstance(parent, nodes.Decorators):
+                return
+            if isinstance(parent, nodes.FunctionDef):
+                break
+            parent = parent.parent
 
         # W9029: Check for global variable access
         if self._is_global_or_class_variable(node):

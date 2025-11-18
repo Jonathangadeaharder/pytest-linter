@@ -51,6 +51,9 @@ class PytestDeepAnalysisTestCase(CheckerTestCase):
         # Run the checker and collect messages
         self.checker.visit_module(node)
         self.walk(node)
+        
+        # Call close() to trigger fixture graph validation (Category 3 checks)
+        self.checker.close()
 
         # Get actual messages
         actual_messages = self.linter.release_messages()

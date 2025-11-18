@@ -28,6 +28,9 @@ class TestDatabaseCommitCleanup(PytestDeepAnalysisTestCase):
             conn = get_connection()
             conn.commit()
             return conn
+        
+        def test_something(db_fixture):
+            assert db_fixture
         """
         self.assert_adds_messages(code, msg("pytest-fix-db-commit-no-cleanup", line=4))
 
@@ -42,6 +45,9 @@ class TestDatabaseCommitCleanup(PytestDeepAnalysisTestCase):
             conn.commit()
             yield conn
             conn.rollback()
+        
+        def test_something(db_fixture):
+            assert db_fixture
         """
         self.assert_no_messages(code)
 
@@ -58,6 +64,9 @@ class TestDatabaseCommitCleanup(PytestDeepAnalysisTestCase):
             except Exception:
                 conn.rollback()
             return conn
+        
+        def test_something(db_fixture):
+            assert db_fixture
         """
         self.assert_no_messages(code)
 
@@ -76,9 +85,14 @@ class TestFixtureMutation(PytestDeepAnalysisTestCase):
 
         def test_mutation(shared_list):  # Line 8
             shared_list.append(1)
-            assert len(shared_list) == 1
+            assert len(shared_list) > 0
         """
-        self.assert_adds_messages(code, msg("pytest-test-fixture-mutation", line=9))
+        # This test expects both mutation warning and overly-broad-scope warning
+        self.assert_adds_messages(
+            code,
+            msg("pytest-test-fixture-mutation", line=9),
+            msg("pytest-fix-overly-broad-scope", line=4)
+        )
 
     def test_mutating_function_scoped_fixture(self):
         """Should NOT warn for function-scoped fixture mutation."""
@@ -177,6 +191,9 @@ class TestXdistCompatibility(PytestDeepAnalysisTestCase):
             with open("test.txt", "w") as f:
                 f.write("data")
             return "test.txt"
+        
+        def test_something(file_fixture):
+            assert file_fixture
         """
         self.assert_adds_messages(code, msg("pytest-xdist-fixture-io", line=4))
 
@@ -190,5 +207,8 @@ class TestXdistCompatibility(PytestDeepAnalysisTestCase):
             test_file = tmp_path / "test.txt"
             test_file.write_text("data")
             return str(test_file)
+        
+        def test_something(file_fixture):
+            assert file_fixture
         """
         self.assert_no_messages(code)
