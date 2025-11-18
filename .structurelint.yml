@@ -1,6 +1,15 @@
 # structurelint configuration
-# Enhanced with best practices for pytest-deep-analysis
+# Comprehensive setup with best practices for pytest-deep-analysis
 # Documentation: https://github.com/structurelint/structurelint
+#
+# Enabled Phases:
+# - Phase 0: Filesystem structure validation
+# - Phase 1: Architectural layer enforcement
+# - Phase 2: Dead code detection
+# - Phase 3: Test validation
+# - Phase 4: File content templates
+# - Phase 8: GitHub workflow enforcement
+# - Bonus: Linter configuration enforcement
 
 root: true
 
@@ -16,6 +25,10 @@ exclude:
   - dist/**
   - .mypy_cache/**
   - .ruff_cache/**
+  - .tox/**
+  - htmlcov/**
+  - .coverage
+  - coverage.xml
   - .structurelint.yml
 
 rules:
@@ -97,6 +110,36 @@ rules:
     - "*.swo"
     - "*~"
     - "Thumbs.db"
+    - "*.pyc"
+    - "*.pyo"
+    - "*.orig"
+    - "*.rej"
+    - ".idea"
+    - ".vscode"  # Encourage using .vscode/ in .gitignore instead
+
+  # Regex pattern enforcement - disallow common anti-patterns
+  regex-disallow:
+    patterns:
+      # Disallow TODO without tracking issue
+      - pattern: "# TODO(?!.*#\\d+)"
+        message: "TODOs must reference an issue number (e.g., # TODO #123)"
+        exemptions:
+          - "tests/**"
+
+      # Disallow print() statements in production code
+      - pattern: "\\bprint\\("
+        message: "Use logging instead of print() statements"
+        exemptions:
+          - "tests/**"
+          - "scripts/**"
+          - "**/__main__.py"
+
+      # Disallow hardcoded secrets patterns
+      - pattern: "(password|secret|key)\\s*=\\s*['\"][^'\"]{8,}"
+        message: "Potential hardcoded secret detected - use environment variables"
+        exemptions:
+          - "tests/**"
+          - "**/conftest.py"
 
   # ==========================================================================
   # Phase 3: Test Validation
@@ -204,10 +247,23 @@ rules:
     - "pytest_deep_analysis/__init__.py"
     - "pytest_deep_analysis/runtime/__init__.py"
 
+    # Setup entry points
+    - "setup.py"
+
     # Test entry points
     - "tests/**/test_*.py"
     - "tests/**/*_test.py"
     - "tests/**/conftest.py"
+
+  # Detect orphaned files (files never imported by other files)
+  # Note: Disabled for Python projects as plugin entry points and pytest test
+  # discovery don't use explicit imports
+  disallow-orphaned-files: false
+
+  # Detect unused exports (symbols exported but never imported)
+  # Note: Disabled for Python projects as plugin entry points and pytest test
+  # classes are discovered rather than imported
+  disallow-unused-exports: false
 
   # ==========================================================================
   # Code Quality: Cognitive Complexity
@@ -233,22 +289,46 @@ rules:
       - "**/__init__.py"
 
 # ==========================================================================
-# GitHub Workflow Enforcement
+# GitHub Workflow Enforcement (Phase 8)
 # ==========================================================================
 
 github-workflows:
-  require-test-workflow: true
-  require-lint-workflow: true
+  # Require test execution workflow
+  require-tests: true
 
+  # Require code quality workflow (linting, formatting, static analysis)
+  require-quality: true
+
+  # Require security scanning workflow
+  require-security: false  # Optional - enable for production projects
+
+  # Require specific jobs in workflows
   required-jobs:
     - name: "test"
-      description: "Must have test execution"
+      description: "Must run tests"
     - name: "lint"
-      description: "Must have linting"
+      description: "Must run linter"
 
+  # Require specific workflow triggers
+  required-triggers:
+    - "pull_request"
+    - "push"
+
+  # Security scanning requirements (optional)
   security-scanning:
-    require-codeql: false  # Optional for now
+    require-codeql: false
     require-dependency-review: false
+    require-secret-scanning: false
+
+# ==========================================================================
+# Linter Configuration Enforcement
+# ==========================================================================
+
+linter-config:
+  # Require Python linter configuration
+  # Checks for: pyproject.toml, .flake8, .pylintrc, mypy.ini, ruff.toml
+  # OR GitHub workflow running: mypy, black, ruff, pylint, flake8
+  require-python: true
 
 # ==========================================================================
 # File Content Templates (Phase 4)
@@ -260,10 +340,83 @@ file-templates:
       - "Installation"
       - "Usage"
       - "Examples"
-    description: "Main project documentation"
+      - "Configuration"
+    description: "Main project documentation must be comprehensive"
 
   "CONTRIBUTING.md":
     required-sections:
       - "Development"
       - "Testing"
-    description: "Contributor guidelines"
+      - "Code Style"
+    description: "Contributor guide must cover key workflows"
+
+  "pyproject.toml":
+    required-sections:
+      - "[build-system]"
+      - "[project]"
+    description: "Modern Python packaging format"
+
+  ".github/workflows/*.yml":
+    forbidden-patterns:
+      - "uses: .*@master"  # Require pinned versions
+    allowed-patterns:
+      - "uses: actions/"  # Official actions
+    description: "Workflows must use pinned action versions"
+
+# ==========================================================================
+# Overrides for Specific File Patterns
+# ==========================================================================
+
+overrides:
+  # Test files can be more flexible
+  - files:
+      - "tests/**"
+      - "**/*_test.py"
+      - "**/test_*.py"
+    rules:
+      # Tests don't need __init__.py
+      file-existence: 0
+      # Tests can have slightly deeper nesting
+      max-depth: { max: 6 }
+      # Allow more files in test directories
+      max-files-in-dir: { max: 40 }
+      # Disable dead code detection for tests
+      disallow-orphaned-files: false
+      disallow-unused-exports: false
+      # Allow print statements in tests
+      regex-disallow: 0
+      # Tests can have higher complexity
+      max-cognitive-complexity: { max: 100 }
+
+  # Scripts and tools can have different rules
+  - files:
+      - "scripts/**"
+      - "tools/**"
+    rules:
+      file-existence: 0
+      naming-convention: 0
+      test-adjacency: 0
+      disallow-orphaned-files: false
+      max-cognitive-complexity: { max: 50 }
+
+  # Runtime plugin can have separate architectural rules
+  - files:
+      - "pytest_deep_analysis/runtime/**"
+    rules:
+      max-depth: { max: 4 }
+
+  # Allow higher complexity for main checker file (AST analysis)
+  - files:
+      - "pytest_deep_analysis/checkers.py"
+    rules:
+      max-cognitive-complexity: { max: 50 }
+      max-halstead-effort: { max: 100000 }
+
+  # Configuration files don't need tests
+  - files:
+      - "**/config.py"
+      - "**/settings.py"
+      - "**/__init__.py"
+      - "**/conftest.py"
+    rules:
+      test-adjacency: 0
