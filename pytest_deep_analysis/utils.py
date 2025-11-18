@@ -85,6 +85,7 @@ def _extract_scope_from_keyword(keyword: nodes.Keyword) -> Optional[str]:
         if isinstance(keyword.value, nodes.Const):
             return keyword.value.value
     except Exception:
+        # If keyword.value is not a constant or cannot be evaluated, ignore and return None.
         pass
     return None
 
@@ -104,6 +105,7 @@ def _extract_autouse_from_keyword(keyword: nodes.Keyword) -> Optional[bool]:
         if isinstance(keyword.value, nodes.Const):
             return keyword.value.value
     except Exception:
+        # If keyword.value is not a constant or cannot be evaluated, ignore and return None.
         pass
     return None
 

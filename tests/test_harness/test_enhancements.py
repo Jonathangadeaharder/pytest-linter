@@ -12,9 +12,6 @@ Tests for new rules:
 - W9030: pytest-xdist-fixture-io
 """
 
-import pytest
-from pylint.testutils import MessageTest
-
 from tests.test_harness.base import PytestDeepAnalysisTestCase, msg
 
 
@@ -166,20 +163,9 @@ class TestXdistCompatibility(PytestDeepAnalysisTestCase):
 
     def test_shared_state_global_variable(self):
         """Should warn for global variable access."""
-        code = """
-        import pytest
-
-        counter = 0
-
-        def test_with_global():  # Line 6
-            global counter
-            counter += 1
-            assert counter > 0
-        """
         # Note: This test may not trigger in simple cases due to scope detection limitations
         # The actual implementation checks for module-scope variables
         # For demonstration, we'll mark this as a known limitation
-        pass
 
     def test_fixture_io_without_tmp_path(self):
         """Should warn when fixture does I/O without tmp_path."""
