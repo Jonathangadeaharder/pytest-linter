@@ -128,9 +128,11 @@ class LinterEngine:
         """Run checks on all parsed modules."""
         violations = []
 
+        # Note: parallel_processing config is currently ignored
+        # All processing is sequential until proper parallel implementation
         if self.config.parallel_processing and len(parsed_modules) > 1:
-            # Parallel processing
-            violations = self._run_checks_parallel(parsed_modules)
+            # TODO: Implement true parallel processing
+            violations = self._run_checks_sequential(parsed_modules)
         else:
             # Sequential processing
             for parsed_module in parsed_modules:
@@ -144,14 +146,16 @@ class LinterEngine:
 
         return violations
 
-    def _run_checks_parallel(
+    def _run_checks_sequential(
         self, parsed_modules: List[ParsedModule]
     ) -> List[RuleViolation]:
-        """Run checks in parallel using process pool."""
+        """Run checks sequentially on all modules.
+
+        Note: Parallel processing is not yet implemented.
+        Would require picklable rule registry and adapters.
+        """
         violations = []
 
-        # Note: This is a simplified version. In practice, we'd need to
-        # serialize the rule registry and adapters for multiprocessing
         for parsed_module in parsed_modules:
             module_violations = self.rule_registry.run_checks(
                 parsed_module, parsed_modules

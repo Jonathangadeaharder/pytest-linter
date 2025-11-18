@@ -12,6 +12,7 @@ from test_linter.core.models import (
     LanguageType,
     TestFramework,
 )
+from test_linter.core.parsing_utils import extract_brace_delimited_body
 
 
 class GoAdapter(LanguageAdapter):
@@ -60,17 +61,17 @@ class GoAdapter(LanguageAdapter):
     def _is_testify(self, content: str) -> bool:
         """Check if file uses testify framework."""
         testify_patterns = [
-            r'github\.com/stretchr/testify',
-            r'assert\.',
-            r'require\.',
-            r'suite\.',
+            r"github\.com/stretchr/testify",
+            r"assert\.",
+            r"require\.",
+            r"suite\.",
         ]
         return any(re.search(pattern, content) for pattern in testify_patterns)
 
     def _is_standard_testing(self, content: str) -> bool:
         """Check if file uses standard testing package."""
         # Look for test functions with *testing.T parameter
-        test_function_pattern = r'func\s+Test\w+\s*\(\s*t\s+\*testing\.T\s*\)'
+        test_function_pattern = r"func\s+Test\w+\s*\(\s*t\s+\*testing\.T\s*\)"
         return bool(re.search(test_function_pattern, content))
 
     def parse_file(self, file_path: Path) -> ParsedModule:
@@ -123,7 +124,7 @@ class GoAdapter(LanguageAdapter):
         imports.extend(re.findall(single_import_pattern, content))
 
         # Multi-line imports: import ( ... )
-        multi_import_pattern = r'import\s+\((.*?)\)'
+        multi_import_pattern = r"import\s+\((.*?)\)"
         for match in re.finditer(multi_import_pattern, content, re.DOTALL):
             import_block = match.group(1)
             # Extract quoted strings from import block
@@ -138,14 +139,14 @@ class GoAdapter(LanguageAdapter):
         test_functions = []
 
         # Pattern to match test functions: func TestXxx(t *testing.T) { ... }
-        test_pattern = r'func\s+(Test\w+)\s*\(\s*(\w+)\s+\*testing\.T\s*\)\s*{'
+        test_pattern = r"func\s+(Test\w+)\s*\(\s*(\w+)\s+\*testing\.T\s*\)\s*{"
 
         for match in re.finditer(test_pattern, content):
             test_name = match.group(1)
             param_name = match.group(2)  # Usually 't'
 
             # Find line number
-            line_number = content[:match.start()].count('\n') + 1
+            line_number = content[: match.start()].count("\n") + 1
 
             # Extract function body
             func_start = match.end() - 1  # Position of opening brace
@@ -172,7 +173,7 @@ class GoAdapter(LanguageAdapter):
                 test_func.is_parametrized = self._is_table_driven_test(func_body)
 
                 # Check for subtests
-                has_subtests = bool(re.search(rf'{param_name}\.Run\(', func_body))
+                has_subtests = bool(re.search(rf"{param_name}\.Run\(", func_body))
                 if has_subtests:
                     test_func.metadata["has_subtests"] = True
 
@@ -187,9 +188,9 @@ class GoAdapter(LanguageAdapter):
         fixtures = []
 
         # TestMain is the main setup/teardown function
-        main_pattern = r'func\s+(TestMain)\s*\(\s*m\s+\*testing\.M\s*\)\s*{'
+        main_pattern = r"func\s+(TestMain)\s*\(\s*m\s+\*testing\.M\s*\)\s*{"
         for match in re.finditer(main_pattern, content):
-            line_number = content[:match.start()].count('\n') + 1
+            line_number = content[: match.start()].count("\n") + 1
 
             fixture = TestFixture(
                 name="TestMain",
@@ -203,15 +204,15 @@ class GoAdapter(LanguageAdapter):
         # Suite setup/teardown (testify)
         if parsed_module.framework == TestFramework.TESTIFY:
             suite_patterns = {
-                r'func\s+\(\w+\s+\*\w+\)\s+(SetupTest)\s*\(': "function",
-                r'func\s+\(\w+\s+\*\w+\)\s+(TearDownTest)\s*\(': "function",
-                r'func\s+\(\w+\s+\*\w+\)\s+(SetupSuite)\s*\(': "class",
-                r'func\s+\(\w+\s+\*\w+\)\s+(TearDownSuite)\s*\(': "class",
+                r"func\s+\(\w+\s+\*\w+\)\s+(SetupTest)\s*\(": "function",
+                r"func\s+\(\w+\s+\*\w+\)\s+(TearDownTest)\s*\(": "function",
+                r"func\s+\(\w+\s+\*\w+\)\s+(SetupSuite)\s*\(": "class",
+                r"func\s+\(\w+\s+\*\w+\)\s+(TearDownSuite)\s*\(": "class",
             }
 
             for pattern, scope in suite_patterns.items():
                 for match in re.finditer(pattern, content):
-                    line_number = content[:match.start()].count('\n') + 1
+                    line_number = content[: match.start()].count("\n") + 1
                     fixture_name = match.group(1)
 
                     fixture = TestFixture(
@@ -226,20 +227,11 @@ class GoAdapter(LanguageAdapter):
         return fixtures
 
     def _extract_function_body(self, content: str, start_pos: int) -> str:
-        """Extract function body by matching braces."""
-        if start_pos >= len(content) or content[start_pos] != '{':
-            return ""
+        """Extract function body using string-aware brace matching.
 
-        depth = 0
-        for i in range(start_pos, len(content)):
-            if content[i] == '{':
-                depth += 1
-            elif content[i] == '}':
-                depth -= 1
-                if depth == 0:
-                    return content[start_pos:i+1]
-
-        return ""
+        Handles Go's raw string literals (backticks) and regular strings.
+        """
+        return extract_brace_delimited_body(content, start_pos)
 
     def _extract_assertions(
         self, body: str, start_line: int, param_name: str
@@ -249,48 +241,52 @@ class GoAdapter(LanguageAdapter):
 
         # Standard testing package assertions: t.Error, t.Fatal, etc.
         testing_patterns = [
-            rf'{param_name}\.(Error|Errorf)\(',
-            rf'{param_name}\.(Fatal|Fatalf)\(',
-            rf'{param_name}\.(Fail|FailNow)\(',
+            rf"{param_name}\.(Error|Errorf)\(",
+            rf"{param_name}\.(Fatal|Fatalf)\(",
+            rf"{param_name}\.(Fail|FailNow)\(",
         ]
 
         for pattern in testing_patterns:
             for match in re.finditer(pattern, body):
                 assertion_type = match.group(1)
-                line_offset = body[:match.start()].count('\n')
+                line_offset = body[: match.start()].count("\n")
 
-                assertions.append(TestAssertion(
-                    line_number=start_line + line_offset,
-                    assertion_type=assertion_type,
-                    expression=match.group(0),
-                ))
+                assertions.append(
+                    TestAssertion(
+                        line_number=start_line + line_offset,
+                        assertion_type=assertion_type,
+                        expression=match.group(0),
+                    )
+                )
 
         # Testify assertions: assert.Equal, require.NoError, etc.
         testify_patterns = [
-            r'assert\.(Equal|NotEqual|True|False|Nil|NotNil|NoError|Error)\(',
-            r'require\.(Equal|NotEqual|True|False|Nil|NotNil|NoError|Error)\(',
+            r"assert\.(Equal|NotEqual|True|False|Nil|NotNil|NoError|Error)\(",
+            r"require\.(Equal|NotEqual|True|False|Nil|NotNil|NoError|Error)\(",
         ]
 
         for pattern in testify_patterns:
             for match in re.finditer(pattern, body):
                 assertion_type = match.group(1)
-                line_offset = body[:match.start()].count('\n')
+                line_offset = body[: match.start()].count("\n")
 
-                assertions.append(TestAssertion(
-                    line_number=start_line + line_offset,
-                    assertion_type=assertion_type,
-                    expression=match.group(0),
-                ))
+                assertions.append(
+                    TestAssertion(
+                        line_number=start_line + line_offset,
+                        assertion_type=assertion_type,
+                        expression=match.group(0),
+                    )
+                )
 
         return assertions
 
     def _has_conditional_logic(self, body: str) -> bool:
         """Check if body has conditional logic."""
         patterns = [
-            r'\bif\s+',
-            r'\bfor\s+',
-            r'\bswitch\s+',
-            r'\bselect\s+',
+            r"\bif\s+",
+            r"\bfor\s+",
+            r"\bswitch\s+",
+            r"\bselect\s+",
         ]
         # Exclude common test patterns like "if err != nil"
         has_conditional = any(re.search(pattern, body) for pattern in patterns)
@@ -298,7 +294,7 @@ class GoAdapter(LanguageAdapter):
         # Don't flag simple error checks as test logic
         if has_conditional:
             # Check if it's just error handling
-            error_check_pattern = r'if\s+err\s*!=\s*nil'
+            error_check_pattern = r"if\s+err\s*!=\s*nil"
             error_checks = len(re.findall(error_check_pattern, body))
             total_conditionals = sum(
                 len(re.findall(pattern, body)) for pattern in patterns
@@ -313,30 +309,30 @@ class GoAdapter(LanguageAdapter):
     def _uses_time_sleep(self, body: str) -> bool:
         """Check if body uses time.Sleep."""
         patterns = [
-            r'time\.Sleep\(',
-            r'time\.After\(',
+            r"time\.Sleep\(",
+            r"time\.After\(",
         ]
         return any(re.search(pattern, body) for pattern in patterns)
 
     def _uses_file_io(self, body: str) -> bool:
         """Check if body uses file I/O."""
         patterns = [
-            r'os\.Open\(',
-            r'os\.Create\(',
-            r'os\.ReadFile\(',
-            r'os\.WriteFile\(',
-            r'ioutil\.ReadFile\(',
-            r'ioutil\.WriteFile\(',
+            r"os\.Open\(",
+            r"os\.Create\(",
+            r"os\.ReadFile\(",
+            r"os\.WriteFile\(",
+            r"ioutil\.ReadFile\(",
+            r"ioutil\.WriteFile\(",
         ]
         return any(re.search(pattern, body) for pattern in patterns)
 
     def _uses_network(self, body: str) -> bool:
         """Check if body uses network calls."""
         patterns = [
-            r'http\.Get\(',
-            r'http\.Post\(',
-            r'http\.NewRequest\(',
-            r'net\.Dial\(',
+            r"http\.Get\(",
+            r"http\.Post\(",
+            r"http\.NewRequest\(",
+            r"net\.Dial\(",
         ]
         return any(re.search(pattern, body) for pattern in patterns)
 
@@ -344,10 +340,10 @@ class GoAdapter(LanguageAdapter):
         """Check if this is a table-driven test."""
         # Look for common table-driven test patterns
         patterns = [
-            r'tests\s*:=\s*\[\]struct',
-            r'testCases\s*:=\s*\[\]struct',
-            r'for\s+_?,\s*tt\s*:=\s*range\s+tests',
-            r'for\s+_?,\s*tc\s*:=\s*range\s+testCases',
+            r"tests\s*:=\s*\[\]struct",
+            r"testCases\s*:=\s*\[\]struct",
+            r"for\s+_?,\s*tt\s*:=\s*range\s+tests",
+            r"for\s+_?,\s*tc\s*:=\s*range\s+testCases",
         ]
         return any(re.search(pattern, body) for pattern in patterns)
 
@@ -363,7 +359,7 @@ class GoAdapter(LanguageAdapter):
         """Get qualified name of a function call."""
         if isinstance(node, str):
             # Extract function name from call expression
-            match = re.search(r'([\w\.]+)\s*\(', node)
+            match = re.search(r"([\w\.]+)\s*\(", node)
             if match:
                 return match.group(1)
         return None
@@ -372,8 +368,8 @@ class GoAdapter(LanguageAdapter):
         """Check if node is an assertion."""
         if isinstance(node, str):
             patterns = [
-                r't\.(Error|Fatal|Fail)',
-                r'(assert|require)\.',
+                r"t\.(Error|Fatal|Fail)",
+                r"(assert|require)\.",
             ]
             return any(re.search(pattern, node) for pattern in patterns)
         return False
@@ -381,7 +377,7 @@ class GoAdapter(LanguageAdapter):
     def is_conditional(self, node: Any) -> bool:
         """Check if node is conditional logic."""
         if isinstance(node, str):
-            return bool(re.search(r'\b(if|for|switch|select)\s+', node))
+            return bool(re.search(r"\b(if|for|switch|select)\s+", node))
         return False
 
     def get_file_imports(self, parsed_module: ParsedModule) -> List[str]:

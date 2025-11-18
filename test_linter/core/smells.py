@@ -136,11 +136,30 @@ class MysteryGuestRule(UniversalRule):
     ) -> bool:
         """Check if test uses a temporary directory fixture."""
         temp_fixture_names = {
+            # Python
             TestFramework.PYTEST: {"tmp_path", "tmp_path_factory", "tmpdir"},
             TestFramework.UNITTEST: {"tempfile", "TemporaryDirectory"},
+            # JavaScript/TypeScript
             TestFramework.JEST: {"tmp", "tmpdir"},
             TestFramework.MOCHA: {"tmp", "tmpdir"},
-            # Add more as needed
+            TestFramework.VITEST: {"tmp", "tmpdir"},
+            # Go - uses t.TempDir() method call (checked via pattern matching)
+            TestFramework.GO_TESTING: {"TempDir"},
+            TestFramework.TESTIFY: {"TempDir"},
+            # C++ - GoogleTest doesn't have built-in temp fixtures
+            TestFramework.GOOGLETEST: {"TempDir", "tmpdir"},
+            TestFramework.CATCH2: {"TempDir", "tmpdir"},
+            TestFramework.BOOST_TEST: {"TempDir", "tmpdir"},
+            # Java - uses @TempDir annotation (JUnit 5) or TemporaryFolder rule (JUnit 4)
+            TestFramework.JUNIT4: {"TemporaryFolder", "tempFolder"},
+            TestFramework.JUNIT5: {"TempDir", "tempDirectory"},
+            TestFramework.TESTNG: {"TempDir", "tempDirectory"},
+            # Rust - uses tempfile crate or std::env::temp_dir
+            TestFramework.RUST_BUILTIN: {"tempfile", "temp_dir"},
+            # C# / VB.NET - uses Path.GetTempPath() or TestContext
+            TestFramework.NUNIT: {"TempDir", "TestContext"},
+            TestFramework.XUNIT: {"TempDir", "ITestOutputHelper"},
+            TestFramework.MSTEST: {"TestContext", "TempDir"},
         }
         expected_fixtures = temp_fixture_names.get(framework, set())
         return any(

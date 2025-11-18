@@ -12,9 +12,11 @@ from test_linter.core.models import (
     LanguageType,
     TestFramework,
 )
+from test_linter.core.parsing_utils import extract_brace_delimited_body
 
 try:
     from tree_sitter import Language, Parser, Node
+
     TREE_SITTER_AVAILABLE = True
 except ImportError:
     TREE_SITTER_AVAILABLE = False
@@ -123,8 +125,12 @@ class TypeScriptAdapter(LanguageAdapter):
             r"import.*\{.*describe.*\}.*from.*['\"]mocha",
         ]
         # Mocha often uses describe/it without explicit import
-        has_mocha_imports = any(re.search(pattern, content) for pattern in mocha_patterns)
-        has_describe_it = re.search(r"\bdescribe\(", content) and re.search(r"\bit\(", content)
+        has_mocha_imports = any(
+            re.search(pattern, content) for pattern in mocha_patterns
+        )
+        has_describe_it = re.search(r"\bdescribe\(", content) and re.search(
+            r"\bit\(", content
+        )
 
         return has_mocha_imports or (has_describe_it and not self._is_jest(content))
 
@@ -210,7 +216,7 @@ class TypeScriptAdapter(LanguageAdapter):
                 test_name = match.group(2) if len(match.groups()) >= 2 else "unknown"
 
                 # Find line number
-                line_number = content[:match.start()].count('\n') + 1
+                line_number = content[: match.start()].count("\n") + 1
 
                 # Extract the test body (simplified - just look for the closing brace)
                 test_start = match.end()
@@ -225,13 +231,19 @@ class TypeScriptAdapter(LanguageAdapter):
 
                 # Analyze test body
                 if test_body:
-                    test_func.assertions = self._extract_assertions(test_body, line_number)
+                    test_func.assertions = self._extract_assertions(
+                        test_body, line_number
+                    )
                     test_func.has_test_logic = self._has_conditional_logic(test_body)
                     test_func.uses_time_sleep = self._uses_time_sleep(test_body)
                     test_func.uses_file_io = self._uses_file_io(test_body)
                     test_func.uses_network = self._uses_network(test_body)
-                    test_func.has_async = "async" in content[max(0, match.start() - 20):match.start()]
-                    test_func.setup_dependencies = self._extract_fixtures_used(test_body)
+                    test_func.has_async = (
+                        "async" in content[max(0, match.start() - 20) : match.start()]
+                    )
+                    test_func.setup_dependencies = self._extract_fixtures_used(
+                        test_body
+                    )
 
                 test_functions.append(test_func)
 
@@ -256,7 +268,7 @@ class TypeScriptAdapter(LanguageAdapter):
         for setup_func, scope in setup_patterns.items():
             pattern = rf"\b{setup_func}\s*\("
             for match in re.finditer(pattern, content):
-                line_number = content[:match.start()].count('\n') + 1
+                line_number = content[: match.start()].count("\n") + 1
 
                 fixture = TestFixture(
                     name=setup_func,
@@ -270,23 +282,11 @@ class TypeScriptAdapter(LanguageAdapter):
         return fixtures
 
     def _extract_function_body(self, content: str, start_pos: int) -> str:
-        """Extract function body by matching braces."""
-        # Find the opening brace
-        brace_start = content.find('{', start_pos)
-        if brace_start == -1:
-            return ""
+        """Extract function body using string-aware brace matching.
 
-        # Match braces
-        depth = 0
-        for i in range(brace_start, len(content)):
-            if content[i] == '{':
-                depth += 1
-            elif content[i] == '}':
-                depth -= 1
-                if depth == 0:
-                    return content[brace_start:i+1]
-
-        return ""
+        Handles template literals with embedded expressions.
+        """
+        return extract_brace_delimited_body(content, start_pos)
 
     def _extract_assertions(self, body: str, start_line: int) -> List[TestAssertion]:
         """Extract assertions from test body."""
@@ -296,25 +296,29 @@ class TypeScriptAdapter(LanguageAdapter):
         expect_pattern = r"expect\([^)]+\)\.(\w+)\("
         for match in re.finditer(expect_pattern, body):
             assertion_type = match.group(1)
-            line_offset = body[:match.start()].count('\n')
+            line_offset = body[: match.start()].count("\n")
 
-            assertions.append(TestAssertion(
-                line_number=start_line + line_offset,
-                assertion_type=assertion_type,
-                expression=match.group(0),
-            ))
+            assertions.append(
+                TestAssertion(
+                    line_number=start_line + line_offset,
+                    assertion_type=assertion_type,
+                    expression=match.group(0),
+                )
+            )
 
         # Mocha assertions: assert.equal(...), etc.
         assert_pattern = r"assert\.(\w+)\("
         for match in re.finditer(assert_pattern, body):
             assertion_type = match.group(1)
-            line_offset = body[:match.start()].count('\n')
+            line_offset = body[: match.start()].count("\n")
 
-            assertions.append(TestAssertion(
-                line_number=start_line + line_offset,
-                assertion_type=assertion_type,
-                expression=match.group(0),
-            ))
+            assertions.append(
+                TestAssertion(
+                    line_number=start_line + line_offset,
+                    assertion_type=assertion_type,
+                    expression=match.group(0),
+                )
+            )
 
         return assertions
 
@@ -374,7 +378,7 @@ class TypeScriptAdapter(LanguageAdapter):
         # For regex-based parsing, this would be called with string snippets
         if isinstance(node, str):
             # Extract function name from call expression
-            match = re.search(r'(\w+(?:\.\w+)*)\s*\(', node)
+            match = re.search(r"(\w+(?:\.\w+)*)\s*\(", node)
             if match:
                 return match.group(1)
         return None
@@ -382,13 +386,13 @@ class TypeScriptAdapter(LanguageAdapter):
     def is_assertion(self, node: Any) -> bool:
         """Check if node is an assertion."""
         if isinstance(node, str):
-            return bool(re.search(r'\b(expect|assert)\s*\(', node))
+            return bool(re.search(r"\b(expect|assert)\s*\(", node))
         return False
 
     def is_conditional(self, node: Any) -> bool:
         """Check if node is conditional logic."""
         if isinstance(node, str):
-            return bool(re.search(r'\b(if|for|while|switch)\s*\(', node))
+            return bool(re.search(r"\b(if|for|while|switch)\s*\(", node))
         return False
 
     def get_file_imports(self, parsed_module: ParsedModule) -> List[str]:

@@ -6,9 +6,13 @@ import re
 
 from test_linter.core.adapters import LanguageAdapter, ParsedModule, ParseError
 from test_linter.core.models import (
-    TestFunction, TestAssertion, TestFixture,
-    LanguageType, TestFramework,
+    TestFunction,
+    TestAssertion,
+    TestFixture,
+    LanguageType,
+    TestFramework,
 )
+from test_linter.core.parsing_utils import extract_indented_body_vbnet
 
 
 class VBNetAdapter(LanguageAdapter):
@@ -55,27 +59,27 @@ class VBNetAdapter(LanguageAdapter):
     def _is_nunit(self, content: str) -> bool:
         """Check if file uses NUnit framework."""
         patterns = [
-            r'Imports\s+NUnit\.Framework',
-            r'<Test>',
-            r'<TestFixture>',
+            r"Imports\s+NUnit\.Framework",
+            r"<Test>",
+            r"<TestFixture>",
         ]
         return any(re.search(pattern, content, re.IGNORECASE) for pattern in patterns)
 
     def _is_xunit(self, content: str) -> bool:
         """Check if file uses xUnit framework."""
         patterns = [
-            r'Imports\s+Xunit',
-            r'<Fact>',
-            r'<Theory>',
+            r"Imports\s+Xunit",
+            r"<Fact>",
+            r"<Theory>",
         ]
         return any(re.search(pattern, content, re.IGNORECASE) for pattern in patterns)
 
     def _is_mstest(self, content: str) -> bool:
         """Check if file uses MSTest framework."""
         patterns = [
-            r'Imports\s+Microsoft\.VisualStudio\.TestTools',
-            r'<TestMethod>',
-            r'<TestClass>',
+            r"Imports\s+Microsoft\.VisualStudio\.TestTools",
+            r"<TestMethod>",
+            r"<TestClass>",
         ]
         return any(re.search(pattern, content, re.IGNORECASE) for pattern in patterns)
 
@@ -127,7 +131,7 @@ class VBNetAdapter(LanguageAdapter):
         imports = []
 
         # Match: Imports System.IO
-        import_pattern = r'Imports\s+([\w.]+)'
+        import_pattern = r"Imports\s+([\w.]+)"
         imports.extend(re.findall(import_pattern, content, re.IGNORECASE))
 
         return imports
@@ -141,9 +145,9 @@ class VBNetAdapter(LanguageAdapter):
         # Patterns for different frameworks
         # VB.NET uses <Attribute> syntax and Sub/Function keywords
         patterns = {
-            TestFramework.NUNIT: r'<Test>\s*\n\s*Public\s+(Sub|Function)\s+(\w+)\s*\(',
-            TestFramework.XUNIT: r'<Fact>\s*\n\s*Public\s+(Sub|Function)\s+(\w+)\s*\(',
-            TestFramework.MSTEST: r'<TestMethod>\s*\n\s*Public\s+(Sub|Function)\s+(\w+)\s*\(',
+            TestFramework.NUNIT: r"<Test>\s*\n\s*Public\s+(Sub|Function)\s+(\w+)\s*\(",
+            TestFramework.XUNIT: r"<Fact>\s*\n\s*Public\s+(Sub|Function)\s+(\w+)\s*\(",
+            TestFramework.MSTEST: r"<TestMethod>\s*\n\s*Public\s+(Sub|Function)\s+(\w+)\s*\(",
         }
 
         pattern = patterns.get(parsed_module.framework, patterns[TestFramework.NUNIT])
@@ -151,7 +155,7 @@ class VBNetAdapter(LanguageAdapter):
         for match in re.finditer(pattern, content, re.IGNORECASE):
             method_type = match.group(1)  # Sub or Function
             test_name = match.group(2)
-            line_number = content[:match.start()].count('\n') + 1
+            line_number = content[: match.start()].count("\n") + 1
 
             # Extract function body
             func_body = self._extract_function_body(content, match.end(), method_type)
@@ -172,85 +176,81 @@ class VBNetAdapter(LanguageAdapter):
                 test_func.uses_network = self._uses_network(func_body)
 
                 # Check for async
-                test_func.is_async = bool(re.search(r'\bAsync\b', func_body, re.IGNORECASE))
+                test_func.is_async = bool(
+                    re.search(r"\bAsync\b", func_body, re.IGNORECASE)
+                )
 
             test_functions.append(test_func)
 
         return test_functions
 
-    def _extract_function_body(self, content: str, start_pos: int, method_type: str) -> str:
+    def _extract_function_body(
+        self, content: str, start_pos: int, method_type: str
+    ) -> str:
         """Extract function body for VB.NET (no braces, uses End Sub/End Function)."""
-        # VB.NET functions end with "End Sub" or "End Function"
-        end_pattern = rf'\bEnd\s+{method_type}\b'
+        return extract_indented_body_vbnet(content, start_pos, method_type)
 
-        # Find the end of the function
-        match = re.search(end_pattern, content[start_pos:], re.IGNORECASE)
-        if match:
-            return content[start_pos:start_pos + match.end()]
-
-        return ""
-
-    def _extract_assertions(
-        self, body: str, start_line: int
-    ) -> List[TestAssertion]:
+    def _extract_assertions(self, body: str, start_line: int) -> List[TestAssertion]:
         """Extract assertions from test body."""
         assertions = []
 
         # NUnit/MSTest assertions: Assert.AreEqual, Assert.IsTrue, etc.
         assertion_patterns = [
-            r'Assert\.(AreEqual|AreNotEqual|IsTrue|IsFalse|IsNull|IsNotNull|AreSame|AreNotSame)',
-            r'Assert\.That',
+            r"Assert\.(AreEqual|AreNotEqual|IsTrue|IsFalse|IsNull|IsNotNull|AreSame|AreNotSame)",
+            r"Assert\.That",
         ]
 
         for pattern in assertion_patterns:
             for match in re.finditer(pattern, body, re.IGNORECASE):
                 assertion_type = match.group(1) if match.lastindex else "Assert"
-                line_offset = body[:match.start()].count('\n')
+                line_offset = body[: match.start()].count("\n")
 
-                assertions.append(TestAssertion(
-                    line_number=start_line + line_offset,
-                    assertion_type=assertion_type,
-                    expression=match.group(0),
-                ))
+                assertions.append(
+                    TestAssertion(
+                        line_number=start_line + line_offset,
+                        assertion_type=assertion_type,
+                        expression=match.group(0),
+                    )
+                )
 
         return assertions
 
     def _has_conditional_logic(self, body: str) -> bool:
         """Check if body has conditional logic."""
         patterns = [
-            r'\bIf\s+',
-            r'\bFor\s+',
-            r'\bWhile\s+',
-            r'\bSelect\s+Case\s+',
+            r"\bIf\s+",
+            r"\bFor\s+",
+            r"\bWhile\s+",
+            r"\bSelect\s+Case\s+",
         ]
         return any(re.search(pattern, body, re.IGNORECASE) for pattern in patterns)
 
     def _uses_time_sleep(self, body: str) -> bool:
         """Check if body uses Thread.Sleep or Task.Delay."""
         patterns = [
-            r'Thread\.Sleep',
-            r'Task\.Delay',
+            r"Thread\.Sleep",
+            r"Task\.Delay",
         ]
         return any(re.search(pattern, body, re.IGNORECASE) for pattern in patterns)
 
     def _uses_file_io(self, body: str) -> bool:
         """Check if body uses file I/O."""
         patterns = [
-            r'File\.',
-            r'FileStream',
-            r'StreamReader',
-            r'StreamWriter',
-            r'System\.IO\.',
+            r"File\.",
+            r"FileStream",
+            r"StreamReader",
+            r"StreamWriter",
+            r"System\.IO\.",
         ]
         return any(re.search(pattern, body, re.IGNORECASE) for pattern in patterns)
 
     def _uses_network(self, body: str) -> bool:
         """Check if body uses network calls."""
         patterns = [
-            r'HttpClient',
-            r'WebClient',
-            r'HttpWebRequest',
-            r'WebRequest',
+            r"HttpClient",
+            r"WebClient",
+            r"HttpWebRequest",
+            r"WebRequest",
         ]
         return any(re.search(pattern, body, re.IGNORECASE) for pattern in patterns)
 
@@ -266,23 +266,23 @@ class VBNetAdapter(LanguageAdapter):
 
         fixture_patterns = {
             # NUnit
-            r'<SetUp>': "function",
-            r'<TearDown>': "function",
-            r'<OneTimeSetUp>': "class",
-            r'<OneTimeTearDown>': "class",
+            r"<SetUp>": "function",
+            r"<TearDown>": "function",
+            r"<OneTimeSetUp>": "class",
+            r"<OneTimeTearDown>": "class",
             # MSTest
-            r'<TestInitialize>': "function",
-            r'<TestCleanup>': "function",
-            r'<ClassInitialize>': "class",
-            r'<ClassCleanup>': "class",
+            r"<TestInitialize>": "function",
+            r"<TestCleanup>": "function",
+            r"<ClassInitialize>": "class",
+            r"<ClassCleanup>": "class",
         }
 
         for pattern, scope in fixture_patterns.items():
             for match in re.finditer(pattern, content, re.IGNORECASE):
-                line_number = content[:match.start()].count('\n') + 1
+                line_number = content[: match.start()].count("\n") + 1
 
                 fixture = TestFixture(
-                    name=pattern.strip('<>'),
+                    name=pattern.strip("<>"),
                     scope=scope,
                     file_path=parsed_module.file_path,
                     line_number=line_number,
@@ -296,7 +296,7 @@ class VBNetAdapter(LanguageAdapter):
         """Get qualified name of a function call."""
         if isinstance(node, str):
             # Extract function name from call expression
-            match = re.search(r'([\w.]+)\s*\(', node)
+            match = re.search(r"([\w.]+)\s*\(", node)
             if match:
                 return match.group(1)
         return None
@@ -304,13 +304,13 @@ class VBNetAdapter(LanguageAdapter):
     def is_assertion(self, node: Any) -> bool:
         """Check if node is an assertion."""
         if isinstance(node, str):
-            return bool(re.search(r'Assert\.', node, re.IGNORECASE))
+            return bool(re.search(r"Assert\.", node, re.IGNORECASE))
         return False
 
     def is_conditional(self, node: Any) -> bool:
         """Check if node is conditional logic."""
         if isinstance(node, str):
-            patterns = [r'\bIf\s+', r'\bFor\s+', r'\bWhile\s+', r'\bSelect\s+']
+            patterns = [r"\bIf\s+", r"\bFor\s+", r"\bWhile\s+", r"\bSelect\s+"]
             return any(re.search(pattern, node, re.IGNORECASE) for pattern in patterns)
         return False
 
