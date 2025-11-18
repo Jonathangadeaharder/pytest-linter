@@ -196,6 +196,7 @@ def create_default_engine(config: Optional[TestLinterConfig] = None) -> LinterEn
     from test_linter.languages.typescript import TypeScriptAdapter
     from test_linter.languages.go import GoAdapter
     from test_linter.languages.cpp import CppAdapter
+    from test_linter.languages.java import JavaAdapter
     from test_linter.core.models import LanguageType
 
     if config is None:
@@ -217,9 +218,12 @@ def create_default_engine(config: Optional[TestLinterConfig] = None) -> LinterEn
     # Register C++ adapter
     adapter_registry.register(CppAdapter())
 
+    # Register Java adapter
+    adapter_registry.register(JavaAdapter())
+
     # TODO: Register other language adapters as they're implemented
-    # adapter_registry.register(JavaAdapter())
     # adapter_registry.register(RustAdapter())
+    # adapter_registry.register(CSharpAdapter())
     # etc.
 
     # Create rule registry
