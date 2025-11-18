@@ -840,6 +840,15 @@ class PytestDeepAnalysisChecker(BaseChecker):
         """
         if not self._in_test_function:
             return
+        
+        # Skip names in decorators - they're not part of the test body
+        parent = node.parent
+        while parent:
+            if isinstance(parent, nodes.Decorators):
+                return
+            if isinstance(parent, nodes.FunctionDef):
+                break
+            parent = parent.parent
 
         # W9029: Check for global variable access
         if self._is_global_or_class_variable(node):
@@ -1164,6 +1173,8 @@ class PytestDeepAnalysisChecker(BaseChecker):
                         if yield_idx < len(node.body) - 1:
                             has_yield_cleanup = True
                     except ValueError:
+                        # The yield statement's parent is not found in the function body.
+                        # This can happen in rare cases; we ignore and do not set has_yield_cleanup.
                         pass
 
         # Check for database operations using configured method lists
@@ -1255,6 +1266,7 @@ class PytestDeepAnalysisChecker(BaseChecker):
                 if isinstance(scope, nodes.ClassDef):
                     return True
         except (AttributeError, KeyError):
+            # If scope lookup fails, assume not global/class variable and return False.
             pass
 
         return False
@@ -1289,7 +1301,6 @@ class PytestDeepAnalysisChecker(BaseChecker):
         - W9025: Empty or single-value parametrize
         - W9026: Duplicate parameter values
         - W9027: Excessive parameter combinations
-        - W9028: No variation in test behavior
 
         Args:
             node: The test function node
@@ -1317,7 +1328,7 @@ class PytestDeepAnalysisChecker(BaseChecker):
                 self.add_message(
                     "pytest-parametrize-explosion",
                     node=node,
-                    line=node.lineno,
+                    line=parametrize_decorators[0].lineno,
                     args=(total_combinations,),
                 )
 

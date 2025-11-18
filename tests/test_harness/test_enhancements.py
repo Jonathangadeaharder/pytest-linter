@@ -12,9 +12,6 @@ Tests for new rules:
 - W9030: pytest-xdist-fixture-io
 """
 
-import pytest
-from pylint.testutils import MessageTest
-
 from tests.test_harness.base import PytestDeepAnalysisTestCase, msg
 
 
@@ -31,6 +28,9 @@ class TestDatabaseCommitCleanup(PytestDeepAnalysisTestCase):
             conn = get_connection()
             conn.commit()
             return conn
+        
+        def test_something(db_fixture):
+            assert db_fixture
         """
         self.assert_adds_messages(code, msg("pytest-fix-db-commit-no-cleanup", line=4))
 
@@ -45,6 +45,9 @@ class TestDatabaseCommitCleanup(PytestDeepAnalysisTestCase):
             conn.commit()
             yield conn
             conn.rollback()
+        
+        def test_something(db_fixture):
+            assert db_fixture
         """
         self.assert_no_messages(code)
 
@@ -61,6 +64,9 @@ class TestDatabaseCommitCleanup(PytestDeepAnalysisTestCase):
             except Exception:
                 conn.rollback()
             return conn
+        
+        def test_something(db_fixture):
+            assert db_fixture
         """
         self.assert_no_messages(code)
 
@@ -79,9 +85,15 @@ class TestFixtureMutation(PytestDeepAnalysisTestCase):
 
         def test_mutation(shared_list):  # Line 8
             shared_list.append(1)
-            assert len(shared_list) == 1
+            assert len(shared_list) > 0
         """
-        self.assert_adds_messages(code, msg("pytest-test-fixture-mutation", line=9))
+        # This test expects both mutation warning and overly-broad-scope warning
+        self.assert_adds_messages(
+            code,
+            msg("pytest-test-fixture-mutation", line=9),
+            msg("pytest-fix-overly-broad-scope", line=4),
+            call_close=True
+        )
 
     def test_mutating_function_scoped_fixture(self):
         """Should NOT warn for function-scoped fixture mutation."""
@@ -166,20 +178,9 @@ class TestXdistCompatibility(PytestDeepAnalysisTestCase):
 
     def test_shared_state_global_variable(self):
         """Should warn for global variable access."""
-        code = """
-        import pytest
-
-        counter = 0
-
-        def test_with_global():  # Line 6
-            global counter
-            counter += 1
-            assert counter > 0
-        """
         # Note: This test may not trigger in simple cases due to scope detection limitations
         # The actual implementation checks for module-scope variables
         # For demonstration, we'll mark this as a known limitation
-        pass
 
     def test_fixture_io_without_tmp_path(self):
         """Should warn when fixture does I/O without tmp_path."""
@@ -191,8 +192,11 @@ class TestXdistCompatibility(PytestDeepAnalysisTestCase):
             with open("test.txt", "w") as f:
                 f.write("data")
             return "test.txt"
+        
+        def test_something(file_fixture):
+            assert file_fixture
         """
-        self.assert_adds_messages(code, msg("pytest-xdist-fixture-io", line=4))
+        self.assert_adds_messages(code, msg("pytest-xdist-fixture-io", line=4), call_close=True)
 
     def test_fixture_io_with_tmp_path(self):
         """Should NOT warn when fixture uses tmp_path."""
@@ -204,5 +208,8 @@ class TestXdistCompatibility(PytestDeepAnalysisTestCase):
             test_file = tmp_path / "test.txt"
             test_file.write_text("data")
             return str(test_file)
+        
+        def test_something(file_fixture):
+            assert file_fixture
         """
-        self.assert_no_messages(code)
+        self.assert_no_messages(code, call_close=True)
