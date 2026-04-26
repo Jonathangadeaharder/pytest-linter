@@ -160,6 +160,9 @@ impl PythonParser {
         let has_try_except = Self::detect_try_except(body.as_ref());
         let docstring = Self::extract_docstring(func_node, source);
         let assertions = Self::extract_assertions(body.as_ref(), source);
+        let uses_cwd_dependency = Self::detect_cwd_dependency(body.as_ref(), source);
+        let uses_pytest_raises = Self::detect_pytest_raises(body.as_ref(), source);
+        let mutates_fixture_deps = Self::detect_fixture_mutations(body.as_ref(), source, &fixture_deps);
 
         TestFunction {
             name: name.to_string(),
@@ -181,9 +184,9 @@ impl PythonParser {
             docstring,
             assertions,
             parametrize_values: vec![],
-            uses_cwd_dependency: false,
-            uses_pytest_raises: false,
-            mutates_fixture_deps: vec![],
+            uses_cwd_dependency,
+            uses_pytest_raises,
+            mutates_fixture_deps,
         }
     }
 
@@ -469,6 +472,164 @@ impl PythonParser {
             }
         }
         false
+    }
+
+    fn detect_cwd_dependency(body: Option<&tree_sitter::Node>, source: &[u8]) -> bool {
+        body.is_some_and(|b| Self::has_cwd_call(*b, source))
+    }
+
+    fn has_cwd_call(node: tree_sitter::Node, source: &[u8]) -> bool {
+        if node.kind() == "call" {
+            let func = node.child_by_field_name("function");
+            if let Some(f) = func {
+                let text = Self::node_text(f, source);
+                if text == "os.getcwd" || text == "os.chdir" || text == "Path.cwd" {
+                    return true;
+                }
+                if text.contains("getcwd") || text.contains("chdir") {
+                    return true;
+                }
+                if f.kind() == "attribute" {
+                    let attr = f.child_by_field_name("attribute");
+                    if let Some(a) = attr {
+                        let name = Self::node_text(a, source);
+                        if name == "getcwd" || name == "chdir" {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if Self::has_cwd_call(child, source) {
+                return true;
+            }
+        }
+        false
+    }
+
+    fn detect_pytest_raises(body: Option<&tree_sitter::Node>, source: &[u8]) -> bool {
+        body.is_some_and(|b| Self::has_pytest_raises(*b, source))
+    }
+
+    fn has_pytest_raises(node: tree_sitter::Node, source: &[u8]) -> bool {
+        if node.kind() == "call" {
+            let func = node.child_by_field_name("function");
+            if let Some(f) = func {
+                if f.kind() == "attribute" {
+                    let text = Self::node_text(f, source);
+                    if text == "pytest.raises" {
+                        return true;
+                    }
+                    let attr = f.child_by_field_name("attribute");
+                    let obj = f.child_by_field_name("object");
+                    if let (Some(a), Some(o)) = (attr, obj) {
+                        let name = Self::node_text(a, source);
+                        let obj_name = Self::node_text(o, source);
+                        if name == "raises" && obj_name == "pytest" {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if Self::has_pytest_raises(child, source) {
+                return true;
+            }
+        }
+        false
+    }
+
+    fn detect_fixture_mutations(
+        body: Option<&tree_sitter::Node>,
+        source: &[u8],
+        fixture_deps: &[String],
+    ) -> Vec<String> {
+        let mut mutated = Vec::new();
+        if let Some(b) = body {
+            Self::find_mutations(*b, source, fixture_deps, &mut mutated);
+        }
+        mutated.sort();
+        mutated.dedup();
+        mutated
+    }
+
+    fn find_mutations(
+        node: tree_sitter::Node,
+        source: &[u8],
+        fixture_deps: &[String],
+        mutated: &mut Vec<String>,
+    ) {
+        if node.kind() == "call" {
+            let func = node.child_by_field_name("function");
+            if let Some(f) = func {
+                if f.kind() == "attribute" {
+                    let obj = f.child_by_field_name("object");
+                    let attr = f.child_by_field_name("attribute");
+                    if let (Some(obj), Some(attr)) = (obj, attr) {
+                        let obj_name = Self::node_text(obj, source);
+                        let method = Self::node_text(attr, source);
+                        let mutating_methods = [
+                            "append", "extend", "remove", "pop", "clear",
+                            "update", "insert", "add", "discard",
+                        ];
+                        if mutating_methods.contains(&method.as_str())
+                            && fixture_deps.contains(&obj_name)
+                        {
+                            mutated.push(obj_name);
+                        }
+                    }
+                }
+            }
+        }
+        if node.kind() == "assignment" {
+            let target = node.child_by_field_name("left");
+            if let Some(t) = target {
+                Self::check_assignment_target(t, source, fixture_deps, mutated);
+            }
+        }
+        if node.kind() == "delete_statement" {
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                let text = Self::node_text(child, source).trim().to_string();
+                if fixture_deps.contains(&text) {
+                    mutated.push(text);
+                }
+            }
+        }
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            Self::find_mutations(child, source, fixture_deps, mutated);
+        }
+    }
+
+    fn check_assignment_target(
+        target: tree_sitter::Node,
+        source: &[u8],
+        fixture_deps: &[String],
+        mutated: &mut Vec<String>,
+    ) {
+        if target.kind() == "subscript" {
+            let value = target.child_by_field_name("value");
+            if let Some(v) = value {
+                let name = Self::node_text(v, source);
+                if fixture_deps.contains(&name) {
+                    mutated.push(name);
+                }
+            }
+        }
+        if target.kind() == "attribute" {
+            let obj = target.child_by_field_name("object");
+            if let Some(o) = obj {
+                let name = Self::node_text(o, source);
+                if fixture_deps.contains(&name) {
+                    mutated.push(name);
+                }
+            }
+        }
     }
 
     fn extract_docstring(

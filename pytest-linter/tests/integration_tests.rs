@@ -3138,6 +3138,89 @@ def test_suboptimal():
 }
 
 #[test]
+fn test_cwd_dependency_detected() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_cwd.py",
+        r#"
+import os
+
+def test_cwd():
+    cwd = os.getcwd()
+    assert cwd
+"#,
+    );
+    let module = parse_file(&path);
+    assert!(module.test_functions[0].uses_cwd_dependency);
+}
+
+#[test]
+fn test_no_cwd_dependency() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_no_cwd.py",
+        r#"
+def test_normal():
+    assert 1 == 1
+"#,
+    );
+    let module = parse_file(&path);
+    assert!(!module.test_functions[0].uses_cwd_dependency);
+}
+
+#[test]
+fn test_pytest_raises_detected() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_raises.py",
+        r#"
+import pytest
+
+def test_error():
+    with pytest.raises(ValueError):
+        raise ValueError("bad")
+"#,
+    );
+    let module = parse_file(&path);
+    assert!(module.test_functions[0].uses_pytest_raises);
+}
+
+#[test]
+fn test_fixture_mutation_detected() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_mutation.py",
+        r#"
+def test_mutates(my_list):
+    my_list.append(1)
+    assert len(my_list) == 1
+"#,
+    );
+    let module = parse_file(&path);
+    assert!(module.test_functions[0].mutates_fixture_deps.contains(&"my_list".to_string()));
+}
+
+#[test]
+fn test_no_fixture_mutation_on_read_only() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_readonly.py",
+        r#"
+def test_read_only(my_list):
+    x = my_list[0]
+    assert x
+"#,
+    );
+    let module = parse_file(&path);
+    assert!(module.test_functions[0].mutates_fixture_deps.is_empty());
+}
+
+#[test]
 fn test_fixture_scope_unknown_dep_does_not_trigger_fix003() {
     let dir = tempfile::tempdir().unwrap();
     let path = write_temp_file(
