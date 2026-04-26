@@ -234,8 +234,30 @@ impl Rule for FixtureMutationRule {
     fn category(&self) -> Category {
         Category::Fixture
     }
-    fn check(&self, _module: &ParsedModule, _all_modules: &[ParsedModule], _ctx: &RuleContext) -> Vec<Violation> {
-        vec![]
+    fn check(&self, module: &ParsedModule, _all_modules: &[ParsedModule], ctx: &RuleContext) -> Vec<Violation> {
+        let mut violations = Vec::new();
+        for test in &module.test_functions {
+            for dep_name in &test.mutates_fixture_deps {
+                let is_mutable_fixture = ctx
+                    .fixture_map
+                    .get(dep_name)
+                    .is_some_and(|fixtures| fixtures.iter().any(|f| f.returns_mutable));
+                if is_mutable_fixture {
+                    violations.push(make_violation(
+                        self.id(),
+                        self.name(),
+                        self.severity(),
+                        self.category(),
+                        format!("Test '{}' mutates fixture '{}' which may affect other tests", test.name, dep_name),
+                        module.file_path.clone(),
+                        test.line,
+                        Some("Create a fresh copy of the fixture value before modifying it".to_string()),
+                        Some(test.name.clone()),
+                    ));
+                }
+            }
+        }
+        violations
     }
 }
 
@@ -295,8 +317,32 @@ impl Rule for FixtureOverlyBroadScopeRule {
     fn category(&self) -> Category {
         Category::Fixture
     }
-    fn check(&self, _module: &ParsedModule, _all_modules: &[ParsedModule], _ctx: &RuleContext) -> Vec<Violation> {
-        vec![]
+    fn check(&self, module: &ParsedModule, _all_modules: &[ParsedModule], _ctx: &RuleContext) -> Vec<Violation> {
+        let mut violations = Vec::new();
+        for fixture in &module.fixtures {
+            if fixture.scope >= crate::models::FixtureScope::Module
+                && !fixture.has_yield
+                && !fixture.has_db_commit
+                && !fixture.has_db_rollback
+                && !fixture.uses_file_io
+            {
+                violations.push(make_violation(
+                    self.id(),
+                    self.name(),
+                    self.severity(),
+                    self.category(),
+                    format!(
+                        "Fixture '{}' has scope '{}' but no expensive setup — consider using function scope for better isolation",
+                        fixture.name, fixture.scope
+                    ),
+                    module.file_path.clone(),
+                    fixture.line,
+                    Some("Change fixture scope to 'function'".to_string()),
+                    None,
+                ));
+            }
+        }
+        violations
     }
 }
 
@@ -315,7 +361,27 @@ impl Rule for NoContractHintRule {
     fn category(&self) -> Category {
         Category::Enhancement
     }
-    fn check(&self, _module: &ParsedModule, _all_modules: &[ParsedModule], _ctx: &RuleContext) -> Vec<Violation> {
-        vec![]
+    fn check(&self, module: &ParsedModule, _all_modules: &[ParsedModule], _ctx: &RuleContext) -> Vec<Violation> {
+        let mut violations = Vec::new();
+        for test in &module.test_functions {
+            if test.has_assertions
+                && !test.uses_pytest_raises
+                && !test.has_try_except
+                && !test.is_parametrized
+            {
+                violations.push(make_violation(
+                    self.id(),
+                    self.name(),
+                    self.severity(),
+                    self.category(),
+                    format!("Test '{}' only tests the happy path — consider adding error/edge case coverage", test.name),
+                    module.file_path.clone(),
+                    test.line,
+                    Some("Add tests for error conditions using pytest.raises".to_string()),
+                    Some(test.name.clone()),
+                ));
+            }
+        }
+        violations
     }
 }

@@ -53,8 +53,29 @@ impl Rule for MagicAssertRule {
     fn category(&self) -> Category {
         Category::Maintenance
     }
-    fn check(&self, _module: &ParsedModule, _all_modules: &[ParsedModule], _ctx: &RuleContext) -> Vec<Violation> {
-        vec![]
+    fn check(&self, module: &ParsedModule, _all_modules: &[ParsedModule], _ctx: &RuleContext) -> Vec<Violation> {
+        let mut violations = Vec::new();
+        for test in &module.test_functions {
+            for assertion in &test.assertions {
+                if assertion.is_magic {
+                    violations.push(make_violation(
+                        self.id(),
+                        self.name(),
+                        self.severity(),
+                        self.category(),
+                        format!(
+                            "Magic assertion at line {}: '{}' — this always passes/fails",
+                            assertion.line, assertion.expression_text
+                        ),
+                        module.file_path.clone(),
+                        assertion.line,
+                        Some("Replace with a meaningful comparison".to_string()),
+                        Some(test.name.clone()),
+                    ));
+                }
+            }
+        }
+        violations
     }
 }
 
@@ -73,8 +94,29 @@ impl Rule for SuboptimalAssertRule {
     fn category(&self) -> Category {
         Category::Enhancement
     }
-    fn check(&self, _module: &ParsedModule, _all_modules: &[ParsedModule], _ctx: &RuleContext) -> Vec<Violation> {
-        vec![]
+    fn check(&self, module: &ParsedModule, _all_modules: &[ParsedModule], _ctx: &RuleContext) -> Vec<Violation> {
+        let mut violations = Vec::new();
+        for test in &module.test_functions {
+            for assertion in &test.assertions {
+                if assertion.is_suboptimal {
+                    violations.push(make_violation(
+                        self.id(),
+                        self.name(),
+                        self.severity(),
+                        self.category(),
+                        format!(
+                            "Suboptimal assertion at line {}: '{}'",
+                            assertion.line, assertion.expression_text
+                        ),
+                        module.file_path.clone(),
+                        assertion.line,
+                        Some("Use a more direct assertion pattern".to_string()),
+                        Some(test.name.clone()),
+                    ));
+                }
+            }
+        }
+        violations
     }
 }
 

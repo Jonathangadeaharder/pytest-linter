@@ -3261,3 +3261,359 @@ def test_thing(unknown_dep):
     let v = find_violation(&violations, "PYTEST-FIX-003");
     assert!(v.is_none(), "Unknown deps should not trigger scope check");
 }
+
+#[test]
+fn test_overly_broad_scope_triggers_fix009() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "conftest.py",
+        r#"
+import pytest
+
+@pytest.fixture(scope="session")
+def simple_value():
+    return 42
+
+@pytest.fixture(scope="module")
+def another_simple():
+    return "hello"
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v1 = find_violation(&violations, "PYTEST-FIX-009");
+    assert!(v1.is_some(), "Expected PYTEST-FIX-009 for session-scoped simple fixture");
+}
+
+#[test]
+fn test_broad_scope_with_expensive_setup_does_not_trigger_fix009() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "conftest.py",
+        r#"
+import pytest
+
+@pytest.fixture(scope="session")
+def db_connection():
+    conn = create_engine(DB_URL)
+    yield conn
+    conn.close()
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FIX-009");
+    assert!(v.is_none(), "Session-scoped fixture with yield should not trigger FIX-009");
+}
+
+#[test]
+fn test_cwd_dependency_triggers_flk004() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_cwd_flaky.py",
+        r#"
+import os
+
+def test_cwd():
+    os.getcwd()
+    assert True
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FLK-004");
+    assert!(v.is_some(), "Expected PYTEST-FLK-004 violation");
+    assert_eq!(v.unwrap().rule_name, "CwdDependencyRule");
+}
+
+#[test]
+fn test_no_cwd_dependency_does_not_trigger_flk004() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_no_cwd_safe.py",
+        r#"
+def test_safe():
+    assert 1 == 1
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FLK-004");
+    assert!(v.is_none());
+}
+
+#[test]
+fn test_no_contract_hint_triggers_dbc001() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_happy_path.py",
+        r#"
+def test_happy_only():
+    result = 1 + 2
+    assert result == 3
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-DBC-001");
+    assert!(v.is_some(), "Expected PYTEST-DBC-001 for happy-path-only test");
+}
+
+#[test]
+fn test_with_pytest_raises_does_not_trigger_dbc001() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_with_error.py",
+        r#"
+import pytest
+
+def test_error():
+    with pytest.raises(ValueError):
+        raise ValueError("bad")
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-DBC-001");
+    assert!(v.is_none(), "Test with pytest.raises should not trigger DBC-001");
+}
+
+#[test]
+fn test_parametrized_does_not_trigger_dbc001() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_param_dbc.py",
+        r#"
+import pytest
+
+@pytest.mark.parametrize("x", [1, 2, 3])
+def test_values(x):
+    assert x > 0
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-DBC-001");
+    assert!(v.is_none(), "Parametrized tests should not trigger DBC-001");
+}
+
+#[test]
+fn test_fixture_mutation_triggers_fix007() {
+    let dir = tempfile::tempdir().unwrap();
+    let conftest = write_temp_file(
+        dir.path(),
+        "conftest.py",
+        r#"
+import pytest
+
+@pytest.fixture
+def items():
+    return [1, 2, 3]
+"#,
+    );
+    let test_path = write_temp_file(
+        dir.path(),
+        "test_mutate.py",
+        r#"
+def test_mutates(items):
+    items.append(4)
+    assert len(items) == 4
+"#,
+    );
+    let engine = LintEngine::new().unwrap();
+    let violations = engine.lint_paths(&[conftest, test_path]).unwrap();
+    let v = find_violation(&violations, "PYTEST-FIX-007");
+    assert!(v.is_some(), "Expected PYTEST-FIX-007 violation");
+}
+
+#[test]
+fn test_no_fixture_mutation_does_not_trigger_fix007() {
+    let dir = tempfile::tempdir().unwrap();
+    let conftest = write_temp_file(
+        dir.path(),
+        "conftest.py",
+        r#"
+import pytest
+
+@pytest.fixture
+def items():
+    return [1, 2, 3]
+"#,
+    );
+    let test_path = write_temp_file(
+        dir.path(),
+        "test_safe_fix.py",
+        r#"
+def test_read_only(items):
+    assert len(items) == 3
+"#,
+    );
+    let engine = LintEngine::new().unwrap();
+    let violations = engine.lint_paths(&[conftest, test_path]).unwrap();
+    let v = find_violation(&violations, "PYTEST-FIX-007");
+    assert!(v.is_none(), "Read-only fixture usage should not trigger FIX-007");
+}
+
+#[test]
+fn test_magic_assert_triggers_mnt002() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_magic_assert_mnt.py",
+        r#"
+def test_magic():
+    assert True
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-MNT-002");
+    assert!(v.is_some(), "Expected PYTEST-MNT-002 violation");
+    assert!(v.unwrap().message.contains("Magic assertion"));
+}
+
+#[test]
+fn test_normal_assert_does_not_trigger_mnt002() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_normal_assert.py",
+        r#"
+def test_normal():
+    assert 1 + 2 == 3
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-MNT-002");
+    assert!(v.is_none());
+}
+
+#[test]
+fn test_suboptimal_assert_triggers_mnt003() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_suboptimal_mnt.py",
+        r#"
+def test_subopt():
+    assert len(items) == 3
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-MNT-003");
+    assert!(v.is_some(), "Expected PYTEST-MNT-003 violation");
+    assert!(v.unwrap().message.contains("Suboptimal"));
+}
+
+#[test]
+fn test_good_assert_does_not_trigger_mnt003() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_good_assert_mnt.py",
+        r#"
+def test_good():
+    x = 1 + 2
+    assert x == 3
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-MNT-003");
+    assert!(v.is_none());
+}
+
+#[test]
+fn test_xdist_shared_state_triggers_xdist001() {
+    let dir = tempfile::tempdir().unwrap();
+    let conftest = write_temp_file(
+        dir.path(),
+        "conftest.py",
+        r#"
+import pytest
+
+@pytest.fixture(scope="session")
+def shared_list():
+    return []
+"#,
+    );
+    let test_path = write_temp_file(
+        dir.path(),
+        "test_shared_xdist.py",
+        r#"
+def test_mutates_shared(shared_list):
+    shared_list.append(1)
+    assert len(shared_list) == 1
+"#,
+    );
+    let engine = LintEngine::new().unwrap();
+    let violations = engine.lint_paths(&[conftest, test_path]).unwrap();
+    let v = find_violation(&violations, "PYTEST-XDIST-001");
+    assert!(v.is_some(), "Expected PYTEST-XDIST-001 violation");
+}
+
+#[test]
+fn test_function_scope_mutable_does_not_trigger_xdist001() {
+    let dir = tempfile::tempdir().unwrap();
+    let conftest = write_temp_file(
+        dir.path(),
+        "conftest.py",
+        r#"
+import pytest
+
+@pytest.fixture
+def local_list():
+    return []
+"#,
+    );
+    let test_path = write_temp_file(
+        dir.path(),
+        "test_local_xdist.py",
+        r#"
+def test_mutates_local(local_list):
+    local_list.append(1)
+    assert len(local_list) == 1
+"#,
+    );
+    let engine = LintEngine::new().unwrap();
+    let violations = engine.lint_paths(&[conftest, test_path]).unwrap();
+    let v = find_violation(&violations, "PYTEST-XDIST-001");
+    assert!(v.is_none(), "Function-scoped fixture should not trigger XDIST-001");
+}
+
+#[test]
+fn test_parametrize_duplicate_triggers_param002() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_dup_param.py",
+        r#"
+import pytest
+
+@pytest.mark.parametrize("x", [1, 2, 2, 3])
+def test_dup(x):
+    assert x > 0
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-PARAM-002");
+    assert!(v.is_some(), "Expected PYTEST-PARAM-002 violation");
+    assert!(v.unwrap().message.contains("duplicate"));
+}
+
+#[test]
+fn test_parametrize_no_duplicate_does_not_trigger_param002() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_no_dup_param.py",
+        r#"
+import pytest
+
+@pytest.mark.parametrize("x", [1, 2, 3])
+def test_unique(x):
+    assert x > 0
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-PARAM-002");
+    assert!(v.is_none());
+}
