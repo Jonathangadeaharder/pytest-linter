@@ -10,16 +10,16 @@ if [ -z "$pr" ]; then
     exit 1
 fi
 
-echo "Waiting for new reviews from all 3 bots on PR #$pr..."
-start_time=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+current_head=$(git rev-parse HEAD)
+
+echo "Waiting for new reviews on PR #$pr for commit $current_head..."
 
 seen_coderabbit=false
 seen_gemini=false
-seen_copilot=false
 
 while true; do
-    # Fetch reviews
-    reviews=$(gh api "repos/$repo/pulls/$pr/reviews" -q ".[] | select(.submitted_at > \"$start_time\") | .user.login" 2>/dev/null || echo "")
+    # Fetch reviews for the specific commit
+    reviews=$(gh api "repos/$repo/pulls/$pr/reviews" -q ".[] | select(.commit_id == \"$current_head\") | .user.login" 2>/dev/null || echo "")
     
     if echo "$reviews" | grep -q -E "coderabbitai"; then
         seen_coderabbit=true
@@ -27,12 +27,11 @@ while true; do
     if echo "$reviews" | grep -q -E "gemini"; then
         seen_gemini=true
     fi
-    if echo "$reviews" | grep -q -i "copilot"; then
-        seen_copilot=true
-    fi
     
-    if [ "$seen_coderabbit" = true ] && [ "$seen_gemini" = true ] && [ "$seen_copilot" = true ]; then
-        echo -e "\nAll 3 bot reviews detected!"
+    # Copilot does not reliably review every push (it typically runs only on PR open),
+    # so we do not block on it. We only strictly require the two main bots.
+    if [ "$seen_coderabbit" = true ] && [ "$seen_gemini" = true ]; then
+        echo -e "\nCodeRabbit and Gemini reviews detected for the current commit!"
         exit 0
     fi
     
