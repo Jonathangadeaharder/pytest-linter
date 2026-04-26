@@ -128,6 +128,7 @@ impl PythonParser {
             .unwrap_or_default();
 
         let decorators = Self::get_decorators(func_node, source);
+        let parametrize_values = Self::extract_parametrize_values(&decorators, source);
 
         let is_async = {
             let mut cur = func_node.walk();
@@ -183,7 +184,7 @@ impl PythonParser {
             has_try_except,
             docstring,
             assertions,
-            parametrize_values: vec![],
+            parametrize_values,
             uses_cwd_dependency,
             uses_pytest_raises,
             mutates_fixture_deps,
@@ -389,8 +390,7 @@ impl PythonParser {
         if node.kind() == "assert_statement" {
             let line = node.start_position().row + 1;
             let mut cursor = node.walk();
-            let children: Vec<_> = node.children(&mut cursor).collect();
-            let expr_node = children.into_iter().find(|c| {
+            let expr_node = node.children(&mut cursor).find(|c| {
                 let k = c.kind();
                 !k.starts_with(',') && k != "comment" && k != "assert"
             });
@@ -472,6 +472,52 @@ impl PythonParser {
             }
         }
         false
+    }
+
+    fn extract_parametrize_values(decorators: &[DecoratorInfo], source: &[u8]) -> Vec<Vec<String>> {
+        let mut all_values = Vec::new();
+        for dec in decorators {
+            if !dec.text.contains("parametrize") {
+                continue;
+            }
+            if let Some(node) = dec.node {
+                if let Some(values) = Self::extract_values_from_decorator_node(node, source) {
+                    all_values.push(values);
+                }
+            }
+        }
+        all_values
+    }
+
+    fn extract_values_from_decorator_node(decorator_node: tree_sitter::Node, source: &[u8]) -> Option<Vec<String>> {
+        let mut cursor = decorator_node.walk();
+        for child in decorator_node.children(&mut cursor) {
+            if child.kind() == "call" {
+                let mut call_cursor = child.walk();
+                for call_child in child.children(&mut call_cursor) {
+                    if call_child.kind() == "argument_list" {
+                        let mut args_cursor = call_child.walk();
+                        for arg in call_child.children(&mut args_cursor) {
+                            if arg.kind() == "list" || arg.kind() == "tuple" {
+                                let mut values = Vec::new();
+                                let mut elem_cursor = arg.walk();
+                                for elem in arg.children(&mut elem_cursor) {
+                                    match elem.kind() {
+                                        "," | "(" | ")" | "[" | "]" | "comment" => {}
+                                        _ if !elem.is_extra() => {
+                                            values.push(Self::node_text(elem, source).trim().to_string());
+                                        }
+                                        _ => {}
+                                    }
+                                }
+                                return Some(values);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        None
     }
 
     fn detect_cwd_dependency(body: Option<&tree_sitter::Node>, source: &[u8]) -> bool {

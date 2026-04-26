@@ -3221,6 +3221,26 @@ def test_read_only(my_list):
 }
 
 #[test]
+fn test_parametrize_values_extracted() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_param_values.py",
+        r#"
+import pytest
+
+@pytest.mark.parametrize("x", [1, 2, 2, 3])
+def test_dup(x):
+    assert x > 0
+"#,
+    );
+    let module = parse_file(&path);
+    let test = &module.test_functions[0];
+    assert_eq!(test.parametrize_values.len(), 1);
+    assert_eq!(test.parametrize_values[0], vec!["1", "2", "2", "3"]);
+}
+
+#[test]
 fn test_fixture_scope_unknown_dep_does_not_trigger_fix003() {
     let dir = tempfile::tempdir().unwrap();
     let path = write_temp_file(
