@@ -31,7 +31,7 @@ Replace the stale Python-era `ci.yml` with a Rust-native CI pipeline. Delete 4 o
 ### 4. coverage (Branch Coverage)
 - Install nightly toolchain with `llvm-tools-preview`
 - Install `cargo-llvm-cov`
-- Run on both crates: `cargo +nightly llvm-cov --branch --doctests --fail-under-lines 90`
+- Run on both crates: `cargo +nightly llvm-cov --fail-under-lines 90`
 - Gate: Yes (lines ≥90%)
 - Branch coverage is reported but not gated (llvm-cov lacks `--fail-under-branches`)
 

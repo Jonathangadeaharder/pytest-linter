@@ -68,25 +68,31 @@ impl PythonParser {
         imports
     }
 
-    fn collect_function_nodes<'a>(
-        root: &'a tree_sitter::Node<'a>,
-    ) -> Vec<tree_sitter::Node<'a>> {
+    fn collect_function_nodes<'tree>(
+        root: &'tree tree_sitter::Node<'tree>,
+    ) -> Vec<tree_sitter::Node<'tree>> {
         let mut nodes = Vec::new();
-        let mut cursor = root.walk();
-        for child in root.children(&mut cursor) {
-            match child.kind() {
-                "function_definition" => {
-                    nodes.push(child);
-                }
-                "decorated_definition" => {
-                    let mut inner = child.walk();
-                    for c in child.children(&mut inner) {
-                        if c.kind() == "function_definition" {
-                            nodes.push(c);
+        let mut to_visit = vec![*root];
+        while let Some(node) = to_visit.pop() {
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                match child.kind() {
+                    "function_definition" => {
+                        nodes.push(child);
+                    }
+                    "decorated_definition" => {
+                        let mut inner = child.walk();
+                        for c in child.children(&mut inner) {
+                            if c.kind() == "function_definition" {
+                                nodes.push(c);
+                            }
                         }
                     }
+                    "class_definition" => {
+                        to_visit.push(child);
+                    }
+                    _ => {}
                 }
-                _ => {}
             }
         }
         nodes
@@ -213,7 +219,8 @@ impl PythonParser {
 
     fn detect_parametrize(decorators: &[DecoratorInfo]) -> (bool, Option<usize>) {
         for dec in decorators {
-            if dec.text.contains("parametrize") || dec.text.contains("pytest.mark.parametrize") {
+            let name = dec.text.trim_start_matches('@').split('(').next().unwrap_or("").trim();
+            if name == "pytest.mark.parametrize" || name == "parametrize" {
                 let count = dec.node.map_or_else(
                     || Self::count_parametrize_args(&dec.text),
                     |node| {
@@ -706,8 +713,14 @@ impl PythonParser {
         if let Some(p) = params {
             let mut cursor = p.walk();
             for child in p.children(&mut cursor) {
-                if child.kind() == "identifier" {
-                    let name = Self::node_text(child, source);
+                let name = match child.kind() {
+                    "identifier" => Some(Self::node_text(child, source)),
+                    "typed_parameter" | "default_parameter" | "typed_default_parameter" => {
+                        child.child_by_field_name("name").map(|n| Self::node_text(n, source))
+                    }
+                    _ => None,
+                };
+                if let Some(name) = name {
                     if !["self", "cls"].contains(&name.as_str()) {
                         deps.push(name);
                     }
@@ -727,7 +740,8 @@ impl PythonParser {
         for func_node in Self::collect_function_nodes(root) {
             let decorators = Self::get_decorators(&func_node, source);
             let is_fixture = decorators.iter().any(|d| {
-                d.text.contains("pytest.fixture") || d.text.contains("@fixture")
+                let name = d.text.trim_start_matches('@').split('(').next().unwrap_or("").trim();
+                name == "pytest.fixture" || name == "fixture"
             });
 
             if is_fixture {
@@ -892,7 +906,7 @@ impl PythonParser {
 fn has_mock_verifications_only(body_text: &str) -> bool {
     let mock_kw = [".assert_called", ".called", ".call_count"];
     let has_mock = mock_kw.iter().any(|k| body_text.contains(k));
-    let has_assert = body_text.contains("assert ");
+    let has_assert = body_text.contains("assert ") || body_text.contains("assert(");
     has_mock && !has_assert
 }
 
