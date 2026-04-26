@@ -131,7 +131,8 @@ main() {
     log "Found PR #$pr for branch $branch"
 
     state=$(get_state "$branch")
-    current_head=$(git rev-parse HEAD)
+    current_head=$(gh pr view "$pr" --repo "$repo" --json headRefOid -q '.headRefOid' 2>/dev/null)
+    [ -z "$current_head" ] && current_head=$(git rev-parse HEAD)
 
     if [ -z "$state" ]; then
         log "First run on this branch — tracking state for next push"
