@@ -24,20 +24,21 @@ find_open_pr() {
     gh pr list --repo "$repo" --head "$branch" --state open --json number -q '.[0].number' 2>/dev/null || echo ""
 }
 
-get_last_push_ts() {
+get_state() {
     local branch="$1"
     local safe_branch="${branch//\//_}"
-    local state_file="$STATE_DIR/${safe_branch}.ts"
+    local state_file="$STATE_DIR/${safe_branch}.state"
     if [ -f "$state_file" ]; then cat "$state_file"; else echo ""; fi
 }
 
-save_push_ts() {
+save_state() {
     local branch="$1"
+    local head_sha="$2"
     local ts
     ts=$(python3 -c "from datetime import datetime,timezone;print(datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'))")
     local safe_branch="${branch//\//_}"
     mkdir -p "$STATE_DIR"
-    echo "$ts" > "$STATE_DIR/${safe_branch}.ts"
+    echo "${head_sha}|${ts}" > "$STATE_DIR/${safe_branch}.state"
 }
 
 fetch_and_check_reviews() {
@@ -116,7 +117,7 @@ request_reviews() {
 main() {
     require_cmds
 
-    local branch repo pr last_ts
+    local branch repo pr state current_head saved_head saved_ts
 
     branch=$(get_current_branch)
     [ -z "$branch" ] && die "Not on a branch"
@@ -129,17 +130,29 @@ main() {
     [ -z "$pr" ] && { log "No open PR for branch $branch"; exit 0; }
     log "Found PR #$pr for branch $branch"
 
-    last_ts=$(get_last_push_ts "$branch")
-    save_push_ts "$branch"
+    state=$(get_state "$branch")
+    current_head=$(git rev-parse HEAD)
 
-    if [ -z "$last_ts" ]; then
-        log "First push tracked on this branch — saving timestamp for next push"
+    if [ -z "$state" ]; then
+        log "First run on this branch — tracking state for next push"
+        save_state "$branch" "$current_head"
         exit 0
     fi
 
-    log "Checking for major findings since $last_ts..."
+    saved_head=$(echo "$state" | cut -d'|' -f1)
+    saved_ts=$(echo "$state" | cut -d'|' -f2)
+
+    if [ "$saved_head" == "$current_head" ]; then
+        log "No new commits since last run. Skipping review requests."
+        exit 0
+    fi
+
+    log "New commits detected. Checking for major findings since $saved_ts..."
     local result
-    result=$(fetch_and_check_reviews "$repo" "$pr" "$last_ts")
+    result=$(fetch_and_check_reviews "$repo" "$pr" "$saved_ts")
+
+    # Update state only after checking reviews
+    save_state "$branch" "$current_head"
 
     local item_count
     item_count=$(echo "$result" | grep "^ITEMS:" | head -1 | cut -d: -f2)
