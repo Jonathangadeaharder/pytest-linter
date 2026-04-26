@@ -8,7 +8,7 @@ Fast, tree-sitter-powered test smell detectors for **pytest** (Python) and **Vit
 
 | Crate | Language | Rules | Description |
 |-------|----------|:-----:|-------------|
-| [`pytest-linter/`](pytest-linter/) | Python (pytest) | 29 | Detects flakiness, maintenance, and fixture smells in pytest test suites |
+| [`pytest-linter/`](pytest-linter/) | Python (pytest) | 28 | Detects flakiness, maintenance, and fixture smells in pytest test suites |
 | [`vitest-linter/`](vitest-linter/) | TypeScript (Vitest) | 10 | Detects flakiness, maintenance, and structure smells in Vitest test suites |
 
 ## Quick Start
@@ -37,7 +37,7 @@ cargo build --release
 
 ## Rules
 
-### pytest-linter (29 rules)
+### pytest-linter (28 rules)
 
 **Flakiness (7):**
 | Rule ID | Name | Severity |
@@ -45,17 +45,17 @@ cargo build --release
 | PYTEST-FLK-001 | TimeSleepRule | Warning |
 | PYTEST-FLK-002 | FileIoRule | Warning |
 | PYTEST-FLK-003 | NetworkImportRule | Warning |
-| PYTEST-FLK-004 | CwdDependencyRule | *stub* |
+| PYTEST-FLK-004 | CwdDependencyRule | Warning |
 | PYTEST-FLK-005 | MysteryGuestRule | Warning |
-| PYTEST-XDIST-001 | XdistSharedStateRule | *stub* |
+| PYTEST-XDIST-001 | XdistSharedStateRule | Warning |
 | PYTEST-XDIST-002 | XdistFixtureIoRule | Warning |
 
-**Maintenance (14):**
+**Maintenance (13):**
 | Rule ID | Name | Severity |
 |---------|------|----------|
 | PYTEST-MNT-001 | TestLogicRule | Warning |
-| PYTEST-MNT-002 | MagicAssertRule | *stub* |
-| PYTEST-MNT-003 | SuboptimalAssertRule | *stub* |
+| PYTEST-MNT-002 | MagicAssertRule | Warning |
+| PYTEST-MNT-003 | SuboptimalAssertRule | Warning |
 | PYTEST-MNT-004 | NoAssertionRule | Error |
 | PYTEST-MNT-005 | MockOnlyVerifyRule | Warning |
 | PYTEST-MNT-006 | AssertionRouletteRule | Warning |
@@ -63,12 +63,11 @@ cargo build --release
 | PYTEST-BDD-001 | BddMissingScenarioRule | Info |
 | PYTEST-PBT-001 | PropertyTestHintRule | Info |
 | PYTEST-PARAM-001 | ParametrizeEmptyRule | Warning |
-| PYTEST-PARAM-002 | ParametrizeDuplicateRule | *stub* |
+| PYTEST-PARAM-002 | ParametrizeDuplicateRule | Warning |
 | PYTEST-PARAM-003 | ParametrizeExplosionRule | Warning |
-| PYTEST-PARAM-004 | ParametrizeNoVariationRule | *stub* |
-| PYTEST-DBC-001 | NoContractHintRule | *stub* |
+| PYTEST-DBC-001 | NoContractHintRule | Warning |
 
-**Fixtures (9):**
+**Fixtures (8):**
 | Rule ID | Name | Severity |
 |---------|------|----------|
 | PYTEST-FIX-001 | AutouseFixtureRule | Warning |
@@ -76,9 +75,9 @@ cargo build --release
 | PYTEST-FIX-004 | ShadowedFixtureRule | Warning |
 | PYTEST-FIX-005 | UnusedFixtureRule | Warning |
 | PYTEST-FIX-006 | StatefulSessionFixtureRule | Warning |
-| PYTEST-FIX-007 | FixtureMutationRule | *stub* |
+| PYTEST-FIX-007 | FixtureMutationRule | Warning |
 | PYTEST-FIX-008 | FixtureDbCommitNoCleanupRule | Warning |
-| PYTEST-FIX-009 | FixtureOverlyBroadScopeRule | *stub* |
+| PYTEST-FIX-009 | FixtureOverlyBroadScopeRule | Warning |
 
 ### vitest-linter (10 rules)
 
@@ -125,10 +124,10 @@ Exit code: **1** if any `Error` severity violations found, **0** otherwise.
 
 ## Test Quality
 
-| Crate | Tests | Line Coverage | Mutation Score |
-|-------|:-----:|:-------------:|:--------------:|
-| pytest-linter | 82 | 91.6% | — |
-| vitest-linter | 48 | 89.3% | 100% |
+| Crate | Tests | Line Coverage | Branch Coverage |
+|-------|:-----:|:-------------:|:---------------:|
+| pytest-linter | 220 | 96.6% | 80.5% |
+| vitest-linter | 65 | 99.0% | 92.4% |
 
 ## Architecture
 
