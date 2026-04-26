@@ -3,17 +3,24 @@ use anyhow::Result;
 use std::path::Path;
 use tree_sitter::Parser;
 
+struct DecoratorInfo<'a> {
+    text: String,
+    node: Option<tree_sitter::Node<'a>>,
+}
+
 pub struct PythonParser {
     parser: Parser,
 }
 
 impl PythonParser {
+    #[allow(clippy::missing_errors_doc)]
     pub fn new() -> Result<Self> {
         let mut parser = Parser::new();
         parser.set_language(&tree_sitter_python::LANGUAGE.into())?;
         Ok(Self { parser })
     }
 
+    #[allow(clippy::missing_errors_doc)]
     pub fn parse_file(&mut self, path: &Path) -> Result<ParsedModule> {
         let source = std::fs::read_to_string(path)?;
         let tree = self.parser.parse(&source, None);
@@ -88,7 +95,7 @@ impl PythonParser {
     fn extract_test_functions(
         root: &tree_sitter::Node,
         source: &[u8],
-        file_path: &std::path::PathBuf,
+        file_path: &Path,
     ) -> Vec<TestFunction> {
         let mut tests = Vec::new();
         for func_node in Self::collect_function_nodes(root) {
@@ -111,7 +118,7 @@ impl PythonParser {
     fn build_test_function(
         func_node: &tree_sitter::Node,
         source: &[u8],
-        file_path: &std::path::PathBuf,
+        file_path: &Path,
         name: &str,
     ) -> TestFunction {
         let line = func_node.start_position().row + 1;
@@ -132,7 +139,7 @@ impl PythonParser {
         };
         let (is_parametrized, parametrize_count) = Self::detect_parametrize(&decorators);
         let has_assertions = body_text.contains("assert ") || body_text.contains("assert(");
-        let assertion_count = Self::count_assertions(&body);
+        let assertion_count = Self::count_assertions(body.as_ref());
         let has_mock_verifications = body_text.contains(".assert_called")
             || body_text.contains(".called")
             || body_text.contains(".call_count");
@@ -149,13 +156,13 @@ impl PythonParser {
             || body_text.contains("httpx.")
             || body_text.contains("aiohttp.")
             || body_text.contains("urllib");
-        let has_conditional_logic = Self::detect_conditionals(&body);
-        let has_try_except = Self::detect_try_except(&body);
+        let has_conditional_logic = Self::detect_conditionals(body.as_ref());
+        let has_try_except = Self::detect_try_except(body.as_ref());
         let docstring = Self::extract_docstring(func_node, source);
 
         TestFunction {
             name: name.to_string(),
-            file_path: file_path.clone(),
+            file_path: file_path.to_path_buf(),
             line,
             is_async,
             is_parametrized,
@@ -174,10 +181,10 @@ impl PythonParser {
         }
     }
 
-    fn get_decorators(func_node: &tree_sitter::Node, source: &[u8]) -> Vec<String> {
+    fn get_decorators<'a>(func_node: &tree_sitter::Node<'a>, source: &[u8]) -> Vec<DecoratorInfo<'a>> {
         let mut decs = Vec::new();
         let parent = func_node.parent();
-        let container = if parent.map_or(false, |p| p.kind() == "decorated_definition") {
+        let container = if parent.is_some_and(|p| p.kind() == "decorated_definition") {
             parent.unwrap()
         } else {
             *func_node
@@ -185,20 +192,63 @@ impl PythonParser {
         let mut cursor = container.walk();
         for child in container.children(&mut cursor) {
             if child.kind() == "decorator" {
-                decs.push(Self::node_text(child, source));
+                decs.push(DecoratorInfo {
+                    text: Self::node_text(child, source),
+                    node: Some(child),
+                });
             }
         }
         decs
     }
 
-    fn detect_parametrize(decorators: &[String]) -> (bool, Option<usize>) {
+    fn detect_parametrize(decorators: &[DecoratorInfo]) -> (bool, Option<usize>) {
         for dec in decorators {
-            if dec.contains("parametrize") || dec.contains("pytest.mark.parametrize") {
-                let count = Self::count_parametrize_args(dec);
+            if dec.text.contains("parametrize") || dec.text.contains("pytest.mark.parametrize") {
+                let count = dec.node.map_or_else(
+                    || Self::count_parametrize_args(&dec.text),
+                    |node| {
+                        Self::count_parametrize_args_ast(node)
+                            .unwrap_or_else(|| Self::count_parametrize_args(&dec.text))
+                    },
+                );
                 return (true, Some(count));
             }
         }
         (false, None)
+    }
+
+    fn count_parametrize_args_ast(decorator_node: tree_sitter::Node) -> Option<usize> {
+        let mut cursor = decorator_node.walk();
+        for child in decorator_node.children(&mut cursor) {
+            if child.kind() == "call" {
+                let mut call_cursor = child.walk();
+                for call_child in child.children(&mut call_cursor) {
+                    if call_child.kind() == "argument_list" {
+                        let mut args_cursor = call_child.walk();
+                        for arg in call_child.children(&mut args_cursor) {
+                            if arg.kind() == "list" || arg.kind() == "tuple" {
+                                let mut elem_count = 0;
+                                let mut elem_cursor = arg.walk();
+                                let mut found_comma = false;
+                                for elem in arg.children(&mut elem_cursor) {
+                                    match elem.kind() {
+                                        "," => { found_comma = true; }
+                                        "(" | ")" | "[" | "]" | "comment" => {}
+                                        _ if !elem.is_extra() => { elem_count += 1; }
+                                        _ => {}
+                                    }
+                                }
+                                if elem_count == 0 && !found_comma {
+                                    return Some(0);
+                                }
+                                return Some(elem_count.max(1));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        None
     }
 
     fn count_parametrize_args(dec: &str) -> usize {
@@ -275,15 +325,12 @@ impl PythonParser {
         count.max(1)
     }
 
-    fn count_assertions(body: &Option<tree_sitter::Node>) -> usize {
-        match body {
-            Some(b) => {
-                let mut count = 0;
-                Self::count_assertions_recursive(*b, &mut count);
-                count
-            }
-            None => 0,
-        }
+    fn count_assertions(body: Option<&tree_sitter::Node>) -> usize {
+        body.map_or(0, |b| {
+            let mut count = 0;
+            Self::count_assertions_recursive(*b, &mut count);
+            count
+        })
     }
 
     fn count_assertions_recursive(node: tree_sitter::Node, count: &mut usize) {
@@ -296,18 +343,12 @@ impl PythonParser {
         }
     }
 
-    fn detect_conditionals(body: &Option<tree_sitter::Node>) -> bool {
-        match body {
-            Some(b) => Self::has_node_kind(*b, "if_statement"),
-            None => false,
-        }
+    fn detect_conditionals(body: Option<&tree_sitter::Node>) -> bool {
+        body.is_some_and(|b| Self::has_node_kind(*b, "if_statement"))
     }
 
-    fn detect_try_except(body: &Option<tree_sitter::Node>) -> bool {
-        match body {
-            Some(b) => Self::has_node_kind(*b, "try_statement"),
-            None => false,
-        }
+    fn detect_try_except(body: Option<&tree_sitter::Node>) -> bool {
+        body.is_some_and(|b| Self::has_node_kind(*b, "try_statement"))
     }
 
     fn has_node_kind(node: tree_sitter::Node, kind: &str) -> bool {
@@ -365,22 +406,23 @@ impl PythonParser {
     fn extract_fixtures(
         root: &tree_sitter::Node,
         source: &[u8],
-        file_path: &std::path::PathBuf,
+        file_path: &Path,
     ) -> Vec<Fixture> {
         let mut fixtures = Vec::new();
 
         for func_node in Self::collect_function_nodes(root) {
             let decorators = Self::get_decorators(&func_node, source);
             let is_fixture = decorators.iter().any(|d| {
-                d.contains("pytest.fixture") || d.contains("@fixture")
+                d.text.contains("pytest.fixture") || d.text.contains("@fixture")
             });
 
             if is_fixture {
                 let name_node = func_node.child_by_field_name("name");
                 if let Some(nn) = name_node {
                     let name = Self::node_text(nn, source);
+                    let dec_texts: Vec<String> = decorators.iter().map(|d| d.text.clone()).collect();
                     fixtures.push(Self::build_fixture(
-                        &func_node, source, file_path, &name, &decorators,
+                        &func_node, source, file_path, &name, &dec_texts,
                     ));
                 }
             }
@@ -391,7 +433,7 @@ impl PythonParser {
     fn build_fixture(
         func_node: &tree_sitter::Node,
         source: &[u8],
-        file_path: &std::path::PathBuf,
+        file_path: &Path,
         name: &str,
         decorators: &[String],
     ) -> Fixture {
@@ -404,12 +446,7 @@ impl PythonParser {
         let scope = Self::extract_fixture_scope(decorators);
         let is_autouse = decorators.iter().any(|d| d.contains("autouse") && d.contains("True"));
         let dependencies = Self::extract_fixture_deps(func_node, source);
-        let returns_mutable = body_text.contains("return []")
-            || body_text.contains("return {}")
-            || body_text.contains("return dict(")
-            || body_text.contains("return list(")
-            || body_text.contains("dict()")
-            || body_text.contains("list()");
+        let returns_mutable = Self::detect_mutable_return(body.as_ref(), source);
         let has_yield = body_text.contains("yield");
         let has_db_commit = body_text.contains("commit()")
             || body_text.contains(".commit")
@@ -417,10 +454,11 @@ impl PythonParser {
         let has_db_rollback = body_text.contains("rollback()")
             || body_text.contains(".rollback")
             || body_text.contains("ROLLBACK");
+        let uses_file_io = Self::detect_file_io(body.as_ref(), source);
 
         Fixture {
             name: name.to_string(),
-            file_path: file_path.clone(),
+            file_path: file_path.to_path_buf(),
             line,
             scope,
             is_autouse,
@@ -429,6 +467,7 @@ impl PythonParser {
             has_yield,
             has_db_commit,
             has_db_rollback,
+            uses_file_io,
             used_by: vec![],
         }
     }
@@ -451,6 +490,88 @@ impl PythonParser {
             }
         }
         FixtureScope::Function
+    }
+
+    fn detect_file_io(body: Option<&tree_sitter::Node>, source: &[u8]) -> bool {
+        body.is_some_and(|b| Self::has_file_io_call(*b, source))
+    }
+
+    fn has_file_io_call(node: tree_sitter::Node, source: &[u8]) -> bool {
+        if node.kind() == "call" {
+            let func = node.child_by_field_name("function");
+            if let Some(f) = func {
+                let name = Self::node_text(f, source);
+                if ["open", "read", "write"].contains(&name.as_str()) {
+                    return true;
+                }
+            }
+        }
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if child.kind() == "call" {
+                let func = child.child_by_field_name("function");
+                if let Some(f) = func {
+                    let text = Self::node_text(f, source);
+                    if text == "open" {
+                        return true;
+                    }
+                }
+                let mut args_cursor = child.walk();
+                for arg in child.children(&mut args_cursor) {
+                    if arg.kind() == "attribute" {
+                        let arg_text = Self::node_text(arg, source);
+                        if ["read", "write", "open"].iter().any(|ext| {
+                            std::path::Path::new(&arg_text)
+                                .extension()
+                                .is_some_and(|e| e.eq_ignore_ascii_case(ext))
+                        }) {
+                            return true;
+                        }
+                    }
+                }
+            }
+            if Self::has_file_io_call(child, source) {
+                return true;
+            }
+        }
+        false
+    }
+
+    fn detect_mutable_return(body: Option<&tree_sitter::Node>, source: &[u8]) -> bool {
+        body.is_some_and(|b| Self::has_mutable_return_in_body(*b, source))
+    }
+
+    fn has_mutable_return_in_body(node: tree_sitter::Node, source: &[u8]) -> bool {
+        if node.kind() == "return_statement" {
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                if Self::is_mutable_node(child, source) {
+                    return true;
+                }
+            }
+        }
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if Self::has_mutable_return_in_body(child, source) {
+                return true;
+            }
+        }
+        false
+    }
+
+    fn is_mutable_node(node: tree_sitter::Node, source: &[u8]) -> bool {
+        match node.kind() {
+            "list" | "dictionary" => true,
+            "call" => {
+                let func = node.child_by_field_name("function");
+                if let Some(f) = func {
+                    let name = Self::node_text(f, source);
+                    return name == "list" || name == "dict";
+                }
+                false
+            }
+            _ => false,
+        }
     }
 }
 
@@ -549,5 +670,261 @@ def test_documented():
         let module = parser.parse_file(&path).unwrap();
 
         assert!(module.test_functions[0].docstring.is_some());
+    }
+
+    #[test]
+    fn test_count_top_level_entries_empty() {
+        assert_eq!(PythonParser::count_top_level_entries(""), 1);
+    }
+
+    #[test]
+    fn test_count_top_level_entries_whitespace_only() {
+        assert_eq!(PythonParser::count_top_level_entries("   "), 1);
+    }
+
+    #[test]
+    fn test_count_top_level_entries_single_item() {
+        assert_eq!(PythonParser::count_top_level_entries("1"), 1);
+    }
+
+    #[test]
+    fn test_count_top_level_entries_comma_separated() {
+        assert_eq!(PythonParser::count_top_level_entries("1, 2, 3"), 3);
+    }
+
+    #[test]
+    fn test_count_top_level_entries_with_strings() {
+        assert_eq!(PythonParser::count_top_level_entries("\"a\", \"b\""), 2);
+    }
+
+    #[test]
+    fn test_count_top_level_entries_with_single_quotes() {
+        assert_eq!(PythonParser::count_top_level_entries("'x', 'y'"), 2);
+    }
+
+    #[test]
+    fn test_count_top_level_entries_with_escaped_chars() {
+        assert_eq!(PythonParser::count_top_level_entries(r#""a\"b", "c""#), 2);
+    }
+
+    #[test]
+    fn test_count_top_level_entries_with_nested_brackets() {
+        assert_eq!(PythonParser::count_top_level_entries("[1, 2], [3, 4]"), 2);
+    }
+
+    #[test]
+    fn test_count_top_level_entries_trailing_comma() {
+        assert_eq!(PythonParser::count_top_level_entries("1, 2, "), 2);
+    }
+
+    #[test]
+    fn test_count_top_level_entries_with_braces() {
+        assert_eq!(PythonParser::count_top_level_entries("{1: 2}, {3: 4}"), 2);
+    }
+
+    #[test]
+    fn test_count_top_level_entries_with_parens() {
+        assert_eq!(PythonParser::count_top_level_entries("(1, 2), (3, 4)"), 2);
+    }
+
+    #[test]
+    fn test_count_parametrize_args_bracket_format() {
+        assert!(PythonParser::count_parametrize_args("parametrize('x', [1, 2])") >= 1);
+    }
+
+    #[test]
+    fn test_count_parametrize_args_no_brackets() {
+        assert_eq!(PythonParser::count_parametrize_args("parametrize('x')"), 1);
+    }
+
+    #[test]
+    fn test_count_parametrize_args_multiple_parens() {
+        assert_eq!(PythonParser::count_parametrize_args("parametrize('x', (1, 2))"), 2);
+    }
+
+    #[test]
+    fn test_has_mock_verifications_only_true() {
+        assert!(has_mock_verifications_only("mock.assert_called()"));
+    }
+
+    #[test]
+    fn test_has_mock_verifications_only_false_no_mock() {
+        assert!(!has_mock_verifications_only("assert True"));
+    }
+
+    #[test]
+    fn test_has_mock_verifications_only_false_both() {
+        assert!(!has_mock_verifications_only("mock.assert_called()\nassert True"));
+    }
+
+    #[test]
+    fn test_has_mock_verifications_call_count() {
+        assert!(has_mock_verifications_only("mock.call_count"));
+    }
+
+    #[test]
+    fn test_parse_decorated_and_undecorated() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test_mixed_dec.py");
+        std::fs::write(
+            &path,
+            r#"
+import pytest
+
+def test_plain():
+    assert True
+
+@pytest.mark.parametrize("x", [1, 2])
+def test_param(x):
+    assert x > 0
+"#,
+        )
+        .unwrap();
+
+        let mut parser = PythonParser::new().unwrap();
+        let module = parser.parse_file(&path).unwrap();
+
+        assert_eq!(module.test_functions.len(), 2);
+    }
+
+    #[test]
+    fn test_parse_import_from_statement() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test_imports.py");
+        std::fs::write(
+            &path,
+            r#"
+from os import path
+from sys import argv
+
+def test_ok():
+    assert True
+"#,
+        )
+        .unwrap();
+
+        let mut parser = PythonParser::new().unwrap();
+        let module = parser.parse_file(&path).unwrap();
+
+        assert!(module.imports.iter().any(|imp| imp.contains("os")));
+        assert!(module.imports.iter().any(|imp| imp.contains("sys")));
+    }
+
+    #[test]
+    fn test_parse_fixture_with_no_params() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test_no_params.py");
+        std::fs::write(
+            &path,
+            r#"
+import pytest
+
+@pytest.fixture
+def no_param_fix():
+    return 42
+
+def test_thing():
+    assert True
+"#,
+        )
+        .unwrap();
+
+        let mut parser = PythonParser::new().unwrap();
+        let module = parser.parse_file(&path).unwrap();
+
+        assert!(module.fixtures[0].dependencies.is_empty());
+    }
+
+    #[test]
+    fn test_parse_fixture_with_yield_and_commit() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test_yield_commit.py");
+        std::fs::write(
+            &path,
+            r#"
+import pytest
+
+@pytest.fixture
+def yield_commit():
+    conn = get_conn()
+    conn.commit()
+    yield conn
+    conn.rollback()
+"#,
+        )
+        .unwrap();
+
+        let mut parser = PythonParser::new().unwrap();
+        let module = parser.parse_file(&path).unwrap();
+
+        assert!(module.fixtures[0].has_yield);
+        assert!(module.fixtures[0].has_db_commit);
+        assert!(module.fixtures[0].has_db_rollback);
+    }
+
+    #[test]
+    fn test_parse_fixture_dot_commit() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test_dot_commit.py");
+        std::fs::write(
+            &path,
+            r#"
+import pytest
+
+@pytest.fixture
+def dot_commit():
+    session.commit()
+    return session
+"#,
+        )
+        .unwrap();
+
+        let mut parser = PythonParser::new().unwrap();
+        let module = parser.parse_file(&path).unwrap();
+
+        assert!(module.fixtures[0].has_db_commit);
+    }
+
+    #[test]
+    fn test_parse_fixture_dot_rollback() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test_dot_rollback.py");
+        std::fs::write(
+            &path,
+            r#"
+import pytest
+
+@pytest.fixture
+def dot_rollback():
+    session.rollback()
+    return session
+"#,
+        )
+        .unwrap();
+
+        let mut parser = PythonParser::new().unwrap();
+        let module = parser.parse_file(&path).unwrap();
+
+        assert!(module.fixtures[0].has_db_rollback);
+    }
+
+    #[test]
+    fn test_parse_test_with_open_paren_space() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test_open_space.py");
+        std::fs::write(
+            &path,
+            r#"
+def test_open():
+    f = open ("data.txt")
+    assert f
+"#,
+        )
+        .unwrap();
+
+        let mut parser = PythonParser::new().unwrap();
+        let module = parser.parse_file(&path).unwrap();
+
+        assert!(module.test_functions[0].uses_file_io);
     }
 }

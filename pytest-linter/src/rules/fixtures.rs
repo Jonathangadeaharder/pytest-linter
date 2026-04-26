@@ -1,9 +1,6 @@
-use crate::engine::{
-    collect_all_fixtures, fixture_scope_by_name, is_fixture_used_by_any_test_or_fixture,
-    make_violation,
-};
+use crate::engine::{fixture_scope_by_name, make_violation};
 use crate::models::{Category, ParsedModule, Severity, Violation};
-use crate::rules::Rule;
+use crate::rules::{Rule, RuleContext};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -22,7 +19,7 @@ impl Rule for AutouseFixtureRule {
     fn category(&self) -> Category {
         Category::Fixture
     }
-    fn check(&self, module: &ParsedModule, _all_modules: &[ParsedModule]) -> Vec<Violation> {
+    fn check(&self, module: &ParsedModule, _all_modules: &[ParsedModule], _ctx: &RuleContext) -> Vec<Violation> {
         let mut violations = Vec::new();
         for fixture in &module.fixtures {
             if fixture.is_autouse {
@@ -58,13 +55,12 @@ impl Rule for InvalidScopeRule {
     fn category(&self) -> Category {
         Category::Fixture
     }
-    fn check(&self, module: &ParsedModule, all_modules: &[ParsedModule]) -> Vec<Violation> {
-        let all_fixtures = collect_all_fixtures(all_modules);
+    fn check(&self, module: &ParsedModule, _all_modules: &[ParsedModule], ctx: &RuleContext) -> Vec<Violation> {
         let mut violations = Vec::new();
 
         for fixture in &module.fixtures {
             for dep_name in &fixture.dependencies {
-                if let Some(dep_scope) = fixture_scope_by_name(&all_fixtures, dep_name) {
+                if let Some(dep_scope) = fixture_scope_by_name(ctx.fixture_map, dep_name) {
                     if fixture.scope > dep_scope {
                         violations.push(make_violation(
                             self.id(),
@@ -106,7 +102,7 @@ impl Rule for ShadowedFixtureRule {
     fn category(&self) -> Category {
         Category::Fixture
     }
-    fn check(&self, module: &ParsedModule, all_modules: &[ParsedModule]) -> Vec<Violation> {
+    fn check(&self, module: &ParsedModule, all_modules: &[ParsedModule], _ctx: &RuleContext) -> Vec<Violation> {
         let mut name_to_files: HashMap<String, Vec<(PathBuf, usize)>> = HashMap::new();
         for m in all_modules {
             for f in &m.fixtures {
@@ -160,13 +156,13 @@ impl Rule for UnusedFixtureRule {
     fn category(&self) -> Category {
         Category::Fixture
     }
-    fn check(&self, module: &ParsedModule, all_modules: &[ParsedModule]) -> Vec<Violation> {
+    fn check(&self, module: &ParsedModule, _all_modules: &[ParsedModule], ctx: &RuleContext) -> Vec<Violation> {
         let mut violations = Vec::new();
         for fixture in &module.fixtures {
             if fixture.is_autouse {
                 continue;
             }
-            if !is_fixture_used_by_any_test_or_fixture(&fixture.name, all_modules) {
+            if !ctx.used_fixture_names.contains(&fixture.name) {
                 violations.push(make_violation(
                     self.id(),
                     self.name(),
@@ -199,7 +195,7 @@ impl Rule for StatefulSessionFixtureRule {
     fn category(&self) -> Category {
         Category::Fixture
     }
-    fn check(&self, module: &ParsedModule, _all_modules: &[ParsedModule]) -> Vec<Violation> {
+    fn check(&self, module: &ParsedModule, _all_modules: &[ParsedModule], _ctx: &RuleContext) -> Vec<Violation> {
         let mut violations = Vec::new();
         for fixture in &module.fixtures {
             if fixture.scope == crate::models::FixtureScope::Session && fixture.returns_mutable {
@@ -238,7 +234,7 @@ impl Rule for FixtureMutationRule {
     fn category(&self) -> Category {
         Category::Fixture
     }
-    fn check(&self, _module: &ParsedModule, _all_modules: &[ParsedModule]) -> Vec<Violation> {
+    fn check(&self, _module: &ParsedModule, _all_modules: &[ParsedModule], _ctx: &RuleContext) -> Vec<Violation> {
         vec![]
     }
 }
@@ -258,7 +254,7 @@ impl Rule for FixtureDbCommitNoCleanupRule {
     fn category(&self) -> Category {
         Category::Fixture
     }
-    fn check(&self, module: &ParsedModule, _all_modules: &[ParsedModule]) -> Vec<Violation> {
+    fn check(&self, module: &ParsedModule, _all_modules: &[ParsedModule], _ctx: &RuleContext) -> Vec<Violation> {
         let mut violations = Vec::new();
         for fixture in &module.fixtures {
             if fixture.has_db_commit && !fixture.has_db_rollback && !fixture.has_yield {
@@ -299,7 +295,7 @@ impl Rule for FixtureOverlyBroadScopeRule {
     fn category(&self) -> Category {
         Category::Fixture
     }
-    fn check(&self, _module: &ParsedModule, _all_modules: &[ParsedModule]) -> Vec<Violation> {
+    fn check(&self, _module: &ParsedModule, _all_modules: &[ParsedModule], _ctx: &RuleContext) -> Vec<Violation> {
         vec![]
     }
 }
@@ -319,7 +315,7 @@ impl Rule for NoContractHintRule {
     fn category(&self) -> Category {
         Category::Enhancement
     }
-    fn check(&self, _module: &ParsedModule, _all_modules: &[ParsedModule]) -> Vec<Violation> {
+    fn check(&self, _module: &ParsedModule, _all_modules: &[ParsedModule], _ctx: &RuleContext) -> Vec<Violation> {
         vec![]
     }
 }

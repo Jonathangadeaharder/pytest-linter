@@ -1,53 +1,56 @@
-use crate::models::{ParsedModule, Violation};
+use crate::models::{Fixture, ParsedModule, Violation};
+use std::collections::{HashMap, HashSet};
+
+pub struct RuleContext<'a> {
+    pub fixture_map: &'a HashMap<String, Vec<&'a Fixture>>,
+    pub used_fixture_names: &'a HashSet<String>,
+}
 
 pub trait Rule: Send + Sync {
     fn id(&self) -> &'static str;
     fn name(&self) -> &'static str;
     fn severity(&self) -> crate::models::Severity;
     fn category(&self) -> crate::models::Category;
-    fn check(&self, module: &ParsedModule, all_modules: &[ParsedModule]) -> Vec<Violation>;
+    fn check(&self, module: &ParsedModule, all_modules: &[ParsedModule], ctx: &RuleContext) -> Vec<Violation>;
 }
 
 pub mod flakiness;
 pub mod fixtures;
 pub mod maintenance;
 
+#[must_use]
 pub fn all_rules() -> Vec<Box<dyn Rule>> {
-    let mut rules: Vec<Box<dyn Rule>> = Vec::new();
-
-    rules.push(Box::new(flakiness::TimeSleepRule));
-    rules.push(Box::new(flakiness::FileIoRule));
-    rules.push(Box::new(flakiness::NetworkImportRule));
-    rules.push(Box::new(flakiness::CwdDependencyRule));
-    rules.push(Box::new(flakiness::MysteryGuestRule));
-    rules.push(Box::new(flakiness::XdistSharedStateRule));
-    rules.push(Box::new(flakiness::XdistFixtureIoRule));
-
-    rules.push(Box::new(maintenance::TestLogicRule));
-    rules.push(Box::new(maintenance::MagicAssertRule));
-    rules.push(Box::new(maintenance::SuboptimalAssertRule));
-    rules.push(Box::new(maintenance::NoAssertionRule));
-    rules.push(Box::new(maintenance::MockOnlyVerifyRule));
-    rules.push(Box::new(maintenance::AssertionRouletteRule));
-    rules.push(Box::new(maintenance::RawExceptionHandlingRule));
-    rules.push(Box::new(maintenance::BddMissingScenarioRule));
-    rules.push(Box::new(maintenance::PropertyTestHintRule));
-    rules.push(Box::new(maintenance::ParametrizeEmptyRule));
-    rules.push(Box::new(maintenance::ParametrizeDuplicateRule));
-    rules.push(Box::new(maintenance::ParametrizeExplosionRule));
-    rules.push(Box::new(maintenance::ParametrizeNoVariationRule));
-
-    rules.push(Box::new(fixtures::AutouseFixtureRule));
-    rules.push(Box::new(fixtures::InvalidScopeRule));
-    rules.push(Box::new(fixtures::ShadowedFixtureRule));
-    rules.push(Box::new(fixtures::UnusedFixtureRule));
-    rules.push(Box::new(fixtures::StatefulSessionFixtureRule));
-    rules.push(Box::new(fixtures::FixtureMutationRule));
-    rules.push(Box::new(fixtures::FixtureDbCommitNoCleanupRule));
-    rules.push(Box::new(fixtures::FixtureOverlyBroadScopeRule));
-    rules.push(Box::new(fixtures::NoContractHintRule));
-
-    rules
+    vec![
+        Box::new(flakiness::TimeSleepRule),
+        Box::new(flakiness::FileIoRule),
+        Box::new(flakiness::NetworkImportRule),
+        Box::new(flakiness::CwdDependencyRule),
+        Box::new(flakiness::MysteryGuestRule),
+        Box::new(flakiness::XdistSharedStateRule),
+        Box::new(flakiness::XdistFixtureIoRule),
+        Box::new(maintenance::TestLogicRule),
+        Box::new(maintenance::MagicAssertRule),
+        Box::new(maintenance::SuboptimalAssertRule),
+        Box::new(maintenance::NoAssertionRule),
+        Box::new(maintenance::MockOnlyVerifyRule),
+        Box::new(maintenance::AssertionRouletteRule),
+        Box::new(maintenance::RawExceptionHandlingRule),
+        Box::new(maintenance::BddMissingScenarioRule),
+        Box::new(maintenance::PropertyTestHintRule),
+        Box::new(maintenance::ParametrizeEmptyRule),
+        Box::new(maintenance::ParametrizeDuplicateRule),
+        Box::new(maintenance::ParametrizeExplosionRule),
+        Box::new(maintenance::ParametrizeNoVariationRule),
+        Box::new(fixtures::AutouseFixtureRule),
+        Box::new(fixtures::InvalidScopeRule),
+        Box::new(fixtures::ShadowedFixtureRule),
+        Box::new(fixtures::UnusedFixtureRule),
+        Box::new(fixtures::StatefulSessionFixtureRule),
+        Box::new(fixtures::FixtureMutationRule),
+        Box::new(fixtures::FixtureDbCommitNoCleanupRule),
+        Box::new(fixtures::FixtureOverlyBroadScopeRule),
+        Box::new(fixtures::NoContractHintRule),
+    ]
 }
 
 #[cfg(test)]

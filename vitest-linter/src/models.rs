@@ -56,6 +56,7 @@ mod tests {
 }
 
 #[derive(Debug, Clone)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct TestBlock {
     pub name: String,
     pub file_path: PathBuf,

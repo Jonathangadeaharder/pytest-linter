@@ -1487,3 +1487,1628 @@ def test_no_assert():
     assert_eq!(v.severity, Severity::Error);
     assert_eq!(v.category, Category::Maintenance);
 }
+
+#[test]
+fn test_discover_files_test_suffix() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "foo_test.py",
+        r#"
+def test_something():
+    assert True
+"#,
+    );
+    let engine = LintEngine::new().unwrap();
+    let violations = engine.lint_paths(&[path]).unwrap();
+    assert!(!violations.is_empty(), "foo_test.py should be recognized as test file");
+}
+
+#[test]
+fn test_discover_files_directory_mode() {
+    let dir = tempfile::tempdir().unwrap();
+    write_temp_file(
+        dir.path(),
+        "test_dir_example.py",
+        r#"
+def test_example():
+    assert True
+"#,
+    );
+    let engine = LintEngine::new().unwrap();
+    let violations = engine.lint_paths(&[dir.path().to_path_buf()]).unwrap();
+    assert!(!violations.is_empty(), "Should discover test files in directory");
+}
+
+#[test]
+fn test_discover_files_empty_directory() {
+    let dir = tempfile::tempdir().unwrap();
+    let subdir = dir.path().join("empty_subdir");
+    std::fs::create_dir_all(&subdir).unwrap();
+    let engine = LintEngine::new().unwrap();
+    let violations = engine.lint_paths(&[subdir]).unwrap();
+    assert!(violations.is_empty(), "Empty directory should yield no violations");
+}
+
+#[test]
+fn test_discover_files_non_py_file_ignored() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("test_example.txt");
+    std::fs::write(&path, "def test_foo(): pass").unwrap();
+    let engine = LintEngine::new().unwrap();
+    let violations = engine.lint_paths(&[path]).unwrap();
+    assert!(violations.is_empty(), "Non-.py files should be ignored");
+}
+
+#[test]
+fn test_run_linter_with_color() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_color.py",
+        r#"
+def test_bad():
+    pass
+"#,
+    );
+    let has_errors = pytest_linter::engine::run_linter(
+        &[path],
+        "terminal",
+        None::<&std::path::Path>,
+        false,
+    )
+    .unwrap();
+    assert!(has_errors);
+}
+
+#[test]
+fn test_run_linter_json_to_stdout() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_json_stdout.py",
+        r#"
+def test_ok():
+    assert True
+"#,
+    );
+    let has_errors = pytest_linter::engine::run_linter(
+        &[path],
+        "json",
+        None::<&std::path::Path>,
+        true,
+    )
+    .unwrap();
+    assert!(!has_errors);
+}
+
+#[test]
+fn test_parse_file_only_comments() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_comments.py",
+        r#"
+# This is a comment
+# Another comment
+"#,
+    );
+    let mut parser = PythonParser::new().unwrap();
+    let module = parser.parse_file(&path).unwrap();
+    assert_eq!(module.test_functions.len(), 0);
+    assert_eq!(module.fixtures.len(), 0);
+}
+
+#[test]
+fn test_parse_non_test_functions_skipped() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_mixed.py",
+        r#"
+def helper():
+    return 42
+
+class TestClass:
+    pass
+
+def test_real():
+    assert True
+"#,
+    );
+    let module = parse_file(&path);
+    assert_eq!(module.test_functions.len(), 1);
+    assert_eq!(module.test_functions[0].name, "test_real");
+}
+
+#[test]
+fn test_parse_test_uses_network() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_network_usage.py",
+        r#"
+import socket
+
+def test_network():
+    s = socket.socket()
+    assert s
+"#,
+    );
+    let module = parse_file(&path);
+    assert!(module.test_functions[0].uses_network);
+    assert!(module.imports.iter().any(|imp| imp.contains("socket")));
+}
+
+#[test]
+fn test_parse_test_no_network() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_no_network.py",
+        r#"
+def test_plain():
+    assert 1 + 1 == 2
+"#,
+    );
+    let module = parse_file(&path);
+    assert!(!module.test_functions[0].uses_network);
+}
+
+#[test]
+fn test_parse_multiple_parametrize() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_multi_param.py",
+        r#"
+import pytest
+
+@pytest.mark.parametrize("x,y", [(1,2), (3,4), (5,6)])
+def test_multi(x, y):
+    assert x < y
+"#,
+    );
+    let module = parse_file(&path);
+    assert!(module.test_functions[0].is_parametrized);
+    assert_eq!(module.test_functions[0].parametrize_count, Some(3));
+}
+
+#[test]
+fn test_parse_parametrize_tuple_args() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_tuple_param.py",
+        r#"
+import pytest
+
+@pytest.mark.parametrize("val", (1, 2, 3, 4))
+def test_val(val):
+    assert val > 0
+"#,
+    );
+    let module = parse_file(&path);
+    assert!(module.test_functions[0].is_parametrized);
+    assert!(module.test_functions[0].parametrize_count.is_some());
+    assert!(module.test_functions[0].parametrize_count.unwrap() >= 3);
+}
+
+#[test]
+fn test_parse_parametrize_many_cases_triggers_explosion() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut content = r#"
+import pytest
+
+@pytest.mark.parametrize("val", ["#.to_string();
+    for i in 0..25 {
+        if i > 0 { content.push_str(", "); }
+        content.push_str(&i.to_string());
+    }
+    content.push_str(r#"])
+def test_many(val):
+    assert val >= 0
+"#);
+    let path = write_temp_file(dir.path(), "test_explosion.py", &content);
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-PARAM-003");
+    assert!(v.is_some(), "Expected PYTEST-PARAM-003 for explosion");
+}
+
+#[test]
+fn test_parse_fixture_no_body() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_no_body.py",
+        r#"
+import pytest
+
+@pytest.fixture
+def empty_fix():
+    pass
+
+def test_something():
+    pass
+"#,
+    );
+    let module = parse_file(&path);
+    assert_eq!(module.fixtures.len(), 1);
+    assert!(!module.fixtures[0].returns_mutable);
+    assert!(!module.fixtures[0].has_yield);
+}
+
+#[test]
+fn test_parse_fixture_with_dict_call() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_dict_call.py",
+        r#"
+import pytest
+
+@pytest.fixture
+def dict_fix():
+    return dict()
+"#,
+    );
+    let module = parse_file(&path);
+    assert!(module.fixtures[0].returns_mutable);
+}
+
+#[test]
+fn test_parse_fixture_with_list_call() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_list_call.py",
+        r#"
+import pytest
+
+@pytest.fixture
+def list_fix():
+    return list()
+"#,
+    );
+    let module = parse_file(&path);
+    assert!(module.fixtures[0].returns_mutable);
+}
+
+#[test]
+fn test_parse_test_uses_file_io_write() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_write_io.py",
+        r#"
+def test_write():
+    f = open("out.txt")
+    f.write("hello")
+    f.close()
+    assert True
+"#,
+    );
+    let module = parse_file(&path);
+    assert!(module.test_functions[0].uses_file_io);
+}
+
+#[test]
+fn test_parse_test_uses_time_sleep_import() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_sleep_import.py",
+        r#"
+def test_sleep():
+    sleep(2)
+    assert True
+"#,
+    );
+    let module = parse_file(&path);
+    assert!(module.test_functions[0].uses_time_sleep);
+}
+
+#[test]
+fn test_parse_test_no_time_sleep() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_no_sleep.py",
+        r#"
+def test_noop():
+    assert True
+"#,
+    );
+    let module = parse_file(&path);
+    assert!(!module.test_functions[0].uses_time_sleep);
+}
+
+#[test]
+fn test_parse_fixture_module_scope() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_mod_scope.py",
+        r#"
+import pytest
+
+@pytest.fixture(scope="module")
+def mod_fix():
+    return 42
+"#,
+    );
+    let module = parse_file(&path);
+    assert_eq!(module.fixtures[0].scope, FixtureScope::Module);
+}
+
+#[test]
+fn test_parse_fixture_no_scope() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_default_scope.py",
+        r#"
+import pytest
+
+@pytest.fixture
+def default_fix():
+    return 42
+"#,
+    );
+    let module = parse_file(&path);
+    assert_eq!(module.fixtures[0].scope, FixtureScope::Function);
+}
+
+#[test]
+fn test_parse_fixture_file_io() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_fix_io.py",
+        r#"
+import pytest
+
+@pytest.fixture
+def io_fix():
+    f = open("data.txt")
+    return f.read()
+"#,
+    );
+    let module = parse_file(&path);
+    assert!(module.fixtures[0].uses_file_io);
+}
+
+#[test]
+fn test_parse_fixture_no_file_io() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_fix_no_io.py",
+        r#"
+import pytest
+
+@pytest.fixture
+def noio_fix():
+    return 42
+"#,
+    );
+    let module = parse_file(&path);
+    assert!(!module.fixtures[0].uses_file_io);
+}
+
+#[test]
+fn test_fixture_scope_by_name_found() {
+    use pytest_linter::engine::{collect_all_fixtures, fixture_scope_by_name};
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_scope_lookup.py",
+        r#"
+import pytest
+
+@pytest.fixture(scope="session")
+def my_fix():
+    return 42
+"#,
+    );
+    let module = parse_file(&path);
+    let modules = [module];
+    let fixtures = collect_all_fixtures(&modules);
+    let scope = fixture_scope_by_name(&fixtures, "my_fix");
+    assert_eq!(scope, Some(FixtureScope::Session));
+}
+
+#[test]
+fn test_fixture_scope_by_name_not_found() {
+    use pytest_linter::engine::{collect_all_fixtures, fixture_scope_by_name};
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_no_fix.py",
+        r#"
+def test_ok():
+    assert True
+"#,
+    );
+    let module = parse_file(&path);
+    let modules = [module];
+    let fixtures = collect_all_fixtures(&modules);
+    let scope = fixture_scope_by_name(&fixtures, "nonexistent");
+    assert_eq!(scope, None);
+}
+
+#[test]
+fn test_is_fixture_used_by_test() {
+    use pytest_linter::engine::is_fixture_used_by_any_test_or_fixture;
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_used.py",
+        r#"
+import pytest
+
+@pytest.fixture
+def used_fix():
+    return 42
+
+def test_thing(used_fix):
+    assert used_fix == 42
+"#,
+    );
+    let module = parse_file(&path);
+    assert!(is_fixture_used_by_any_test_or_fixture("used_fix", &[module]));
+}
+
+#[test]
+fn test_is_fixture_not_used() {
+    use pytest_linter::engine::is_fixture_used_by_any_test_or_fixture;
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_not_used.py",
+        r#"
+import pytest
+
+@pytest.fixture
+def unused_fix():
+    return 42
+
+def test_thing():
+    assert True
+"#,
+    );
+    let module = parse_file(&path);
+    assert!(!is_fixture_used_by_any_test_or_fixture("unused_fix", &[module]));
+}
+
+#[test]
+fn test_is_fixture_used_by_other_fixture() {
+    use pytest_linter::engine::is_fixture_used_by_any_test_or_fixture;
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_fix_dep.py",
+        r#"
+import pytest
+
+@pytest.fixture
+def base_fix():
+    return 1
+
+@pytest.fixture
+def derived_fix(base_fix):
+    return base_fix + 1
+"#,
+    );
+    let module = parse_file(&path);
+    assert!(is_fixture_used_by_any_test_or_fixture("base_fix", &[module]));
+}
+
+#[test]
+fn test_file_io_with_tmpdir_does_not_trigger_flk002() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_tmpdir.py",
+        r#"
+def test_reads_file(tmpdir):
+    f = open(str(tmpdir / "data.txt"))
+    content = f.read()
+    f.close()
+    assert content
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FLK-002");
+    assert!(v.is_none(), "Should not trigger FLK-002 when tmpdir is used");
+}
+
+#[test]
+fn test_file_io_with_tmp_path_factory_does_not_trigger_flk002() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_factory.py",
+        r#"
+def test_reads_file(tmp_path_factory):
+    f = open(str(tmp_path_factory / "data.txt"))
+    content = f.read()
+    f.close()
+    assert content
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FLK-002");
+    assert!(v.is_none());
+}
+
+#[test]
+fn test_network_import_httpx_triggers_flk003() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_httpx.py",
+        r#"
+import httpx
+
+def test_api():
+    assert True
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FLK-003");
+    assert!(v.is_some());
+}
+
+#[test]
+fn test_network_import_urllib_triggers_flk003() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_urllib.py",
+        r#"
+import urllib.request
+
+def test_api():
+    assert True
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FLK-003");
+    assert!(v.is_some());
+}
+
+#[test]
+fn test_no_network_import_does_not_trigger_flk003() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_no_net.py",
+        r#"
+import os
+import sys
+
+def test_ok():
+    assert True
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FLK-003");
+    assert!(v.is_none());
+}
+
+#[test]
+fn test_mystery_guest_with_tmp_path_does_not_trigger_flk005() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_mystery_ok.py",
+        r#"
+def test_reads_file(tmp_path):
+    f = open(str(tmp_path / "data.txt"))
+    content = f.read()
+    f.close()
+    assert content
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FLK-005");
+    assert!(v.is_none());
+}
+
+#[test]
+fn test_bdd_with_when_does_not_trigger_bdd001() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_bdd_when.py",
+        r#"
+def test_with_when():
+    """When something happens."""
+    assert True
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-BDD-001");
+    assert!(v.is_none());
+}
+
+#[test]
+fn test_bdd_with_then_does_not_trigger_bdd001() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_bdd_then.py",
+        r#"
+def test_with_then():
+    """Then something is verified."""
+    assert True
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-BDD-001");
+    assert!(v.is_none());
+}
+
+#[test]
+fn test_property_test_hint_non_parametrized_does_not_trigger() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_no_param.py",
+        r#"
+def test_plain():
+    assert True
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-PBT-001");
+    assert!(v.is_none());
+}
+
+#[test]
+fn test_parametrize_empty_zero_count_triggers_param001() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_param_zero.py",
+        r#"
+import pytest
+
+@pytest.mark.parametrize("val", [])
+def test_empty(val):
+    assert val
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-PARAM-001");
+    assert!(v.is_some());
+}
+
+#[test]
+fn test_parametrize_many_does_not_trigger_explosion() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_param_ok_count.py",
+        r#"
+import pytest
+
+@pytest.mark.parametrize("val", [1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+def test_vals(val):
+    assert val > 0
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-PARAM-003");
+    assert!(v.is_none(), "10 cases should not trigger explosion");
+}
+
+#[test]
+fn test_db_commit_with_rollback_does_not_trigger_fix008() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_db_safe.py",
+        r#"
+import pytest
+
+@pytest.fixture
+def db_safe():
+    conn = get_conn()
+    conn.commit()
+    conn.rollback()
+    return conn
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FIX-008");
+    assert!(v.is_none(), "DB fixture with rollback should not trigger");
+}
+
+#[test]
+fn test_session_fixture_no_mutable_does_not_trigger_fix006() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_session_immutable.py",
+        r#"
+import pytest
+
+@pytest.fixture(scope="session")
+def immutable_fix():
+    return 42
+
+def test_uses(immutable_fix):
+    assert immutable_fix == 42
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FIX-006");
+    assert!(v.is_none());
+}
+
+#[test]
+fn test_valid_scope_same_scope_does_not_trigger_fix003() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_same_scope.py",
+        r#"
+import pytest
+
+@pytest.fixture
+def base():
+    return 1
+
+@pytest.fixture
+def derived(base):
+    return base + 1
+
+def test_thing(derived):
+    assert derived == 2
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FIX-003");
+    assert!(v.is_none(), "Same scope fixtures should not trigger");
+}
+
+#[test]
+fn test_unused_fixture_used_by_test_does_not_trigger_fix005() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_used_fix.py",
+        r#"
+import pytest
+
+@pytest.fixture
+def used_fix():
+    return 42
+
+def test_thing(used_fix):
+    assert used_fix == 42
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FIX-005");
+    assert!(v.is_none());
+}
+
+#[test]
+fn test_format_terminal_with_warnings() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_warning_out.py",
+        r#"
+import time
+
+def test_waits():
+    time.sleep(1)
+    assert True
+"#,
+    );
+    let output_path = dir.path().join("warning_output.txt");
+    let has_errors = pytest_linter::engine::run_linter(
+        &[path],
+        "terminal",
+        Some(&output_path),
+        true,
+    )
+    .unwrap();
+    assert!(!has_errors);
+    let content = std::fs::read_to_string(&output_path).unwrap();
+    assert!(content.contains("WARNING"));
+    assert!(content.contains("Summary"));
+}
+
+#[test]
+fn test_fixture_with_self_and_cls_params_excluded() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_class_fixtures.py",
+        r#"
+import pytest
+
+@pytest.fixture
+def my_fixture(self, cls, real_dep):
+    return real_dep
+
+def test_thing(my_fixture):
+    assert my_fixture
+"#,
+    );
+    let module = parse_file(&path);
+    let fix = module.fixtures.iter().find(|f| f.name == "my_fixture").unwrap();
+    assert_eq!(fix.dependencies.len(), 1);
+    assert_eq!(fix.dependencies[0], "real_dep");
+}
+
+#[test]
+fn test_fixture_with_scope_single_quotes() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_single_quotes.py",
+        r#"
+import pytest
+
+@pytest.fixture(scope='session')
+def session_fix():
+    return 42
+"#,
+    );
+    let module = parse_file(&path);
+    assert_eq!(module.fixtures[0].scope, FixtureScope::Session);
+}
+
+#[test]
+fn test_fixture_class_scope_single_quotes() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_class_sq.py",
+        r#"
+import pytest
+
+@pytest.fixture(scope='class')
+def class_fix():
+    return 42
+"#,
+    );
+    let module = parse_file(&path);
+    assert_eq!(module.fixtures[0].scope, FixtureScope::Class);
+}
+
+#[test]
+fn test_fixture_module_scope_single_quotes() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_mod_sq.py",
+        r#"
+import pytest
+
+@pytest.fixture(scope='module')
+def mod_fix():
+    return 42
+"#,
+    );
+    let module = parse_file(&path);
+    assert_eq!(module.fixtures[0].scope, FixtureScope::Module);
+}
+
+#[test]
+fn test_fixture_package_scope_single_quotes() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_pkg_sq.py",
+        r#"
+import pytest
+
+@pytest.fixture(scope='package')
+def pkg_fix():
+    return 42
+"#,
+    );
+    let module = parse_file(&path);
+    assert_eq!(module.fixtures[0].scope, FixtureScope::Package);
+}
+
+#[test]
+fn test_fixture_session_scope_single_quotes() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_sess_sq.py",
+        r#"
+import pytest
+
+@pytest.fixture(scope='session')
+def sess_fix():
+    return 42
+"#,
+    );
+    let module = parse_file(&path);
+    assert_eq!(module.fixtures[0].scope, FixtureScope::Session);
+}
+
+#[test]
+fn test_compute_used_fixture_names() {
+    use pytest_linter::engine::compute_used_fixture_names;
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_used_names.py",
+        r#"
+import pytest
+
+@pytest.fixture
+def fix_a():
+    return 1
+
+@pytest.fixture
+def fix_b(fix_a):
+    return fix_a + 1
+
+def test_thing(fix_b):
+    assert fix_b == 2
+"#,
+    );
+    let module = parse_file(&path);
+    let used = compute_used_fixture_names(&[module]);
+    assert!(used.contains("fix_b"));
+    assert!(used.contains("fix_a"));
+}
+
+#[test]
+fn test_collect_all_fixtures_empty() {
+    use pytest_linter::engine::collect_all_fixtures;
+    let modules: Vec<pytest_linter::models::ParsedModule> = vec![];
+    let fixtures = collect_all_fixtures(&modules);
+    assert!(fixtures.is_empty());
+}
+
+#[test]
+fn test_parse_file_with_from_import() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_from_import.py",
+        r#"
+from os.path import join
+from collections import OrderedDict
+
+def test_ok():
+    assert True
+"#,
+    );
+    let module = parse_file(&path);
+    assert!(module.imports.iter().any(|imp| imp.contains("os.path")));
+    assert!(module.imports.iter().any(|imp| imp.contains("collections")));
+}
+
+#[test]
+fn test_parametrize_count_ast_empty_list_with_comma() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_empty_list.py",
+        r#"
+import pytest
+
+@pytest.mark.parametrize("val", [,])
+def test_empty(val):
+    assert val
+"#,
+    );
+    let module = parse_file(&path);
+    assert!(module.test_functions[0].is_parametrized);
+}
+
+#[test]
+fn test_parse_decorator_no_node_fallback() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_bare_fixture.py",
+        r#"
+@fixture
+def my_fix():
+    return 42
+
+def test_thing(my_fix):
+    assert my_fix == 42
+"#,
+    );
+    let module = parse_file(&path);
+    assert_eq!(module.fixtures.len(), 1);
+    assert_eq!(module.fixtures[0].name, "my_fix");
+}
+
+#[test]
+fn test_parse_test_with_mock_call_count() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_mock_count.py",
+        r#"
+def test_mock():
+    mock_obj.call_count
+"#,
+    );
+    let module = parse_file(&path);
+    assert!(module.test_functions[0].has_mock_verifications);
+    assert!(!module.test_functions[0].has_state_assertions);
+}
+
+#[test]
+fn test_parse_test_with_mock_called() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_mock_called.py",
+        r#"
+def test_mock():
+    mock_obj.called
+"#,
+    );
+    let module = parse_file(&path);
+    assert!(module.test_functions[0].has_mock_verifications);
+}
+
+#[test]
+fn test_parse_test_with_mock_assert_called_with_state() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_mock_and_state.py",
+        r#"
+def test_both():
+    mock_obj.assert_called()
+    assert 1 == 1
+"#,
+    );
+    let module = parse_file(&path);
+    assert!(module.test_functions[0].has_mock_verifications);
+    assert!(module.test_functions[0].has_state_assertions);
+    assert!(module.test_functions[0].has_assertions);
+}
+
+#[test]
+fn test_engine_multiple_files_lint() {
+    let dir = tempfile::tempdir().unwrap();
+    let path1 = write_temp_file(
+        dir.path(),
+        "test_multi_a.py",
+        r#"
+import time
+
+def test_sleep():
+    time.sleep(1)
+    assert True
+"#,
+    );
+    let path2 = write_temp_file(
+        dir.path(),
+        "test_multi_b.py",
+        r#"
+def test_no_assert():
+    pass
+"#,
+    );
+    let engine = LintEngine::new().unwrap();
+    let violations = engine.lint_paths(&[path1, path2]).unwrap();
+    let rule_ids: Vec<&str> = violations.iter().map(|v| v.rule_id.as_str()).collect();
+    assert!(rule_ids.contains(&"PYTEST-FLK-001"));
+    assert!(rule_ids.contains(&"PYTEST-MNT-004"));
+}
+
+#[test]
+fn test_engine_non_existent_file_graceful() {
+    let dir = tempfile::tempdir().unwrap();
+    let missing = dir.path().join("nonexistent_test.py");
+    let engine = LintEngine::new().unwrap();
+    let result = engine.lint_paths(&[missing]);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_format_json_to_stdout() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_json_stdout2.py",
+        r#"
+def test_bad():
+    pass
+"#,
+    );
+    let has_errors = pytest_linter::engine::run_linter(
+        &[path],
+        "json",
+        None::<&std::path::Path>,
+        true,
+    )
+    .unwrap();
+    assert!(has_errors);
+}
+
+#[test]
+fn test_fixture_db_commit_no_rollback_no_yield_triggers() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_db_commit_only.py",
+        r#"
+import pytest
+
+@pytest.fixture
+def db_only_commit():
+    conn.commit()
+    return 1
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FIX-008");
+    assert!(v.is_some());
+}
+
+#[test]
+fn test_fixture_db_rollback_present_does_not_trigger_fix008() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_db_rollback_ok.py",
+        r#"
+import pytest
+
+@pytest.fixture
+def db_with_rollback():
+    conn.commit()
+    conn.rollback()
+    return 1
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FIX-008");
+    assert!(v.is_none());
+}
+
+#[test]
+fn test_network_import_aiohttp_triggers_flk003() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_aiohttp.py",
+        r#"
+import aiohttp
+
+def test_api():
+    assert True
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FLK-003");
+    assert!(v.is_some());
+}
+
+#[test]
+fn test_network_import_socket_triggers_flk003() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_socket.py",
+        r#"
+import socket
+
+def test_api():
+    assert True
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FLK-003");
+    assert!(v.is_some());
+}
+
+#[test]
+fn test_parse_parametrize_text_only_decorator() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_text_param.py",
+        r#"
+import pytest
+
+@pytest.mark.parametrize(
+    "x",
+    [
+        1,
+        (2, 3),
+    ],
+)
+def test_nested(x):
+    assert x
+"#,
+    );
+    let module = parse_file(&path);
+    assert!(module.test_functions[0].is_parametrized);
+}
+
+#[test]
+fn test_parse_parametrize_with_nested_brackets() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_nested_param.py",
+        r#"
+import pytest
+
+@pytest.mark.parametrize("val", [{"a": 1}, {"b": 2}])
+def test_dict_val(val):
+    assert val
+"#,
+    );
+    let module = parse_file(&path);
+    assert!(module.test_functions[0].is_parametrized);
+    assert!(module.test_functions[0].parametrize_count.unwrap() >= 1);
+}
+
+#[test]
+fn test_parse_fixture_with_scope_but_no_match() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_scope_nomatch.py",
+        r#"
+import pytest
+
+@pytest.fixture(scope="invalid")
+def weird_fix():
+    return 42
+"#,
+    );
+    let module = parse_file(&path);
+    assert_eq!(module.fixtures[0].scope, FixtureScope::Function);
+}
+
+#[test]
+fn test_parse_test_file_io_patterns() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_io_patterns.py",
+        r#"
+def test_io():
+    f = open("file.txt")
+    data = f.read()
+    f.write("hello")
+    f.close()
+    assert data
+"#,
+    );
+    let module = parse_file(&path);
+    assert!(module.test_functions[0].uses_file_io);
+}
+
+#[test]
+fn test_parse_test_no_file_io() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_no_io.py",
+        r#"
+def test_plain():
+    x = 42
+    assert x == 42
+"#,
+    );
+    let module = parse_file(&path);
+    assert!(!module.test_functions[0].uses_file_io);
+}
+
+#[test]
+fn test_parse_test_uses_file_io_open_call() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_open_call.py",
+        r#"
+def test_open():
+    with open("data.txt") as f:
+        assert f.read()
+"#,
+    );
+    let module = parse_file(&path);
+    assert!(module.test_functions[0].uses_file_io);
+}
+
+#[test]
+fn test_parse_test_try_except_in_body() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_try_body.py",
+        r#"
+def test_with_try():
+    try:
+        do_something()
+    except Exception:
+        pass
+    assert True
+"#,
+    );
+    let module = parse_file(&path);
+    assert!(module.test_functions[0].has_try_except);
+}
+
+#[test]
+fn test_parse_test_no_try_except() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_no_try.py",
+        r#"
+def test_no_try():
+    assert True
+"#,
+    );
+    let module = parse_file(&path);
+    assert!(!module.test_functions[0].has_try_except);
+}
+
+#[test]
+fn test_parse_test_with_if_in_body() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_if_body.py",
+        r#"
+def test_if():
+    x = 5
+    if x > 3:
+        assert True
+    assert True
+"#,
+    );
+    let module = parse_file(&path);
+    assert!(module.test_functions[0].has_conditional_logic);
+}
+
+#[test]
+fn test_parse_test_no_conditional() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_no_cond.py",
+        r#"
+def test_no_cond():
+    assert True
+"#,
+    );
+    let module = parse_file(&path);
+    assert!(!module.test_functions[0].has_conditional_logic);
+}
+
+#[test]
+fn test_parse_test_docstring_with_given() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_docstring_given.py",
+        r#"
+def test_given():
+    """Given a setup."""
+    assert True
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-BDD-001");
+    assert!(v.is_none());
+}
+
+#[test]
+fn test_parse_test_no_docstring() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_no_docstring.py",
+        r#"
+def test_plain():
+    x = 42
+    assert x == 42
+"#,
+    );
+    let module = parse_file(&path);
+    assert!(module.test_functions[0].docstring.is_none());
+}
+
+#[test]
+fn test_parse_test_with_assert_parens() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_assert_parens.py",
+        r#"
+def test_parens():
+    assert(1 == 1)
+"#,
+    );
+    let module = parse_file(&path);
+    assert!(module.test_functions[0].has_assertions);
+    assert_eq!(module.test_functions[0].assertion_count, 1);
+}
+
+#[test]
+fn test_parse_fixture_with_db_rollback_only() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_rollback_only.py",
+        r#"
+import pytest
+
+@pytest.fixture
+def rollback_only():
+    conn.rollback()
+    return 42
+"#,
+    );
+    let module = parse_file(&path);
+    assert!(!module.fixtures[0].has_db_commit);
+    assert!(module.fixtures[0].has_db_rollback);
+}
+
+#[test]
+fn test_parse_fixture_with_commit_uppercase() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_commit_upper.py",
+        r#"
+import pytest
+
+@pytest.fixture
+def upper_commit():
+    COMMIT
+    return 42
+"#,
+    );
+    let module = parse_file(&path);
+    assert!(module.fixtures[0].has_db_commit);
+}
+
+#[test]
+fn test_parse_fixture_with_rollback_uppercase() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_rollback_upper.py",
+        r#"
+import pytest
+
+@pytest.fixture
+def upper_rollback():
+    ROLLBACK
+    return 42
+"#,
+    );
+    let module = parse_file(&path);
+    assert!(module.fixtures[0].has_db_rollback);
+}
+
+#[test]
+fn test_parse_test_uses_file_io_dot_open() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_dot_open.py",
+        r#"
+def test_dot_open():
+    pathlib.Path("data.txt").open()
+    assert True
+"#,
+    );
+    let module = parse_file(&path);
+    assert!(module.test_functions[0].uses_file_io);
+}
+
+#[test]
+fn test_fixture_autouse_false_does_not_trigger_fix001() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_autouse_false.py",
+        r#"
+import pytest
+
+@pytest.fixture(autouse=False)
+def not_auto():
+    return 42
+
+def test_thing(not_auto):
+    assert not_auto == 42
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FIX-001");
+    assert!(v.is_none());
+}
+
+#[test]
+fn test_fixture_scope_narrower_than_dep_does_not_trigger_fix003() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_narrower_scope.py",
+        r#"
+import pytest
+
+@pytest.fixture(scope="session")
+def base_fix():
+    return 42
+
+@pytest.fixture
+def func_fix(base_fix):
+    return base_fix
+
+def test_thing(func_fix):
+    assert func_fix == 42
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FIX-003");
+    assert!(v.is_none(), "Narrower scope should not trigger");
+}
+
+#[test]
+fn test_fixture_scope_wider_than_dep_triggers_fix003() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_wider_scope.py",
+        r#"
+import pytest
+
+@pytest.fixture(scope="module")
+def mod_fix():
+    return 42
+
+@pytest.fixture(scope="session")
+def sess_fix(mod_fix):
+    return mod_fix
+
+def test_thing(sess_fix):
+    assert sess_fix == 42
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FIX-003");
+    assert!(v.is_some());
+}
+
+#[test]
+fn test_fixture_scope_unknown_dep_does_not_trigger_fix003() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_unknown_dep.py",
+        r#"
+import pytest
+
+@pytest.fixture(scope="session")
+def unknown_dep(builtin_fixture):
+    return builtin_fixture
+
+def test_thing(unknown_dep):
+    assert unknown_dep
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FIX-003");
+    assert!(v.is_none(), "Unknown deps should not trigger scope check");
+}

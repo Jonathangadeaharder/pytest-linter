@@ -1,6 +1,6 @@
 use crate::engine::make_violation;
 use crate::models::{Category, ParsedModule, Severity, Violation};
-use crate::rules::Rule;
+use crate::rules::{Rule, RuleContext};
 
 pub struct TimeSleepRule;
 
@@ -17,7 +17,7 @@ impl Rule for TimeSleepRule {
     fn category(&self) -> Category {
         Category::Flakiness
     }
-    fn check(&self, module: &ParsedModule, _all_modules: &[ParsedModule]) -> Vec<Violation> {
+    fn check(&self, module: &ParsedModule, _all_modules: &[ParsedModule], _ctx: &RuleContext) -> Vec<Violation> {
         let mut violations = Vec::new();
         for test in &module.test_functions {
             if test.uses_time_sleep {
@@ -53,7 +53,7 @@ impl Rule for FileIoRule {
     fn category(&self) -> Category {
         Category::Flakiness
     }
-    fn check(&self, module: &ParsedModule, _all_modules: &[ParsedModule]) -> Vec<Violation> {
+    fn check(&self, module: &ParsedModule, _all_modules: &[ParsedModule], _ctx: &RuleContext) -> Vec<Violation> {
         let mut violations = Vec::new();
         for test in &module.test_functions {
             if test.uses_file_io {
@@ -98,7 +98,7 @@ impl Rule for NetworkImportRule {
     fn category(&self) -> Category {
         Category::Flakiness
     }
-    fn check(&self, module: &ParsedModule, _all_modules: &[ParsedModule]) -> Vec<Violation> {
+    fn check(&self, module: &ParsedModule, _all_modules: &[ParsedModule], _ctx: &RuleContext) -> Vec<Violation> {
         let network_modules = [
             "requests",
             "socket",
@@ -144,7 +144,7 @@ impl Rule for CwdDependencyRule {
     fn category(&self) -> Category {
         Category::Flakiness
     }
-    fn check(&self, _module: &ParsedModule, _all_modules: &[ParsedModule]) -> Vec<Violation> {
+    fn check(&self, _module: &ParsedModule, _all_modules: &[ParsedModule], _ctx: &RuleContext) -> Vec<Violation> {
         vec![]
     }
 }
@@ -164,7 +164,7 @@ impl Rule for MysteryGuestRule {
     fn category(&self) -> Category {
         Category::Flakiness
     }
-    fn check(&self, module: &ParsedModule, _all_modules: &[ParsedModule]) -> Vec<Violation> {
+    fn check(&self, module: &ParsedModule, _all_modules: &[ParsedModule], _ctx: &RuleContext) -> Vec<Violation> {
         let mut violations = Vec::new();
         for test in &module.test_functions {
             if test.uses_file_io {
@@ -211,7 +211,7 @@ impl Rule for XdistSharedStateRule {
     fn category(&self) -> Category {
         Category::Flakiness
     }
-    fn check(&self, _module: &ParsedModule, _all_modules: &[ParsedModule]) -> Vec<Violation> {
+    fn check(&self, _module: &ParsedModule, _all_modules: &[ParsedModule], _ctx: &RuleContext) -> Vec<Violation> {
         vec![]
     }
 }
@@ -231,32 +231,24 @@ impl Rule for XdistFixtureIoRule {
     fn category(&self) -> Category {
         Category::Flakiness
     }
-    fn check(&self, module: &ParsedModule, _all_modules: &[ParsedModule]) -> Vec<Violation> {
+    fn check(&self, module: &ParsedModule, _all_modules: &[ParsedModule], _ctx: &RuleContext) -> Vec<Violation> {
         let mut violations = Vec::new();
         for fixture in &module.fixtures {
-            if fixture.scope == crate::models::FixtureScope::Session {
-                let source = std::fs::read_to_string(&fixture.file_path).unwrap_or_default();
-                let fixture_text = source.lines().skip(fixture.line - 1).take(30).collect::<Vec<_>>().join("\n");
-                let uses_io = fixture_text.contains("open(")
-                    || fixture_text.contains(".read()")
-                    || fixture_text.contains(".write(");
-
-                if uses_io {
-                    violations.push(make_violation(
-                        self.id(),
-                        self.name(),
-                        self.severity(),
-                        self.category(),
-                        format!(
-                            "Session-scoped fixture '{}' uses file I/O — may conflict with xdist workers",
-                            fixture.name
-                        ),
-                        module.file_path.clone(),
-                        fixture.line,
-                        Some("Use tmp_path_factory or make I/O paths unique per worker".to_string()),
-                        None,
-                    ));
-                }
+            if fixture.scope == crate::models::FixtureScope::Session && fixture.uses_file_io {
+                violations.push(make_violation(
+                    self.id(),
+                    self.name(),
+                    self.severity(),
+                    self.category(),
+                    format!(
+                        "Session-scoped fixture '{}' uses file I/O — may conflict with xdist workers",
+                        fixture.name
+                    ),
+                    module.file_path.clone(),
+                    fixture.line,
+                    Some("Use tmp_path_factory or make I/O paths unique per worker".to_string()),
+                    None,
+                ));
             }
         }
         violations

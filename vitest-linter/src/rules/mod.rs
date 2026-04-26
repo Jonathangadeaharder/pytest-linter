@@ -11,6 +11,7 @@ pub trait Rule {
 pub mod flakiness;
 pub mod maintenance;
 
+#[must_use]
 pub fn all_rules() -> Vec<Box<dyn Rule>> {
     vec![
         Box::new(flakiness::TimeoutRule),

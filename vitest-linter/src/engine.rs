@@ -11,20 +11,22 @@ pub struct LintEngine {
 }
 
 impl LintEngine {
+    #[allow(clippy::missing_errors_doc)]
     pub fn new() -> anyhow::Result<Self> {
         Ok(Self {
             parser: TsParser::new()?,
         })
     }
 
+    #[allow(clippy::missing_errors_doc)]
     pub fn lint_paths(&self, paths: &[PathBuf]) -> anyhow::Result<Vec<Violation>> {
-        let files = self.discover_files(paths)?;
+        let files = Self::discover_files(paths);
         let mut modules = Vec::new();
 
         for file in &files {
             match self.parser.parse_file(file) {
                 Ok(m) => modules.push(m),
-                Err(e) => eprintln!("Warning: Failed to parse {:?}: {}", file, e),
+                Err(e) => eprintln!("Warning: Failed to parse {}: {e}", file.display()),
             }
         }
 
@@ -47,7 +49,7 @@ impl LintEngine {
         Ok(violations)
     }
 
-    fn discover_files(&self, paths: &[PathBuf]) -> anyhow::Result<Vec<PathBuf>> {
+    fn discover_files(paths: &[PathBuf]) -> Vec<PathBuf> {
         let mut files = Vec::new();
 
         for path in paths {
@@ -60,7 +62,7 @@ impl LintEngine {
                     files.push(path.clone());
                 }
             } else if path.is_dir() {
-                for entry in WalkDir::new(path).into_iter().filter_map(|e| e.ok()) {
+                for entry in WalkDir::new(path).into_iter().filter_map(std::result::Result::ok) {
                     let name = entry
                         .file_name()
                         .to_string_lossy()
@@ -74,7 +76,7 @@ impl LintEngine {
 
         files.sort();
         files.dedup();
-        Ok(files)
+        files
     }
 }
 

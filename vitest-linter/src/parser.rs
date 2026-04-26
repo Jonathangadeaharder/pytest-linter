@@ -7,10 +7,12 @@ use crate::models::{ParsedModule, TestBlock};
 pub struct TsParser;
 
 impl TsParser {
-    pub fn new() -> anyhow::Result<Self> {
+    #[allow(clippy::missing_errors_doc)]
+    pub const fn new() -> anyhow::Result<Self> {
         Ok(Self)
     }
 
+    #[allow(clippy::missing_errors_doc)]
     pub fn parse_file(&self, path: &Path) -> anyhow::Result<ParsedModule> {
         let mut parser = Parser::new();
         parser.set_language(&tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into())?;
@@ -18,7 +20,7 @@ impl TsParser {
         let source = std::fs::read_to_string(path)?;
         let tree = parser
             .parse(&source, None)
-            .ok_or_else(|| anyhow::anyhow!("Failed to parse file: {:?}", path))?;
+            .ok_or_else(|| anyhow::anyhow!("Failed to parse file: {}", path.display()))?;
 
         let root = tree.root_node();
         let mut imports = Vec::new();
@@ -45,10 +47,7 @@ impl TsParser {
         test_blocks: &mut Vec<TestBlock>,
     ) {
         for i in 0..node.named_child_count() {
-            let child = match node.named_child(i) {
-                Some(c) => c,
-                None => continue,
-            };
+            let Some(child) = node.named_child(i) else { continue };
             match child.kind() {
                 "import_statement" => {
                     let text = child.utf8_text(source.as_bytes()).unwrap_or("").to_string();
@@ -79,12 +78,9 @@ impl TsParser {
         imports: &mut Vec<String>,
         test_blocks: &mut Vec<TestBlock>,
     ) {
-        let func_node = match node.child_by_field_name("function") {
-            Some(f) => f,
-            None => {
-                Self::collect(node, source, path, describe_depth, imports, test_blocks);
-                return;
-            }
+        let Some(func_node) = node.child_by_field_name("function") else {
+            Self::collect(node, source, path, describe_depth, imports, test_blocks);
+            return;
         };
 
         let (func_name, is_skip) = Self::parse_callee(func_node, source);
@@ -148,10 +144,9 @@ impl TsParser {
             return None;
         }
         for i in 0..func_node.named_child_count() {
-            if let Some(child) = func_node.named_child(i) {
-                if child.kind() == "statement_block" {
-                    return Some(child);
-                }
+            let child = func_node.named_child(i).unwrap();
+            if child.kind() == "statement_block" {
+                return Some(child);
             }
         }
         func_node.child_by_field_name("body")
@@ -179,10 +174,7 @@ impl TsParser {
             None
         };
 
-        let st = match body {
-            Some(b) => Self::analyze(b, source),
-            None => Analysis::default(),
-        };
+        let st = body.map_or_else(Analysis::default, |b| Self::analyze(b, source));
 
         Some(TestBlock {
             name,
@@ -223,32 +215,28 @@ impl TsParser {
     fn walk_body(node: Node, source: &str, st: &mut Analysis) {
         match node.kind() {
             "call_expression" => {
-                if let Some(func) = node.child_by_field_name("function") {
-                    let text = func.utf8_text(source.as_bytes()).unwrap_or("");
-                    if text.starts_with("expect") {
-                        st.assertion_count += 1;
-                    }
-                    if text == "setTimeout" {
-                        st.uses_settimeout = true;
-                    }
-                    if text.starts_with("Date.") {
-                        st.uses_datemock = true;
-                    }
+                let func = node.child_by_field_name("function").unwrap();
+                let text = func.utf8_text(source.as_bytes()).unwrap_or("");
+                if text.starts_with("expect") {
+                    st.assertion_count += 1;
                 }
-                if let Some(args) = node.child_by_field_name("arguments") {
-                    for i in 0..args.named_child_count() {
-                        if let Some(child) = args.named_child(i) {
-                            Self::walk_body(child, source, st);
-                        }
-                    }
+                if text == "setTimeout" {
+                    st.uses_settimeout = true;
+                }
+                if text.starts_with("Date.") {
+                    st.uses_datemock = true;
+                }
+                let args = node.child_by_field_name("arguments").unwrap();
+                for i in 0..args.named_child_count() {
+                    let child = args.named_child(i).unwrap();
+                    Self::walk_body(child, source, st);
                 }
                 return;
             }
             "new_expression" => {
-                if let Some(ctor) = node.child_by_field_name("constructor") {
-                    if ctor.utf8_text(source.as_bytes()).unwrap_or("") == "Date" {
-                        st.uses_datemock = true;
-                    }
+                let ctor = node.child_by_field_name("constructor").unwrap();
+                if ctor.utf8_text(source.as_bytes()).unwrap_or("") == "Date" {
+                    st.uses_datemock = true;
                 }
             }
             "if_statement" | "switch_statement" => {
@@ -264,14 +252,14 @@ impl TsParser {
         }
 
         for i in 0..node.named_child_count() {
-            if let Some(child) = node.named_child(i) {
-                Self::walk_body(child, source, st);
-            }
+            let child = node.named_child(i).unwrap();
+            Self::walk_body(child, source, st);
         }
     }
 }
 
 #[derive(Default)]
+#[allow(clippy::struct_excessive_bools)]
 struct Analysis {
     assertion_count: usize,
     has_conditional: bool,

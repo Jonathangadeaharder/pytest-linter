@@ -13,9 +13,9 @@ pub enum Severity {
 impl std::fmt::Display for Severity {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Severity::Error => write!(f, "error"),
-            Severity::Warning => write!(f, "warning"),
-            Severity::Info => write!(f, "info"),
+            Self::Error => write!(f, "error"),
+            Self::Warning => write!(f, "warning"),
+            Self::Info => write!(f, "info"),
         }
     }
 }
@@ -32,10 +32,10 @@ pub enum Category {
 impl std::fmt::Display for Category {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Category::Flakiness => write!(f, "flakiness"),
-            Category::Maintenance => write!(f, "maintenance"),
-            Category::Fixture => write!(f, "fixture"),
-            Category::Enhancement => write!(f, "enhancement"),
+            Self::Flakiness => write!(f, "flakiness"),
+            Self::Maintenance => write!(f, "maintenance"),
+            Self::Fixture => write!(f, "fixture"),
+            Self::Enhancement => write!(f, "enhancement"),
         }
     }
 }
@@ -55,6 +55,7 @@ pub struct Violation {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct TestFunction {
     pub name: String,
     pub file_path: PathBuf,
@@ -88,16 +89,17 @@ pub enum FixtureScope {
 impl std::fmt::Display for FixtureScope {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            FixtureScope::Function => write!(f, "function"),
-            FixtureScope::Class => write!(f, "class"),
-            FixtureScope::Module => write!(f, "module"),
-            FixtureScope::Package => write!(f, "package"),
-            FixtureScope::Session => write!(f, "session"),
+            Self::Function => write!(f, "function"),
+            Self::Class => write!(f, "class"),
+            Self::Module => write!(f, "module"),
+            Self::Package => write!(f, "package"),
+            Self::Session => write!(f, "session"),
         }
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct Fixture {
     pub name: String,
     pub file_path: PathBuf,
@@ -109,6 +111,7 @@ pub struct Fixture {
     pub has_yield: bool,
     pub has_db_commit: bool,
     pub has_db_rollback: bool,
+    pub uses_file_io: bool,
     pub used_by: Vec<String>,
 }
 
