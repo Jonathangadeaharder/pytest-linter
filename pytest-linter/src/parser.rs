@@ -26,26 +26,26 @@ impl PythonParser {
         let tree = self.parser.parse(&source, None);
         let file_path = path.to_path_buf();
 
-        match tree {
-            Some(tree) => {
-                let root = tree.root_node();
-                let source_bytes = source.as_bytes();
-                let imports = Self::extract_imports(&root, source_bytes);
-                let test_functions = Self::extract_test_functions(&root, source_bytes, &file_path);
-                let fixtures = Self::extract_fixtures(&root, source_bytes, &file_path);
-                Ok(ParsedModule {
-                    file_path,
-                    imports,
-                    test_functions,
-                    fixtures,
-                })
-            }
-            None => Ok(ParsedModule {
+        if let Some(tree) = tree {
+            let root = tree.root_node();
+            let source_bytes = source.as_bytes();
+            let imports = Self::extract_imports(&root, source_bytes);
+            let test_functions = Self::extract_test_functions(&root, source_bytes, &file_path);
+            let fixtures = Self::extract_fixtures(&root, source_bytes, &file_path);
+            Ok(ParsedModule {
+                file_path,
+                imports,
+                test_functions,
+                fixtures,
+            })
+        } else {
+            eprintln!("Warning: tree-sitter failed to parse {}", file_path.display());
+            Ok(ParsedModule {
                 file_path,
                 imports: vec![],
                 test_functions: vec![],
                 fixtures: vec![],
-            }),
+            })
         }
     }
 
@@ -271,58 +271,58 @@ impl PythonParser {
     fn count_top_level_entries(inner: &str) -> usize {
         let mut count = 0;
         let mut depth = 0;
-        let mut in_str = false;
+        let mut quote_char: Option<char> = None;
         let mut escape = false;
-        let mut current_empty = true;
+        let mut has_content_since_last_comma = false;
 
-        for ch in inner.chars() {
+        for c in inner.chars() {
             if escape {
                 escape = false;
-                current_empty = false;
+                has_content_since_last_comma = true;
                 continue;
             }
-            if ch == '\\' {
+            if c == '\\' {
                 escape = true;
-                current_empty = false;
+                has_content_since_last_comma = true;
                 continue;
             }
-            if ch == '"' || ch == '\'' {
-                in_str = !in_str;
-                current_empty = false;
+            if let Some(qc) = quote_char {
+                if c == qc {
+                    quote_char = None;
+                }
+                has_content_since_last_comma = true;
                 continue;
             }
-            if in_str {
-                current_empty = false;
-                continue;
-            }
-            match ch {
+            match c {
+                '"' | '\'' => {
+                    quote_char = Some(c);
+                    has_content_since_last_comma = true;
+                }
                 '(' | '[' | '{' => {
                     depth += 1;
-                    current_empty = false;
+                    has_content_since_last_comma = true;
                 }
-                ')' | ']' | '}' => {
+                ')' | ']' | '}' if depth > 0 => {
                     depth -= 1;
-                    current_empty = false;
+                    has_content_since_last_comma = true;
                 }
-                ',' => {
-                    if depth == 0 {
-                        if !current_empty {
-                            count += 1;
-                        }
-                        current_empty = true;
+                ',' if depth == 0 => {
+                    if has_content_since_last_comma {
+                        count += 1;
                     }
+                    has_content_since_last_comma = false;
                 }
                 _ => {
-                    if !ch.is_whitespace() {
-                        current_empty = false;
+                    if !c.is_whitespace() {
+                        has_content_since_last_comma = true;
                     }
                 }
             }
         }
-        if !current_empty {
+        if has_content_since_last_comma {
             count += 1;
         }
-        count.max(1)
+        count
     }
 
     fn count_assertions(body: Option<&tree_sitter::Node>) -> usize {
@@ -674,12 +674,12 @@ def test_documented():
 
     #[test]
     fn test_count_top_level_entries_empty() {
-        assert_eq!(PythonParser::count_top_level_entries(""), 1);
+        assert_eq!(PythonParser::count_top_level_entries(""), 0);
     }
 
     #[test]
     fn test_count_top_level_entries_whitespace_only() {
-        assert_eq!(PythonParser::count_top_level_entries("   "), 1);
+        assert_eq!(PythonParser::count_top_level_entries("   "), 0);
     }
 
     #[test]
@@ -785,6 +785,16 @@ def test_param(x):
         let module = parser.parse_file(&path).unwrap();
 
         assert_eq!(module.test_functions.len(), 2);
+    }
+
+    #[test]
+    fn test_count_top_level_entries_with_mixed_quotes() {
+        assert_eq!(PythonParser::count_top_level_entries("\"foo's bar\", 'baz\"qux'"), 2);
+    }
+
+    #[test]
+    fn test_count_top_level_entries_mismatched_quotes_are_separate() {
+        assert_eq!(PythonParser::count_top_level_entries("\"hello', 'world\""), 1);
     }
 
     #[test]

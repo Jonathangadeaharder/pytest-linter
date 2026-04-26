@@ -40,7 +40,7 @@ impl std::fmt::Display for Category {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Violation {
     pub rule_id: String,
     pub rule_name: String,
@@ -123,13 +123,19 @@ pub struct ParsedModule {
     pub fixtures: Vec<Fixture>,
 }
 
+impl PartialEq for Violation {
+    fn eq(&self, other: &Self) -> bool {
+        self.file_path == other.file_path && self.line == other.line && self.rule_id == other.rule_id
+    }
+}
+
+impl Eq for Violation {}
+
 impl PartialOrd for Violation {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
-
-impl Eq for Violation {}
 
 impl Ord for Violation {
     fn cmp(&self, other: &Self) -> Ordering {

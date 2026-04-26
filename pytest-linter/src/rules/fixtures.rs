@@ -171,7 +171,7 @@ impl Rule for UnusedFixtureRule {
                     format!("Fixture '{}' is not used by any test or fixture", fixture.name),
                     module.file_path.clone(),
                     fixture.line,
-                    Some("Remove the unused fixture or add autouse=True".to_string()),
+                    Some("Remove the unused fixture or reference it explicitly from tests/other fixtures".to_string()),
                     None,
                 ));
             }
