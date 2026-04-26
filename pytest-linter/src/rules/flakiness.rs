@@ -144,8 +144,24 @@ impl Rule for CwdDependencyRule {
     fn category(&self) -> Category {
         Category::Flakiness
     }
-    fn check(&self, _module: &ParsedModule, _all_modules: &[ParsedModule], _ctx: &RuleContext) -> Vec<Violation> {
-        vec![]
+    fn check(&self, module: &ParsedModule, _all_modules: &[ParsedModule], _ctx: &RuleContext) -> Vec<Violation> {
+        let mut violations = Vec::new();
+        for test in &module.test_functions {
+            if test.uses_cwd_dependency {
+                violations.push(make_violation(
+                    self.id(),
+                    self.name(),
+                    self.severity(),
+                    self.category(),
+                    format!("Test '{}' depends on the current working directory", test.name),
+                    module.file_path.clone(),
+                    test.line,
+                    Some("Use absolute paths or tmp_path fixture instead".to_string()),
+                    Some(test.name.clone()),
+                ));
+            }
+        }
+        violations
     }
 }
 
