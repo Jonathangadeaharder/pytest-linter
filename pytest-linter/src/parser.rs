@@ -159,6 +159,7 @@ impl PythonParser {
         let has_conditional_logic = Self::detect_conditionals(body.as_ref());
         let has_try_except = Self::detect_try_except(body.as_ref());
         let docstring = Self::extract_docstring(func_node, source);
+        let assertions = Self::extract_assertions(body.as_ref(), source);
 
         TestFunction {
             name: name.to_string(),
@@ -178,7 +179,7 @@ impl PythonParser {
             has_conditional_logic,
             has_try_except,
             docstring,
-            assertions: vec![],
+            assertions,
             parametrize_values: vec![],
             uses_cwd_dependency: false,
             uses_pytest_raises: false,
@@ -364,6 +365,107 @@ impl PythonParser {
         for child in node.children(&mut cursor) {
             if Self::has_node_kind(child, kind) {
                 return true;
+            }
+        }
+        false
+    }
+
+    fn extract_assertions(body: Option<&tree_sitter::Node>, source: &[u8]) -> Vec<crate::models::AssertionInfo> {
+        body.map_or(vec![], |b| {
+            let mut infos = Vec::new();
+            Self::collect_assertion_info(*b, source, &mut infos);
+            infos
+        })
+    }
+
+    fn collect_assertion_info(
+        node: tree_sitter::Node,
+        source: &[u8],
+        infos: &mut Vec<crate::models::AssertionInfo>,
+    ) {
+        if node.kind() == "assert_statement" {
+            let line = node.start_position().row + 1;
+            let mut cursor = node.walk();
+            let children: Vec<_> = node.children(&mut cursor).collect();
+            let expr_node = children.into_iter().find(|c| {
+                let k = c.kind();
+                !k.starts_with(',') && k != "comment" && k != "assert"
+            });
+            let expression_text = expr_node
+                .map(|n| Self::node_text(n, source))
+                .unwrap_or_default();
+            let has_comparison = expr_node.is_some_and(|n| {
+                Self::has_node_kind_recursive(n, "comparison_operator")
+            });
+            let is_magic = expr_node.is_some_and(|n| {
+                let kind = n.kind();
+                if kind == "true" || kind == "false" {
+                    return true;
+                }
+                if kind == "integer" {
+                    let text = Self::node_text(n, source);
+                    return text == "0" || text == "1";
+                }
+                !has_comparison && kind == "identifier"
+            });
+            let is_suboptimal = expr_node.is_some_and(|n| {
+                Self::is_suboptimal_assertion(n, source)
+            });
+            infos.push(crate::models::AssertionInfo {
+                is_magic,
+                is_suboptimal,
+                has_comparison,
+                expression_text,
+                line,
+            });
+            return;
+        }
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            Self::collect_assertion_info(child, source, infos);
+        }
+    }
+
+    fn has_node_kind_recursive(node: tree_sitter::Node, kind: &str) -> bool {
+        if node.kind() == kind {
+            return true;
+        }
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if Self::has_node_kind_recursive(child, kind) {
+                return true;
+            }
+        }
+        false
+    }
+
+    fn is_suboptimal_assertion(expr: tree_sitter::Node, source: &[u8]) -> bool {
+        if expr.kind() == "comparison_operator" {
+            let mut cursor = expr.walk();
+            for child in expr.children(&mut cursor) {
+                if child.kind() == "call" {
+                    let func = child.child_by_field_name("function");
+                    if let Some(f) = func {
+                        let name = Self::node_text(f, source);
+                        if name == "len" || name == "type" {
+                            return true;
+                        }
+                    }
+                }
+                if child.kind() == "not" {
+                    let mut nc = child.walk();
+                    for inner in child.children(&mut nc) {
+                        if inner.kind() == "none" {
+                            return true;
+                        }
+                    }
+                }
+                if child.kind() == "none" {
+                    let text = Self::node_text(expr, source);
+                    if text.contains("not") {
+                        return true;
+                    }
+                }
             }
         }
         false

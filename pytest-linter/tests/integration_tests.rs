@@ -3092,6 +3092,52 @@ def test_thing(sess_fix):
 }
 
 #[test]
+fn test_magic_assert_detected_in_assertions() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_magic.py",
+        r#"
+def test_magic():
+    assert True
+    assert 1
+    assert 42 == 42
+"#,
+    );
+    let module = parse_file(&path);
+    assert_eq!(module.test_functions.len(), 1);
+    let test = &module.test_functions[0];
+    assert_eq!(test.assertions.len(), 3);
+    assert!(test.assertions[0].is_magic);
+    assert!(test.assertions[1].is_magic);
+    assert!(!test.assertions[2].is_magic);
+    assert!(test.assertions[2].has_comparison);
+}
+
+#[test]
+fn test_suboptimal_assert_detected() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_suboptimal.py",
+        r#"
+def test_suboptimal():
+    assert len(items) == 3
+    assert type(x) == int
+    assert result is not None
+    assert value == expected
+"#,
+    );
+    let module = parse_file(&path);
+    let test = &module.test_functions[0];
+    assert_eq!(test.assertions.len(), 4);
+    assert!(test.assertions[0].is_suboptimal, "assert len(x)==N should be suboptimal");
+    assert!(test.assertions[1].is_suboptimal, "assert type(x)==Y should be suboptimal");
+    assert!(test.assertions[2].is_suboptimal, "assert x is not None should be suboptimal");
+    assert!(!test.assertions[3].is_suboptimal, "normal comparison should not be suboptimal");
+}
+
+#[test]
 fn test_fixture_scope_unknown_dep_does_not_trigger_fix003() {
     let dir = tempfile::tempdir().unwrap();
     let path = write_temp_file(
