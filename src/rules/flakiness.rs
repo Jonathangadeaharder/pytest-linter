@@ -253,41 +253,32 @@ impl Rule for XdistSharedStateRule {
     }
     fn check(
         &self,
-        _module: &ParsedModule,
-        all_modules: &[ParsedModule],
-        _ctx: &RuleContext,
+        module: &ParsedModule,
+        _all_modules: &[ParsedModule],
+        ctx: &RuleContext,
     ) -> Vec<Violation> {
         let mut violations = Vec::new();
-        let session_mutable_fixtures: Vec<&str> = all_modules
-            .iter()
-            .flat_map(|m| m.fixtures.iter())
-            .filter(|f| f.scope == crate::models::FixtureScope::Session && f.returns_mutable)
-            .map(|f| f.name.as_str())
-            .collect();
-
-        if session_mutable_fixtures.is_empty() {
+        if ctx.session_mutable_fixtures.is_empty() {
             return violations;
         }
 
-        for m in all_modules {
-            for test in &m.test_functions {
-                for dep in &test.mutates_fixture_deps {
-                    if session_mutable_fixtures.contains(&dep.as_str()) {
-                        violations.push(make_violation(
-                            self.id(),
-                            self.name(),
-                            self.severity(),
-                            self.category(),
-                            format!(
-                                "Session-scoped fixture '{}' returns mutable state that is modified by test '{}' — unsafe for xdist",
-                                dep, test.name
-                            ),
-                            m.file_path.clone(),
-                            test.line,
-                            Some("Use function scope or return immutable values".to_string()),
-                            Some(test.name.clone()),
-                        ));
-                    }
+        for test in &module.test_functions {
+            for dep in &test.mutates_fixture_deps {
+                if ctx.session_mutable_fixtures.contains(dep) {
+                    violations.push(make_violation(
+                        self.id(),
+                        self.name(),
+                        self.severity(),
+                        self.category(),
+                        format!(
+                            "Session-scoped fixture '{}' returns mutable state that is modified by test '{}' — unsafe for xdist",
+                            dep, test.name
+                        ),
+                        module.file_path.clone(),
+                        test.line,
+                        Some("Use function scope or return immutable values".to_string()),
+                        Some(test.name.clone()),
+                    ));
                 }
             }
         }

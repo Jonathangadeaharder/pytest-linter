@@ -29,9 +29,14 @@ impl LintEngine {
 
         let fixture_map = collect_all_fixtures(&modules);
         let used_fixture_names = compute_used_fixture_names(&modules);
+        let fixture_locations = compute_fixture_locations(&modules);
+        let session_mutable_fixtures = compute_session_mutable_fixtures(&modules);
+
         let ctx = RuleContext {
             fixture_map: &fixture_map,
             used_fixture_names: &used_fixture_names,
+            fixture_locations: &fixture_locations,
+            session_mutable_fixtures: &session_mutable_fixtures,
         };
 
         for module in &modules {
@@ -100,6 +105,29 @@ pub fn collect_all_fixtures(modules: &[ParsedModule]) -> HashMap<String, Vec<&Fi
         }
     }
     map
+}
+
+#[must_use]
+pub fn compute_fixture_locations(modules: &[ParsedModule]) -> HashMap<String, Vec<PathBuf>> {
+    let mut map: HashMap<String, Vec<PathBuf>> = HashMap::new();
+    for module in modules {
+        for fixture in &module.fixtures {
+            map.entry(fixture.name.clone())
+                .or_default()
+                .push(module.file_path.clone());
+        }
+    }
+    map
+}
+
+#[must_use]
+pub fn compute_session_mutable_fixtures(modules: &[ParsedModule]) -> HashSet<String> {
+    modules
+        .iter()
+        .flat_map(|m| m.fixtures.iter())
+        .filter(|f| f.scope == crate::models::FixtureScope::Session && f.returns_mutable)
+        .map(|f| f.name.clone())
+        .collect()
 }
 
 #[must_use]

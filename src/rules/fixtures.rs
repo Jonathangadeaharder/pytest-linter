@@ -115,40 +115,29 @@ impl Rule for ShadowedFixtureRule {
     fn check(
         &self,
         module: &ParsedModule,
-        all_modules: &[ParsedModule],
-        _ctx: &RuleContext,
+        _all_modules: &[ParsedModule],
+        ctx: &RuleContext,
     ) -> Vec<Violation> {
-        let mut name_to_files: HashMap<String, Vec<(PathBuf, usize)>> = HashMap::new();
-        for m in all_modules {
-            for f in &m.fixtures {
-                name_to_files
-                    .entry(f.name.clone())
-                    .or_default()
-                    .push((m.file_path.clone(), f.line));
-            }
-        }
-
         let mut violations = Vec::new();
-        for (name, locations) in &name_to_files {
-            if locations.len() > 1 {
-                for fixture in &module.fixtures {
-                    if &fixture.name == name {
-                        violations.push(make_violation(
-                            self.id(),
-                            self.name(),
-                            self.severity(),
-                            self.category(),
-                            format!(
-                                "Fixture '{}' is defined in {} different modules (shadowed)",
-                                name,
-                                locations.len()
-                            ),
-                            module.file_path.clone(),
-                            fixture.line,
-                            Some("Rename or consolidate fixture definitions".to_string()),
-                            None,
-                        ));
-                    }
+
+        for fixture in &module.fixtures {
+            if let Some(locations) = ctx.fixture_locations.get(&fixture.name) {
+                if locations.len() > 1 {
+                    violations.push(make_violation(
+                        self.id(),
+                        self.name(),
+                        self.severity(),
+                        self.category(),
+                        format!(
+                            "Fixture '{}' is defined in {} different modules (shadowed)",
+                            fixture.name,
+                            locations.len()
+                        ),
+                        module.file_path.clone(),
+                        fixture.line,
+                        Some("Rename or consolidate fixture definitions".to_string()),
+                        None,
+                    ));
                 }
             }
         }

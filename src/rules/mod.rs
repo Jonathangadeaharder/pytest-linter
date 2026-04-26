@@ -1,9 +1,12 @@
+use std::path::PathBuf;
 use crate::models::{Fixture, ParsedModule, Violation};
 use std::collections::{HashMap, HashSet};
 
 pub struct RuleContext<'a> {
     pub fixture_map: &'a HashMap<String, Vec<&'a Fixture>>,
     pub used_fixture_names: &'a HashSet<String>,
+    pub fixture_locations: &'a HashMap<String, Vec<PathBuf>>,
+    pub session_mutable_fixtures: &'a HashSet<String>,
 }
 
 pub trait Rule: Send + Sync {

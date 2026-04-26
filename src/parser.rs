@@ -150,17 +150,9 @@ impl PythonParser {
             || body_text.contains(".call_count");
         let has_state_assertions = has_assertions && !has_mock_verifications_only(&body_text);
         let fixture_deps = Self::extract_fixture_deps(func_node, source);
-        let uses_time_sleep = body_text.contains("time.sleep") || body_text.contains("sleep(");
-        let uses_file_io = body_text.contains("open(")
-            || body_text.contains("open (")
-            || body_text.contains(".read()")
-            || body_text.contains(".write(")
-            || body_text.contains(".open(");
-        let uses_network = body_text.contains("requests.")
-            || body_text.contains("socket.")
-            || body_text.contains("httpx.")
-            || body_text.contains("aiohttp.")
-            || body_text.contains("urllib");
+        let uses_time_sleep = Self::detect_time_sleep(body.as_ref(), source);
+        let uses_file_io = Self::detect_file_io(body.as_ref(), source);
+        let uses_network = Self::detect_network_usage(body.as_ref(), source);
         let has_conditional_logic = Self::detect_conditionals(body.as_ref());
         let has_try_except = Self::detect_try_except(body.as_ref());
         let docstring = Self::extract_docstring(func_node, source);
@@ -814,13 +806,9 @@ impl PythonParser {
             .any(|d| d.contains("autouse") && d.contains("True"));
         let dependencies = Self::extract_fixture_deps(func_node, source);
         let returns_mutable = Self::detect_mutable_return(body.as_ref(), source);
-        let has_yield = body_text.contains("yield");
-        let has_db_commit = body_text.contains("commit()")
-            || body_text.contains(".commit")
-            || body_text.contains("COMMIT");
-        let has_db_rollback = body_text.contains("rollback()")
-            || body_text.contains(".rollback")
-            || body_text.contains("ROLLBACK");
+        let has_yield = Self::detect_yield(body.as_ref());
+        let has_db_commit = Self::detect_db_commit(body.as_ref(), source);
+        let has_db_rollback = Self::detect_db_rollback(body.as_ref(), source);
         let uses_file_io = Self::detect_file_io(body.as_ref(), source);
 
         Fixture {
@@ -871,33 +859,133 @@ impl PythonParser {
                 if ["open", "read", "write"].contains(&name.as_str()) {
                     return true;
                 }
-            }
-        }
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            if child.kind() == "call" {
-                let func = child.child_by_field_name("function");
-                if let Some(f) = func {
-                    let text = Self::node_text(f, source);
-                    if text == "open" {
-                        return true;
-                    }
-                }
-                let mut args_cursor = child.walk();
-                for arg in child.children(&mut args_cursor) {
-                    if arg.kind() == "attribute" {
-                        let arg_text = Self::node_text(arg, source);
-                        if ["read", "write", "open"].iter().any(|ext| {
-                            std::path::Path::new(&arg_text)
-                                .extension()
-                                .is_some_and(|e| e.eq_ignore_ascii_case(ext))
-                        }) {
+                if f.kind() == "attribute" {
+                    let attr = f.child_by_field_name("attribute");
+                    if let Some(a) = attr {
+                        let attr_name = Self::node_text(a, source);
+                        if ["read", "write", "open"].contains(&attr_name.as_str()) {
                             return true;
                         }
                     }
                 }
             }
+        }
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
             if Self::has_file_io_call(child, source) {
+                return true;
+            }
+        }
+        false
+    }
+
+    fn detect_time_sleep(body: Option<&tree_sitter::Node>, source: &[u8]) -> bool {
+        body.is_some_and(|b| Self::has_time_sleep_call(*b, source))
+    }
+
+    fn has_time_sleep_call(node: tree_sitter::Node, source: &[u8]) -> bool {
+        if node.kind() == "call" {
+            let func = node.child_by_field_name("function");
+            if let Some(f) = func {
+                let text = Self::node_text(f, source);
+                if text == "time.sleep" || text == "sleep" {
+                    return true;
+                }
+                if f.kind() == "attribute" {
+                    let attr = f.child_by_field_name("attribute");
+                    if let Some(a) = attr {
+                        let name = Self::node_text(a, source);
+                        if name == "sleep" {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if Self::has_time_sleep_call(child, source) {
+                return true;
+            }
+        }
+        false
+    }
+
+    fn detect_network_usage(body: Option<&tree_sitter::Node>, source: &[u8]) -> bool {
+        body.is_some_and(|b| Self::has_network_call(*b, source))
+    }
+
+    fn has_network_call(node: tree_sitter::Node, source: &[u8]) -> bool {
+        if node.kind() == "call" {
+            let func = node.child_by_field_name("function");
+            if let Some(f) = func {
+                let text = Self::node_text(f, source);
+                let network_libs = ["requests", "socket", "httpx", "aiohttp", "urllib"];
+                if network_libs.iter().any(|lib| {
+                    text.starts_with(&format!("{}.", lib)) || text.starts_with(&format!("{} (", lib))
+                }) {
+                    return true;
+                }
+                if f.kind() == "attribute" {
+                    let obj = f.child_by_field_name("object");
+                    if let Some(o) = obj {
+                        let obj_name = Self::node_text(o, source);
+                        if network_libs.contains(&obj_name.as_str()) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if Self::has_network_call(child, source) {
+                return true;
+            }
+        }
+        false
+    }
+
+    fn detect_yield(body: Option<&tree_sitter::Node>) -> bool {
+        body.is_some_and(|b| Self::has_node_kind_recursive(*b, "yield"))
+    }
+
+    fn detect_db_commit(body: Option<&tree_sitter::Node>, source: &[u8]) -> bool {
+        body.is_some_and(|b| Self::has_db_call(*b, source, "commit"))
+    }
+
+    fn detect_db_rollback(body: Option<&tree_sitter::Node>, source: &[u8]) -> bool {
+        body.is_some_and(|b| Self::has_db_call(*b, source, "rollback"))
+    }
+
+    fn has_db_call(node: tree_sitter::Node, source: &[u8], method_name: &str) -> bool {
+        if node.kind() == "call" {
+            let func = node.child_by_field_name("function");
+            if let Some(f) = func {
+                let text = Self::node_text(f, source);
+                if text.to_lowercase().contains(method_name) {
+                    return true;
+                }
+                if f.kind() == "attribute" {
+                    let attr = f.child_by_field_name("attribute");
+                    if let Some(a) = attr {
+                        let name = Self::node_text(a, source).to_lowercase();
+                        if name == method_name {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        if node.kind() == "identifier" {
+            let name = Self::node_text(node, source).to_lowercase();
+            if name == method_name {
+                return true;
+            }
+        }
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if Self::has_db_call(child, source, method_name) {
                 return true;
             }
         }
