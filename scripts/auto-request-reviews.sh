@@ -47,8 +47,8 @@ fetch_and_check_reviews() {
     tmpdir=$(mktemp -d)
     trap "rm -rf $tmpdir" RETURN
 
-    gh api "repos/$repo/pulls/$pr/reviews" --paginate > "$tmpdir/reviews.json" 2>/dev/null || echo "[]" > "$tmpdir/reviews.json"
-    gh api "repos/$repo/pulls/$pr/comments" --paginate > "$tmpdir/comments.json" 2>/dev/null || echo "[]" > "$tmpdir/comments.json"
+    gh api --paginate "repos/$repo/pulls/$pr/reviews?per_page=100" > "$tmpdir/reviews.json" 2>/dev/null || echo "[]" > "$tmpdir/reviews.json"
+    gh api --paginate "repos/$repo/pulls/$pr/comments?per_page=100" > "$tmpdir/comments.json" 2>/dev/null || echo "[]" > "$tmpdir/comments.json"
 
     python3 "$tmpdir/../check.py" "$since" "$tmpdir/reviews.json" "$tmpdir/comments.json" 2>/dev/null || \
     python3 - "$since" "$tmpdir/reviews.json" "$tmpdir/comments.json" << 'PYEOF'
