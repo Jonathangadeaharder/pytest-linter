@@ -178,6 +178,11 @@ impl PythonParser {
             has_conditional_logic,
             has_try_except,
             docstring,
+            assertions: vec![],
+            parametrize_values: vec![],
+            uses_cwd_dependency: false,
+            uses_pytest_raises: false,
+            mutates_fixture_deps: vec![],
         }
     }
 

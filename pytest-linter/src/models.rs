@@ -55,6 +55,15 @@ pub struct Violation {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AssertionInfo {
+    pub is_magic: bool,
+    pub is_suboptimal: bool,
+    pub has_comparison: bool,
+    pub expression_text: String,
+    pub line: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[allow(clippy::struct_excessive_bools)]
 pub struct TestFunction {
     pub name: String,
@@ -74,6 +83,11 @@ pub struct TestFunction {
     pub has_conditional_logic: bool,
     pub has_try_except: bool,
     pub docstring: Option<String>,
+    pub assertions: Vec<AssertionInfo>,
+    pub parametrize_values: Vec<Vec<String>>,
+    pub uses_cwd_dependency: bool,
+    pub uses_pytest_raises: bool,
+    pub mutates_fixture_deps: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
