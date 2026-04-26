@@ -109,7 +109,7 @@ pub fn fixture_scope_by_name<S: BuildHasher>(
 ) -> Option<FixtureScope> {
     all_fixtures
         .get(name)
-        .and_then(|v| v.first().map(|f| f.scope))
+        .and_then(|v| v.iter().min_by_key(|f| f.scope).map(|f| f.scope))
 }
 
 #[must_use]
@@ -136,19 +136,36 @@ pub fn is_fixture_used_by_any_test_or_fixture(
 
 #[must_use]
 pub fn compute_used_fixture_names(modules: &[ParsedModule]) -> HashSet<String> {
+    let mut fixture_deps_map: HashMap<&str, Vec<&String>> = HashMap::new();
+    for module in modules {
+        for fixture in &module.fixtures {
+            fixture_deps_map.insert(&fixture.name, fixture.dependencies.iter().collect());
+        }
+    }
+
     let mut used = HashSet::new();
+    let mut worklist = Vec::new();
+
     for module in modules {
         for test in &module.test_functions {
             for dep in &test.fixture_deps {
-                used.insert(dep.clone());
-            }
-        }
-        for fixture in &module.fixtures {
-            for dep in &fixture.dependencies {
-                used.insert(dep.clone());
+                if used.insert(dep.clone()) {
+                    worklist.push(dep.clone());
+                }
             }
         }
     }
+
+    while let Some(name) = worklist.pop() {
+        if let Some(deps) = fixture_deps_map.get(name.as_str()) {
+            for dep in deps {
+                if used.insert(dep.to_string()) {
+                    worklist.push(dep.to_string());
+                }
+            }
+        }
+    }
+
     used
 }
 

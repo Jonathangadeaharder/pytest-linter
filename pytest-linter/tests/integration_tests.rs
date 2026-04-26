@@ -3206,8 +3206,8 @@ def test_suboptimal():
         "assert type(x)==Y should be suboptimal"
     );
     assert!(
-        test.assertions[2].is_suboptimal,
-        "assert x is not None should be suboptimal"
+        !test.assertions[2].is_suboptimal,
+        "assert x is not None should NOT be suboptimal"
     );
     assert!(
         !test.assertions[3].is_suboptimal,

@@ -470,6 +470,9 @@ impl PythonParser {
         if expr.kind() == "comparison_operator" {
             let mut cursor = expr.walk();
             for child in expr.children(&mut cursor) {
+                if child.kind() == "is" || child.kind() == "is not" {
+                    return false;
+                }
                 if child.kind() == "call" {
                     let func = child.child_by_field_name("function");
                     if let Some(f) = func {
@@ -489,7 +492,9 @@ impl PythonParser {
                 }
                 if child.kind() == "none" {
                     let text = Self::node_text(expr, source);
-                    if text.contains("not") {
+                    // only consider it suboptimal if it's '== None' or '!= None', which is caught here
+                    // 'is not None' or 'is None' are returned false above.
+                    if text.contains("==") || text.contains("!=") || text.contains("not") {
                         return true;
                     }
                 }
@@ -501,7 +506,14 @@ impl PythonParser {
     fn extract_parametrize_values(decorators: &[DecoratorInfo], source: &[u8]) -> Vec<Vec<String>> {
         let mut all_values = Vec::new();
         for dec in decorators {
-            if !dec.text.contains("parametrize") {
+            let name = dec
+                .text
+                .trim_start_matches('@')
+                .split('(')
+                .next()
+                .unwrap_or("")
+                .trim();
+            if name != "pytest.mark.parametrize" && name != "parametrize" {
                 continue;
             }
             if let Some(node) = dec.node {
@@ -524,23 +536,31 @@ impl PythonParser {
                 for call_child in child.children(&mut call_cursor) {
                     if call_child.kind() == "argument_list" {
                         let mut args_cursor = call_child.walk();
+                        let mut target_arg = None;
+                        let mut tuple_list_count = 0;
                         for arg in call_child.children(&mut args_cursor) {
                             if arg.kind() == "list" || arg.kind() == "tuple" {
-                                let mut values = Vec::new();
-                                let mut elem_cursor = arg.walk();
-                                for elem in arg.children(&mut elem_cursor) {
-                                    match elem.kind() {
-                                        "," | "(" | ")" | "[" | "]" | "comment" => {}
-                                        _ if !elem.is_extra() => {
-                                            values.push(
-                                                Self::node_text(elem, source).trim().to_string(),
-                                            );
-                                        }
-                                        _ => {}
-                                    }
+                                tuple_list_count += 1;
+                                target_arg = Some(arg);
+                                if tuple_list_count == 2 {
+                                    break;
                                 }
-                                return Some(values);
                             }
+                        }
+                        if let Some(arg) = target_arg {
+                            let mut values = Vec::new();
+                            let mut elem_cursor = arg.walk();
+                            for elem in arg.children(&mut elem_cursor) {
+                                match elem.kind() {
+                                    "," | "(" | ")" | "[" | "]" | "comment" => {}
+                                    _ if !elem.is_extra() => {
+                                        values
+                                            .push(Self::node_text(elem, source).trim().to_string());
+                                    }
+                                    _ => {}
+                                }
+                            }
+                            return Some(values);
                         }
                     }
                 }
