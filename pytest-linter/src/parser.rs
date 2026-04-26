@@ -139,8 +139,8 @@ impl PythonParser {
             has_async
         };
         let (is_parametrized, parametrize_count) = Self::detect_parametrize(&decorators);
-        let has_assertions = body_text.contains("assert ") || body_text.contains("assert(");
         let assertion_count = Self::count_assertions(body.as_ref());
+        let has_assertions = assertion_count > 0;
         let has_mock_verifications = body_text.contains(".assert_called")
             || body_text.contains(".called")
             || body_text.contains(".call_count");
