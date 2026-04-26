@@ -25,12 +25,7 @@ struct Cli {
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    let has_errors = run_cli(
-        &cli.paths,
-        &cli.format,
-        cli.output.as_deref(),
-        cli.no_color,
-    )?;
+    let has_errors = run_cli(&cli.paths, &cli.format, cli.output.as_deref(), cli.no_color)?;
 
     if has_errors {
         std::process::exit(1);

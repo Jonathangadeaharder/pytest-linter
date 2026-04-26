@@ -92,7 +92,7 @@ jobs:
           PYEOF
       - name: Create vitest test file with smells
         run: |
-          cat > /tmp/test_smell.ts << 'TSEOF'
+          cat > /tmp/test_smell.test.ts << 'TSEOF'
           import { describe, it, expect, vi } from "vitest";
 
           describe("bad", () => {
@@ -110,7 +110,7 @@ jobs:
           [ "$violations" -gt 0 ]
       - name: Run vitest-linter on smell file
         run: |
-          ./vitest-linter/target/release/vitest-linter --format json /tmp/test_smell.ts > /tmp/vitest-result.json
+          ./vitest-linter/target/release/vitest-linter --format json /tmp/test_smell.test.ts > /tmp/vitest-result.json
           violations=$(python3 -c "import json,sys; print(len(json.load(sys.stdin)))" < /tmp/vitest-result.json)
           echo "vitest-linter found $violations violations"
           [ "$violations" -gt 0 ]

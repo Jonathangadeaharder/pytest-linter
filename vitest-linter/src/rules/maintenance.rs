@@ -31,7 +31,9 @@ impl Rule for NoAssertionRule {
                 file_path: tb.file_path.clone(),
                 line: tb.line,
                 col: None,
-                suggestion: Some("Add at least one expect() assertion to verify behavior".to_string()),
+                suggestion: Some(
+                    "Add at least one expect() assertion to verify behavior".to_string(),
+                ),
                 test_name: Some(tb.name.clone()),
             })
             .collect()
@@ -184,7 +186,8 @@ impl Rule for EmptyTestRule {
                 rule_name: self.name().to_string(),
                 severity: self.severity(),
                 category: self.category(),
-                message: "Skipped test detected \u{2014} skipped tests provide no value".to_string(),
+                message: "Skipped test detected \u{2014} skipped tests provide no value"
+                    .to_string(),
                 file_path: tb.file_path.clone(),
                 line: tb.line,
                 col: None,

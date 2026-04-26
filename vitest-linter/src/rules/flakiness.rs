@@ -68,8 +68,7 @@ impl Rule for DateMockRule {
                 rule_name: self.name().to_string(),
                 severity: self.severity(),
                 category: self.category(),
-                message: "Test uses Date without mocking, results may vary across runs"
-                    .to_string(),
+                message: "Test uses Date without mocking, results may vary across runs".to_string(),
                 file_path: tb.file_path.clone(),
                 line: tb.line,
                 col: None,
@@ -129,8 +128,9 @@ impl Rule for NetworkImportRule {
             rule_name: self.name().to_string(),
             severity: self.severity(),
             category: self.category(),
-            message: "Test file imports network libraries \u{2014} tests may fail due to network issues"
-                .to_string(),
+            message:
+                "Test file imports network libraries \u{2014} tests may fail due to network issues"
+                    .to_string(),
             file_path: module.file_path.clone(),
             line: 1,
             col: None,
