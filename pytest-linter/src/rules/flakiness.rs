@@ -17,7 +17,12 @@ impl Rule for TimeSleepRule {
     fn category(&self) -> Category {
         Category::Flakiness
     }
-    fn check(&self, module: &ParsedModule, _all_modules: &[ParsedModule], _ctx: &RuleContext) -> Vec<Violation> {
+    fn check(
+        &self,
+        module: &ParsedModule,
+        _all_modules: &[ParsedModule],
+        _ctx: &RuleContext,
+    ) -> Vec<Violation> {
         let mut violations = Vec::new();
         for test in &module.test_functions {
             if test.uses_time_sleep {
@@ -26,7 +31,10 @@ impl Rule for TimeSleepRule {
                     self.name(),
                     self.severity(),
                     self.category(),
-                    format!("Test '{}' uses time.sleep which causes flaky tests", test.name),
+                    format!(
+                        "Test '{}' uses time.sleep which causes flaky tests",
+                        test.name
+                    ),
                     module.file_path.clone(),
                     test.line,
                     Some("Use pytest's time mocking or wait for a condition instead".to_string()),
@@ -53,7 +61,12 @@ impl Rule for FileIoRule {
     fn category(&self) -> Category {
         Category::Flakiness
     }
-    fn check(&self, module: &ParsedModule, _all_modules: &[ParsedModule], _ctx: &RuleContext) -> Vec<Violation> {
+    fn check(
+        &self,
+        module: &ParsedModule,
+        _all_modules: &[ParsedModule],
+        _ctx: &RuleContext,
+    ) -> Vec<Violation> {
         let mut violations = Vec::new();
         for test in &module.test_functions {
             if test.uses_file_io {
@@ -98,19 +111,17 @@ impl Rule for NetworkImportRule {
     fn category(&self) -> Category {
         Category::Flakiness
     }
-    fn check(&self, module: &ParsedModule, _all_modules: &[ParsedModule], _ctx: &RuleContext) -> Vec<Violation> {
-        let network_modules = [
-            "requests",
-            "socket",
-            "httpx",
-            "aiohttp",
-            "urllib",
-        ];
-        let has_network = module.imports.iter().any(|imp| {
-            network_modules
-                .iter()
-                .any(|nm| imp.contains(nm))
-        });
+    fn check(
+        &self,
+        module: &ParsedModule,
+        _all_modules: &[ParsedModule],
+        _ctx: &RuleContext,
+    ) -> Vec<Violation> {
+        let network_modules = ["requests", "socket", "httpx", "aiohttp", "urllib"];
+        let has_network = module
+            .imports
+            .iter()
+            .any(|imp| network_modules.iter().any(|nm| imp.contains(nm)));
         if has_network {
             vec![make_violation(
                 self.id(),
@@ -144,7 +155,12 @@ impl Rule for CwdDependencyRule {
     fn category(&self) -> Category {
         Category::Flakiness
     }
-    fn check(&self, module: &ParsedModule, _all_modules: &[ParsedModule], _ctx: &RuleContext) -> Vec<Violation> {
+    fn check(
+        &self,
+        module: &ParsedModule,
+        _all_modules: &[ParsedModule],
+        _ctx: &RuleContext,
+    ) -> Vec<Violation> {
         let mut violations = Vec::new();
         for test in &module.test_functions {
             if test.uses_cwd_dependency {
@@ -153,7 +169,10 @@ impl Rule for CwdDependencyRule {
                     self.name(),
                     self.severity(),
                     self.category(),
-                    format!("Test '{}' depends on the current working directory", test.name),
+                    format!(
+                        "Test '{}' depends on the current working directory",
+                        test.name
+                    ),
                     module.file_path.clone(),
                     test.line,
                     Some("Use absolute paths or tmp_path fixture instead".to_string()),
@@ -180,7 +199,12 @@ impl Rule for MysteryGuestRule {
     fn category(&self) -> Category {
         Category::Flakiness
     }
-    fn check(&self, module: &ParsedModule, _all_modules: &[ParsedModule], _ctx: &RuleContext) -> Vec<Violation> {
+    fn check(
+        &self,
+        module: &ParsedModule,
+        _all_modules: &[ParsedModule],
+        _ctx: &RuleContext,
+    ) -> Vec<Violation> {
         let mut violations = Vec::new();
         for test in &module.test_functions {
             if test.uses_file_io {
@@ -227,7 +251,12 @@ impl Rule for XdistSharedStateRule {
     fn category(&self) -> Category {
         Category::Flakiness
     }
-    fn check(&self, _module: &ParsedModule, all_modules: &[ParsedModule], _ctx: &RuleContext) -> Vec<Violation> {
+    fn check(
+        &self,
+        _module: &ParsedModule,
+        all_modules: &[ParsedModule],
+        _ctx: &RuleContext,
+    ) -> Vec<Violation> {
         let mut violations = Vec::new();
         let session_mutable_fixtures: Vec<&str> = all_modules
             .iter()
@@ -281,7 +310,12 @@ impl Rule for XdistFixtureIoRule {
     fn category(&self) -> Category {
         Category::Flakiness
     }
-    fn check(&self, module: &ParsedModule, _all_modules: &[ParsedModule], _ctx: &RuleContext) -> Vec<Violation> {
+    fn check(
+        &self,
+        module: &ParsedModule,
+        _all_modules: &[ParsedModule],
+        _ctx: &RuleContext,
+    ) -> Vec<Violation> {
         let mut violations = Vec::new();
         for fixture in &module.fixtures {
             if fixture.scope == crate::models::FixtureScope::Session && fixture.uses_file_io {

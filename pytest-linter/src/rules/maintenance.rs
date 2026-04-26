@@ -17,7 +17,12 @@ impl Rule for TestLogicRule {
     fn category(&self) -> Category {
         Category::Maintenance
     }
-    fn check(&self, module: &ParsedModule, _all_modules: &[ParsedModule], _ctx: &RuleContext) -> Vec<Violation> {
+    fn check(
+        &self,
+        module: &ParsedModule,
+        _all_modules: &[ParsedModule],
+        _ctx: &RuleContext,
+    ) -> Vec<Violation> {
         let mut violations = Vec::new();
         for test in &module.test_functions {
             if test.has_conditional_logic {
@@ -26,7 +31,10 @@ impl Rule for TestLogicRule {
                     self.name(),
                     self.severity(),
                     self.category(),
-                    format!("Test '{}' contains conditional logic (if statements)", test.name),
+                    format!(
+                        "Test '{}' contains conditional logic (if statements)",
+                        test.name
+                    ),
                     module.file_path.clone(),
                     test.line,
                     Some("Split into separate tests or use parametrize".to_string()),
@@ -53,7 +61,12 @@ impl Rule for MagicAssertRule {
     fn category(&self) -> Category {
         Category::Maintenance
     }
-    fn check(&self, module: &ParsedModule, _all_modules: &[ParsedModule], _ctx: &RuleContext) -> Vec<Violation> {
+    fn check(
+        &self,
+        module: &ParsedModule,
+        _all_modules: &[ParsedModule],
+        _ctx: &RuleContext,
+    ) -> Vec<Violation> {
         let mut violations = Vec::new();
         for test in &module.test_functions {
             for assertion in &test.assertions {
@@ -94,7 +107,12 @@ impl Rule for SuboptimalAssertRule {
     fn category(&self) -> Category {
         Category::Enhancement
     }
-    fn check(&self, module: &ParsedModule, _all_modules: &[ParsedModule], _ctx: &RuleContext) -> Vec<Violation> {
+    fn check(
+        &self,
+        module: &ParsedModule,
+        _all_modules: &[ParsedModule],
+        _ctx: &RuleContext,
+    ) -> Vec<Violation> {
         let mut violations = Vec::new();
         for test in &module.test_functions {
             for assertion in &test.assertions {
@@ -135,7 +153,12 @@ impl Rule for NoAssertionRule {
     fn category(&self) -> Category {
         Category::Maintenance
     }
-    fn check(&self, module: &ParsedModule, _all_modules: &[ParsedModule], _ctx: &RuleContext) -> Vec<Violation> {
+    fn check(
+        &self,
+        module: &ParsedModule,
+        _all_modules: &[ParsedModule],
+        _ctx: &RuleContext,
+    ) -> Vec<Violation> {
         let mut violations = Vec::new();
         for test in &module.test_functions {
             if !test.has_assertions {
@@ -171,7 +194,12 @@ impl Rule for MockOnlyVerifyRule {
     fn category(&self) -> Category {
         Category::Maintenance
     }
-    fn check(&self, module: &ParsedModule, _all_modules: &[ParsedModule], _ctx: &RuleContext) -> Vec<Violation> {
+    fn check(
+        &self,
+        module: &ParsedModule,
+        _all_modules: &[ParsedModule],
+        _ctx: &RuleContext,
+    ) -> Vec<Violation> {
         let mut violations = Vec::new();
         for test in &module.test_functions {
             if test.has_mock_verifications && !test.has_state_assertions {
@@ -210,7 +238,12 @@ impl Rule for AssertionRouletteRule {
     fn category(&self) -> Category {
         Category::Maintenance
     }
-    fn check(&self, module: &ParsedModule, _all_modules: &[ParsedModule], _ctx: &RuleContext) -> Vec<Violation> {
+    fn check(
+        &self,
+        module: &ParsedModule,
+        _all_modules: &[ParsedModule],
+        _ctx: &RuleContext,
+    ) -> Vec<Violation> {
         let mut violations = Vec::new();
         for test in &module.test_functions {
             if test.assertion_count > 3 && !test.is_parametrized {
@@ -249,7 +282,12 @@ impl Rule for RawExceptionHandlingRule {
     fn category(&self) -> Category {
         Category::Maintenance
     }
-    fn check(&self, module: &ParsedModule, _all_modules: &[ParsedModule], _ctx: &RuleContext) -> Vec<Violation> {
+    fn check(
+        &self,
+        module: &ParsedModule,
+        _all_modules: &[ParsedModule],
+        _ctx: &RuleContext,
+    ) -> Vec<Violation> {
         let mut violations = Vec::new();
         for test in &module.test_functions {
             if test.has_try_except {
@@ -258,7 +296,10 @@ impl Rule for RawExceptionHandlingRule {
                     self.name(),
                     self.severity(),
                     self.category(),
-                    format!("Test '{}' uses try/except instead of pytest.raises", test.name),
+                    format!(
+                        "Test '{}' uses try/except instead of pytest.raises",
+                        test.name
+                    ),
                     module.file_path.clone(),
                     test.line,
                     Some("Use pytest.raises() for exception testing".to_string()),
@@ -285,7 +326,12 @@ impl Rule for BddMissingScenarioRule {
     fn category(&self) -> Category {
         Category::Enhancement
     }
-    fn check(&self, module: &ParsedModule, _all_modules: &[ParsedModule], _ctx: &RuleContext) -> Vec<Violation> {
+    fn check(
+        &self,
+        module: &ParsedModule,
+        _all_modules: &[ParsedModule],
+        _ctx: &RuleContext,
+    ) -> Vec<Violation> {
         let mut violations = Vec::new();
         for test in &module.test_functions {
             let has_gherkin = test.docstring.as_ref().is_some_and(|ds| {
@@ -298,7 +344,10 @@ impl Rule for BddMissingScenarioRule {
                     self.name(),
                     self.severity(),
                     self.category(),
-                    format!("Test '{}' lacks a Gherkin-style docstring scenario", test.name),
+                    format!(
+                        "Test '{}' lacks a Gherkin-style docstring scenario",
+                        test.name
+                    ),
                     module.file_path.clone(),
                     test.line,
                     Some("Add a docstring with Given/When/Then structure".to_string()),
@@ -325,7 +374,12 @@ impl Rule for PropertyTestHintRule {
     fn category(&self) -> Category {
         Category::Enhancement
     }
-    fn check(&self, module: &ParsedModule, _all_modules: &[ParsedModule], _ctx: &RuleContext) -> Vec<Violation> {
+    fn check(
+        &self,
+        module: &ParsedModule,
+        _all_modules: &[ParsedModule],
+        _ctx: &RuleContext,
+    ) -> Vec<Violation> {
         let mut violations = Vec::new();
         for test in &module.test_functions {
             if test.is_parametrized {
@@ -368,7 +422,12 @@ impl Rule for ParametrizeEmptyRule {
     fn category(&self) -> Category {
         Category::Maintenance
     }
-    fn check(&self, module: &ParsedModule, _all_modules: &[ParsedModule], _ctx: &RuleContext) -> Vec<Violation> {
+    fn check(
+        &self,
+        module: &ParsedModule,
+        _all_modules: &[ParsedModule],
+        _ctx: &RuleContext,
+    ) -> Vec<Violation> {
         let mut violations = Vec::new();
         for test in &module.test_functions {
             if test.is_parametrized {
@@ -411,7 +470,12 @@ impl Rule for ParametrizeDuplicateRule {
     fn category(&self) -> Category {
         Category::Maintenance
     }
-    fn check(&self, module: &ParsedModule, _all_modules: &[ParsedModule], _ctx: &RuleContext) -> Vec<Violation> {
+    fn check(
+        &self,
+        module: &ParsedModule,
+        _all_modules: &[ParsedModule],
+        _ctx: &RuleContext,
+    ) -> Vec<Violation> {
         let mut violations = Vec::new();
         for test in &module.test_functions {
             for values in &test.parametrize_values {
@@ -423,7 +487,8 @@ impl Rule for ParametrizeDuplicateRule {
                     }
                 }
                 if !duplicates.is_empty() {
-                    let dup_str: Vec<&str> = duplicates.into_iter().collect();
+                    let mut dup_str: Vec<&str> = duplicates.into_iter().collect();
+                    dup_str.sort_unstable();
                     violations.push(make_violation(
                         self.id(),
                         self.name(),
@@ -461,7 +526,12 @@ impl Rule for ParametrizeExplosionRule {
     fn category(&self) -> Category {
         Category::Maintenance
     }
-    fn check(&self, module: &ParsedModule, _all_modules: &[ParsedModule], _ctx: &RuleContext) -> Vec<Violation> {
+    fn check(
+        &self,
+        module: &ParsedModule,
+        _all_modules: &[ParsedModule],
+        _ctx: &RuleContext,
+    ) -> Vec<Violation> {
         let mut violations = Vec::new();
         for test in &module.test_functions {
             if let Some(count) = test.parametrize_count {
@@ -486,4 +556,3 @@ impl Rule for ParametrizeExplosionRule {
         violations
     }
 }
-

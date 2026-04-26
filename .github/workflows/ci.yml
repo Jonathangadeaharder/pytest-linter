@@ -104,13 +104,13 @@ jobs:
           TSEOF
       - name: Run pytest-linter on smell file
         run: |
-          ./target/release/pytest-linter --format json /tmp/test_smell.py > /tmp/pytest-result.json
+          ./pytest-linter/target/release/pytest-linter --format json /tmp/test_smell.py > /tmp/pytest-result.json
           violations=$(python3 -c "import json,sys; print(len(json.load(sys.stdin)))" < /tmp/pytest-result.json)
           echo "pytest-linter found $violations violations"
           [ "$violations" -gt 0 ]
       - name: Run vitest-linter on smell file
         run: |
-          ./target/release/vitest-linter --format json /tmp/test_smell.ts > /tmp/vitest-result.json
+          ./vitest-linter/target/release/vitest-linter --format json /tmp/test_smell.ts > /tmp/vitest-result.json
           violations=$(python3 -c "import json,sys; print(len(json.load(sys.stdin)))" < /tmp/vitest-result.json)
           echo "vitest-linter found $violations violations"
           [ "$violations" -gt 0 ]

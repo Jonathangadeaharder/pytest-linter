@@ -60,10 +60,7 @@ fn discover_files(paths: &[PathBuf]) -> Vec<PathBuf> {
                 .filter_map(std::result::Result::ok)
             {
                 let p = entry.path();
-                if p.is_file()
-                    && p.extension().is_some_and(|e| e == "py")
-                    && is_test_file(p)
-                {
+                if p.is_file() && p.extension().is_some_and(|e| e == "py") && is_test_file(p) {
                     files.push(p.to_path_buf());
                 }
             }
@@ -80,15 +77,10 @@ fn is_test_file(path: &Path) -> bool {
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_default();
-    name.starts_with("test_")
-        || name.ends_with("_test.py")
-        || name == "conftest.py"
+    name.starts_with("test_") || name.ends_with("_test.py") || name == "conftest.py"
 }
 
-fn parse_files(
-    parser: &mut crate::parser::PythonParser,
-    files: &[PathBuf],
-) -> Vec<ParsedModule> {
+fn parse_files(parser: &mut crate::parser::PythonParser, files: &[PathBuf]) -> Vec<ParsedModule> {
     let mut modules = Vec::new();
     for file in files {
         match parser.parse_file(file) {
@@ -104,9 +96,7 @@ pub fn collect_all_fixtures(modules: &[ParsedModule]) -> HashMap<String, Vec<&Fi
     let mut map: HashMap<String, Vec<&Fixture>> = HashMap::new();
     for module in modules {
         for fixture in &module.fixtures {
-            map.entry(fixture.name.clone())
-                .or_default()
-                .push(fixture);
+            map.entry(fixture.name.clone()).or_default().push(fixture);
         }
     }
     map
@@ -117,7 +107,9 @@ pub fn fixture_scope_by_name<S: BuildHasher>(
     all_fixtures: &HashMap<String, Vec<&Fixture>, S>,
     name: &str,
 ) -> Option<FixtureScope> {
-    all_fixtures.get(name).and_then(|v| v.first().map(|f| f.scope))
+    all_fixtures
+        .get(name)
+        .and_then(|v| v.first().map(|f| f.scope))
 }
 
 #[must_use]
@@ -133,10 +125,7 @@ pub fn is_fixture_used_by_any_test_or_fixture(
         }
         for other_fixture in &module.fixtures {
             if other_fixture.name != fixture_name
-                && other_fixture
-                    .dependencies
-                    .iter()
-                    .any(|d| d == fixture_name)
+                && other_fixture.dependencies.iter().any(|d| d == fixture_name)
             {
                 return true;
             }

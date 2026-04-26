@@ -102,7 +102,10 @@ def test_reads_file(tmp_path):
     );
     let violations = lint_single_file(&path);
     let v = find_violation(&violations, "PYTEST-FLK-002");
-    assert!(v.is_none(), "Should not trigger PYTEST-FLK-002 when tmp_path is used");
+    assert!(
+        v.is_none(),
+        "Should not trigger PYTEST-FLK-002 when tmp_path is used"
+    );
 }
 
 #[test]
@@ -284,7 +287,10 @@ def test_simple():
     );
     let violations = lint_single_file(&path);
     let v = find_violation(&violations, "PYTEST-MNT-006");
-    assert!(v.is_none(), "Should not trigger PYTEST-MNT-006 with <= 3 assertions");
+    assert!(
+        v.is_none(),
+        "Should not trigger PYTEST-MNT-006 with <= 3 assertions"
+    );
 }
 
 #[test]
@@ -342,10 +348,22 @@ def test_many_asserts():
     assert!(!violations.is_empty(), "Expected multiple violations");
 
     let rule_ids: Vec<&str> = violations.iter().map(|v| v.rule_id.as_str()).collect();
-    assert!(rule_ids.contains(&"PYTEST-FLK-001"), "Should detect time.sleep");
-    assert!(rule_ids.contains(&"PYTEST-FLK-003"), "Should detect network import");
-    assert!(rule_ids.contains(&"PYTEST-MNT-004"), "Should detect no assertion");
-    assert!(rule_ids.contains(&"PYTEST-MNT-006"), "Should detect assertion roulette");
+    assert!(
+        rule_ids.contains(&"PYTEST-FLK-001"),
+        "Should detect time.sleep"
+    );
+    assert!(
+        rule_ids.contains(&"PYTEST-FLK-003"),
+        "Should detect network import"
+    );
+    assert!(
+        rule_ids.contains(&"PYTEST-MNT-004"),
+        "Should detect no assertion"
+    );
+    assert!(
+        rule_ids.contains(&"PYTEST-MNT-006"),
+        "Should detect assertion roulette"
+    );
 }
 
 #[test]
@@ -451,11 +469,19 @@ def test_uses_fixture(my_fixture):
     let module = parse_file(&path);
     assert_eq!(module.fixtures.len(), 2);
 
-    let f1 = module.fixtures.iter().find(|f| f.name == "my_fixture").unwrap();
+    let f1 = module
+        .fixtures
+        .iter()
+        .find(|f| f.name == "my_fixture")
+        .unwrap();
     assert_eq!(f1.scope, FixtureScope::Function);
     assert!(!f1.is_autouse);
 
-    let f2 = module.fixtures.iter().find(|f| f.name == "module_fixture").unwrap();
+    let f2 = module
+        .fixtures
+        .iter()
+        .find(|f| f.name == "module_fixture")
+        .unwrap();
     assert_eq!(f2.scope, FixtureScope::Module);
 }
 
@@ -495,7 +521,10 @@ def auto_fixture():
     let engine = LintEngine::new().unwrap();
     let violations = engine.lint_paths(&[path]).unwrap();
     let v = find_violation(&violations, "PYTEST-FIX-001");
-    assert!(v.is_some(), "conftest.py should be parsed and autouse detected");
+    assert!(
+        v.is_some(),
+        "conftest.py should be parsed and autouse detected"
+    );
 }
 
 #[test]
@@ -514,7 +543,10 @@ def test_reads_file():
     );
     let violations = lint_single_file(&path);
     let v = find_violation(&violations, "PYTEST-FLK-005");
-    assert!(v.is_some(), "Expected PYTEST-FLK-005 Mystery Guest violation");
+    assert!(
+        v.is_some(),
+        "Expected PYTEST-FLK-005 Mystery Guest violation"
+    );
     let v = v.unwrap();
     assert_eq!(v.rule_name, "MysteryGuestRule");
 }
@@ -540,7 +572,10 @@ def test_db(db_fixture):
     );
     let violations = lint_single_file(&path);
     let v = find_violation(&violations, "PYTEST-FIX-008");
-    assert!(v.is_some(), "Expected PYTEST-FIX-008 for DB commit without rollback");
+    assert!(
+        v.is_some(),
+        "Expected PYTEST-FIX-008 for DB commit without rollback"
+    );
     let v = v.unwrap();
     assert_eq!(v.rule_name, "FixtureDbCommitNoCleanupRule");
 }
@@ -610,8 +645,7 @@ def test_ok():
     assert True
 "#,
     );
-    let has_errors =
-        pytest_linter::engine::run_linter(&[path], "json", None, true).unwrap();
+    let has_errors = pytest_linter::engine::run_linter(&[path], "json", None, true).unwrap();
     assert!(!has_errors);
 }
 
@@ -626,8 +660,7 @@ def test_bad():
     pass
 "#,
     );
-    let has_errors =
-        pytest_linter::engine::run_linter(&[path], "json", None, true).unwrap();
+    let has_errors = pytest_linter::engine::run_linter(&[path], "json", None, true).unwrap();
     assert!(has_errors);
 }
 
@@ -643,13 +676,8 @@ def test_ok():
 "#,
     );
     let output_path = dir.path().join("output.json");
-    let has_errors = pytest_linter::engine::run_linter(
-        &[path],
-        "json",
-        Some(&output_path),
-        true,
-    )
-    .unwrap();
+    let has_errors =
+        pytest_linter::engine::run_linter(&[path], "json", Some(&output_path), true).unwrap();
     assert!(!has_errors, "Info-only violations should not be errors");
     let content = std::fs::read_to_string(&output_path).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
@@ -668,13 +696,8 @@ def test_bad():
 "#,
     );
     let output_path = dir.path().join("output.txt");
-    let has_errors = pytest_linter::engine::run_linter(
-        &[path],
-        "terminal",
-        Some(&output_path),
-        true,
-    )
-    .unwrap();
+    let has_errors =
+        pytest_linter::engine::run_linter(&[path], "terminal", Some(&output_path), true).unwrap();
     assert!(has_errors);
     let content = std::fs::read_to_string(&output_path).unwrap();
     assert!(content.contains("ERROR"));
@@ -693,13 +716,8 @@ def test_ok():
 "#,
     );
     let output_path = dir.path().join("info.txt");
-    let has_errors = pytest_linter::engine::run_linter(
-        &[path],
-        "terminal",
-        Some(&output_path),
-        true,
-    )
-    .unwrap();
+    let has_errors =
+        pytest_linter::engine::run_linter(&[path], "terminal", Some(&output_path), true).unwrap();
     assert!(!has_errors, "Info-only violations should not be errors");
     let content = std::fs::read_to_string(&output_path).unwrap();
     assert!(content.contains("Summary"));
@@ -734,18 +752,14 @@ def test_no_assert():
 "#,
     );
     let output_path = dir.path().join("violations.json");
-    pytest_linter::engine::run_linter(
-        &[path],
-        "json",
-        Some(&output_path),
-        true,
-    )
-    .unwrap();
+    pytest_linter::engine::run_linter(&[path], "json", Some(&output_path), true).unwrap();
     let content = std::fs::read_to_string(&output_path).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
     let arr = parsed.as_array().unwrap();
     assert!(!arr.is_empty());
-    let has_mnt004 = arr.iter().any(|v| v["rule_id"].as_str().unwrap() == "PYTEST-MNT-004");
+    let has_mnt004 = arr
+        .iter()
+        .any(|v| v["rule_id"].as_str().unwrap() == "PYTEST-MNT-004");
     assert!(has_mnt004);
 }
 
@@ -865,7 +879,10 @@ def test_uses_list(shared_list):
     );
     let violations = lint_single_file(&path);
     let v = find_violation(&violations, "PYTEST-FIX-006");
-    assert!(v.is_some(), "Expected PYTEST-FIX-006 for stateful session fixture");
+    assert!(
+        v.is_some(),
+        "Expected PYTEST-FIX-006 for stateful session fixture"
+    );
     let v = v.unwrap();
     assert_eq!(v.rule_name, "StatefulSessionFixtureRule");
     assert!(v.message.contains("shared_list"));
@@ -894,7 +911,10 @@ def test_db(db_with_cleanup):
     );
     let violations = lint_single_file(&path);
     let v = find_violation(&violations, "PYTEST-FIX-008");
-    assert!(v.is_none(), "Should not trigger FIX-008 when fixture has yield");
+    assert!(
+        v.is_none(),
+        "Should not trigger FIX-008 when fixture has yield"
+    );
 }
 
 #[test]
@@ -931,7 +951,10 @@ def test_mock_and_state(mock_obj):
     );
     let violations = lint_single_file(&path);
     let v = find_violation(&violations, "PYTEST-MNT-005");
-    assert!(v.is_none(), "Should not trigger MNT-005 when test has state assertions");
+    assert!(
+        v.is_none(),
+        "Should not trigger MNT-005 when test has state assertions"
+    );
 }
 
 #[test]
@@ -947,7 +970,10 @@ def test_without_gherkin():
     );
     let violations = lint_single_file(&path);
     let v = find_violation(&violations, "PYTEST-BDD-001");
-    assert!(v.is_some(), "Expected PYTEST-BDD-001 for missing BDD scenario");
+    assert!(
+        v.is_some(),
+        "Expected PYTEST-BDD-001 for missing BDD scenario"
+    );
     let v = v.unwrap();
     assert_eq!(v.rule_name, "BddMissingScenarioRule");
     assert_eq!(v.severity, Severity::Info);
@@ -967,7 +993,10 @@ def test_with_gherkin():
     );
     let violations = lint_single_file(&path);
     let v = find_violation(&violations, "PYTEST-BDD-001");
-    assert!(v.is_none(), "Should not trigger BDD-001 when docstring has Gherkin");
+    assert!(
+        v.is_none(),
+        "Should not trigger BDD-001 when docstring has Gherkin"
+    );
 }
 
 #[test]
@@ -986,7 +1015,10 @@ def test_many(val):
     );
     let violations = lint_single_file(&path);
     let v = find_violation(&violations, "PYTEST-PBT-001");
-    assert!(v.is_some(), "Expected PYTEST-PBT-001 for many parametrize cases");
+    assert!(
+        v.is_some(),
+        "Expected PYTEST-PBT-001 for many parametrize cases"
+    );
     let v = v.unwrap();
     assert_eq!(v.rule_name, "PropertyTestHintRule");
     assert!(v.message.contains("parametrized cases"));
@@ -1028,7 +1060,10 @@ def test_single(val):
     );
     let violations = lint_single_file(&path);
     let v = find_violation(&violations, "PYTEST-PARAM-001");
-    assert!(v.is_some(), "Expected PYTEST-PARAM-001 for single parametrize case");
+    assert!(
+        v.is_some(),
+        "Expected PYTEST-PARAM-001 for single parametrize case"
+    );
     let v = v.unwrap();
     assert_eq!(v.rule_name, "ParametrizeEmptyRule");
     assert!(v.message.contains("only"));
@@ -1056,7 +1091,10 @@ def test_data(session_data):
     );
     let violations = lint_single_file(&path);
     let v = find_violation(&violations, "PYTEST-XDIST-002");
-    assert!(v.is_some(), "Expected PYTEST-XDIST-002 for session fixture with I/O");
+    assert!(
+        v.is_some(),
+        "Expected PYTEST-XDIST-002 for session fixture with I/O"
+    );
     let v = v.unwrap();
     assert_eq!(v.rule_name, "XdistFixtureIoRule");
     assert!(v.message.contains("session_data"));
@@ -1085,7 +1123,10 @@ def test_data(func_data):
     );
     let violations = lint_single_file(&path);
     let v = find_violation(&violations, "PYTEST-XDIST-002");
-    assert!(v.is_none(), "Should not trigger XDIST-002 for function-scoped fixture");
+    assert!(
+        v.is_none(),
+        "Should not trigger XDIST-002 for function-scoped fixture"
+    );
 }
 
 #[test]
@@ -1129,7 +1170,10 @@ def test_four():
     assert_eq!(module.test_functions[0].assertion_count, 4);
     let violations = lint_single_file(&path);
     let v = find_violation(&violations, "PYTEST-MNT-006");
-    assert!(v.is_some(), "Expected PYTEST-MNT-006 with exactly 4 assertions");
+    assert!(
+        v.is_some(),
+        "Expected PYTEST-MNT-006 with exactly 4 assertions"
+    );
     let v = v.unwrap();
     assert_eq!(v.rule_name, "AssertionRouletteRule");
 }
@@ -1364,7 +1408,10 @@ def test_uses_dict(shared_dict):
     );
     let violations = lint_single_file(&path);
     let v = find_violation(&violations, "PYTEST-FIX-006");
-    assert!(v.is_some(), "Expected PYTEST-FIX-006 for session fixture returning dict");
+    assert!(
+        v.is_some(),
+        "Expected PYTEST-FIX-006 for session fixture returning dict"
+    );
     let v = v.unwrap();
     assert_eq!(v.rule_name, "StatefulSessionFixtureRule");
 }
@@ -1388,7 +1435,10 @@ def test_uses(local_list):
     );
     let violations = lint_single_file(&path);
     let v = find_violation(&violations, "PYTEST-FIX-006");
-    assert!(v.is_none(), "Should not trigger FIX-006 for function-scoped mutable fixture");
+    assert!(
+        v.is_none(),
+        "Should not trigger FIX-006 for function-scoped mutable fixture"
+    );
 }
 
 #[test]
@@ -1410,7 +1460,10 @@ def test_something():
     );
     let violations = lint_single_file(&path);
     let v = find_violation(&violations, "PYTEST-FIX-005");
-    assert!(v.is_none(), "Autouse fixtures should not trigger unused rule");
+    assert!(
+        v.is_none(),
+        "Autouse fixtures should not trigger unused rule"
+    );
 }
 
 #[test]
@@ -1447,7 +1500,9 @@ def test_b(fixture_b):
     let module = parse_file(&path2);
     assert_eq!(module.fixtures.len(), 1);
     assert_eq!(module.fixtures[0].name, "fixture_b");
-    assert!(module.fixtures[0].dependencies.contains(&"fixture_a".to_string()));
+    assert!(module.fixtures[0]
+        .dependencies
+        .contains(&"fixture_a".to_string()));
 }
 
 #[test]
@@ -1501,7 +1556,10 @@ def test_something():
     );
     let engine = LintEngine::new().unwrap();
     let violations = engine.lint_paths(&[path]).unwrap();
-    assert!(!violations.is_empty(), "foo_test.py should be recognized as test file");
+    assert!(
+        !violations.is_empty(),
+        "foo_test.py should be recognized as test file"
+    );
 }
 
 #[test]
@@ -1517,7 +1575,10 @@ def test_example():
     );
     let engine = LintEngine::new().unwrap();
     let violations = engine.lint_paths(&[dir.path().to_path_buf()]).unwrap();
-    assert!(!violations.is_empty(), "Should discover test files in directory");
+    assert!(
+        !violations.is_empty(),
+        "Should discover test files in directory"
+    );
 }
 
 #[test]
@@ -1527,7 +1588,10 @@ fn test_discover_files_empty_directory() {
     std::fs::create_dir_all(&subdir).unwrap();
     let engine = LintEngine::new().unwrap();
     let violations = engine.lint_paths(&[subdir]).unwrap();
-    assert!(violations.is_empty(), "Empty directory should yield no violations");
+    assert!(
+        violations.is_empty(),
+        "Empty directory should yield no violations"
+    );
 }
 
 #[test]
@@ -1551,13 +1615,9 @@ def test_bad():
     pass
 "#,
     );
-    let has_errors = pytest_linter::engine::run_linter(
-        &[path],
-        "terminal",
-        None::<&std::path::Path>,
-        false,
-    )
-    .unwrap();
+    let has_errors =
+        pytest_linter::engine::run_linter(&[path], "terminal", None::<&std::path::Path>, false)
+            .unwrap();
     assert!(has_errors);
 }
 
@@ -1572,13 +1632,8 @@ def test_ok():
     assert True
 "#,
     );
-    let has_errors = pytest_linter::engine::run_linter(
-        &[path],
-        "json",
-        None::<&std::path::Path>,
-        true,
-    )
-    .unwrap();
+    let has_errors =
+        pytest_linter::engine::run_linter(&[path], "json", None::<&std::path::Path>, true).unwrap();
     assert!(!has_errors);
 }
 
@@ -1700,15 +1755,20 @@ fn test_parse_parametrize_many_cases_triggers_explosion() {
     let mut content = r#"
 import pytest
 
-@pytest.mark.parametrize("val", ["#.to_string();
+@pytest.mark.parametrize("val", ["#
+        .to_string();
     for i in 0..25 {
-        if i > 0 { content.push_str(", "); }
+        if i > 0 {
+            content.push_str(", ");
+        }
         content.push_str(&i.to_string());
     }
-    content.push_str(r#"])
+    content.push_str(
+        r#"])
 def test_many(val):
     assert val >= 0
-"#);
+"#,
+    );
     let path = write_temp_file(dir.path(), "test_explosion.py", &content);
     let violations = lint_single_file(&path);
     let v = find_violation(&violations, "PYTEST-PARAM-003");
@@ -1956,7 +2016,10 @@ def test_thing(used_fix):
 "#,
     );
     let module = parse_file(&path);
-    assert!(is_fixture_used_by_any_test_or_fixture("used_fix", &[module]));
+    assert!(is_fixture_used_by_any_test_or_fixture(
+        "used_fix",
+        &[module]
+    ));
 }
 
 #[test]
@@ -1978,7 +2041,10 @@ def test_thing():
 "#,
     );
     let module = parse_file(&path);
-    assert!(!is_fixture_used_by_any_test_or_fixture("unused_fix", &[module]));
+    assert!(!is_fixture_used_by_any_test_or_fixture(
+        "unused_fix",
+        &[module]
+    ));
 }
 
 #[test]
@@ -2001,7 +2067,10 @@ def derived_fix(base_fix):
 "#,
     );
     let module = parse_file(&path);
-    assert!(is_fixture_used_by_any_test_or_fixture("base_fix", &[module]));
+    assert!(is_fixture_used_by_any_test_or_fixture(
+        "base_fix",
+        &[module]
+    ));
 }
 
 #[test]
@@ -2020,7 +2089,10 @@ def test_reads_file(tmpdir):
     );
     let violations = lint_single_file(&path);
     let v = find_violation(&violations, "PYTEST-FLK-002");
-    assert!(v.is_none(), "Should not trigger FLK-002 when tmpdir is used");
+    assert!(
+        v.is_none(),
+        "Should not trigger FLK-002 when tmpdir is used"
+    );
 }
 
 #[test]
@@ -2311,13 +2383,8 @@ def test_waits():
 "#,
     );
     let output_path = dir.path().join("warning_output.txt");
-    let has_errors = pytest_linter::engine::run_linter(
-        &[path],
-        "terminal",
-        Some(&output_path),
-        true,
-    )
-    .unwrap();
+    let has_errors =
+        pytest_linter::engine::run_linter(&[path], "terminal", Some(&output_path), true).unwrap();
     assert!(!has_errors);
     let content = std::fs::read_to_string(&output_path).unwrap();
     assert!(content.contains("WARNING"));
@@ -2342,7 +2409,11 @@ def test_thing(my_fixture):
 "#,
     );
     let module = parse_file(&path);
-    let fix = module.fixtures.iter().find(|f| f.name == "my_fixture").unwrap();
+    let fix = module
+        .fixtures
+        .iter()
+        .find(|f| f.name == "my_fixture")
+        .unwrap();
     assert_eq!(fix.dependencies.len(), 1);
     assert_eq!(fix.dependencies[0], "real_dep");
 }
@@ -2628,13 +2699,8 @@ def test_bad():
     pass
 "#,
     );
-    let has_errors = pytest_linter::engine::run_linter(
-        &[path],
-        "json",
-        None::<&std::path::Path>,
-        true,
-    )
-    .unwrap();
+    let has_errors =
+        pytest_linter::engine::run_linter(&[path], "json", None::<&std::path::Path>, true).unwrap();
     assert!(has_errors);
 }
 
@@ -3131,10 +3197,22 @@ def test_suboptimal():
     let module = parse_file(&path);
     let test = &module.test_functions[0];
     assert_eq!(test.assertions.len(), 4);
-    assert!(test.assertions[0].is_suboptimal, "assert len(x)==N should be suboptimal");
-    assert!(test.assertions[1].is_suboptimal, "assert type(x)==Y should be suboptimal");
-    assert!(test.assertions[2].is_suboptimal, "assert x is not None should be suboptimal");
-    assert!(!test.assertions[3].is_suboptimal, "normal comparison should not be suboptimal");
+    assert!(
+        test.assertions[0].is_suboptimal,
+        "assert len(x)==N should be suboptimal"
+    );
+    assert!(
+        test.assertions[1].is_suboptimal,
+        "assert type(x)==Y should be suboptimal"
+    );
+    assert!(
+        test.assertions[2].is_suboptimal,
+        "assert x is not None should be suboptimal"
+    );
+    assert!(
+        !test.assertions[3].is_suboptimal,
+        "normal comparison should not be suboptimal"
+    );
 }
 
 #[test]
@@ -3201,7 +3279,9 @@ def test_mutates(my_list):
 "#,
     );
     let module = parse_file(&path);
-    assert!(module.test_functions[0].mutates_fixture_deps.contains(&"my_list".to_string()));
+    assert!(module.test_functions[0]
+        .mutates_fixture_deps
+        .contains(&"my_list".to_string()));
 }
 
 #[test]
@@ -3282,7 +3362,10 @@ def another_simple():
     );
     let violations = lint_single_file(&path);
     let v1 = find_violation(&violations, "PYTEST-FIX-009");
-    assert!(v1.is_some(), "Expected PYTEST-FIX-009 for session-scoped simple fixture");
+    assert!(
+        v1.is_some(),
+        "Expected PYTEST-FIX-009 for session-scoped simple fixture"
+    );
 }
 
 #[test]
@@ -3303,7 +3386,10 @@ def db_connection():
     );
     let violations = lint_single_file(&path);
     let v = find_violation(&violations, "PYTEST-FIX-009");
-    assert!(v.is_none(), "Session-scoped fixture with yield should not trigger FIX-009");
+    assert!(
+        v.is_none(),
+        "Session-scoped fixture with yield should not trigger FIX-009"
+    );
 }
 
 #[test]
@@ -3356,7 +3442,10 @@ def test_happy_only():
     );
     let violations = lint_single_file(&path);
     let v = find_violation(&violations, "PYTEST-DBC-001");
-    assert!(v.is_some(), "Expected PYTEST-DBC-001 for happy-path-only test");
+    assert!(
+        v.is_some(),
+        "Expected PYTEST-DBC-001 for happy-path-only test"
+    );
 }
 
 #[test]
@@ -3375,7 +3464,10 @@ def test_error():
     );
     let violations = lint_single_file(&path);
     let v = find_violation(&violations, "PYTEST-DBC-001");
-    assert!(v.is_none(), "Test with pytest.raises should not trigger DBC-001");
+    assert!(
+        v.is_none(),
+        "Test with pytest.raises should not trigger DBC-001"
+    );
 }
 
 #[test]
@@ -3451,7 +3543,10 @@ def test_read_only(items):
     let engine = LintEngine::new().unwrap();
     let violations = engine.lint_paths(&[conftest, test_path]).unwrap();
     let v = find_violation(&violations, "PYTEST-FIX-007");
-    assert!(v.is_none(), "Read-only fixture usage should not trigger FIX-007");
+    assert!(
+        v.is_none(),
+        "Read-only fixture usage should not trigger FIX-007"
+    );
 }
 
 #[test]
@@ -3576,7 +3671,10 @@ def test_mutates_local(local_list):
     let engine = LintEngine::new().unwrap();
     let violations = engine.lint_paths(&[conftest, test_path]).unwrap();
     let v = find_violation(&violations, "PYTEST-XDIST-001");
-    assert!(v.is_none(), "Function-scoped fixture should not trigger XDIST-001");
+    assert!(
+        v.is_none(),
+        "Function-scoped fixture should not trigger XDIST-001"
+    );
 }
 
 #[test]

@@ -11,11 +11,16 @@ pub trait Rule: Send + Sync {
     fn name(&self) -> &'static str;
     fn severity(&self) -> crate::models::Severity;
     fn category(&self) -> crate::models::Category;
-    fn check(&self, module: &ParsedModule, all_modules: &[ParsedModule], ctx: &RuleContext) -> Vec<Violation>;
+    fn check(
+        &self,
+        module: &ParsedModule,
+        all_modules: &[ParsedModule],
+        ctx: &RuleContext,
+    ) -> Vec<Violation>;
 }
 
-pub mod flakiness;
 pub mod fixtures;
+pub mod flakiness;
 pub mod maintenance;
 
 #[must_use]

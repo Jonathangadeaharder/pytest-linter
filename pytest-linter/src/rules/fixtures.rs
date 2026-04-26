@@ -19,7 +19,12 @@ impl Rule for AutouseFixtureRule {
     fn category(&self) -> Category {
         Category::Fixture
     }
-    fn check(&self, module: &ParsedModule, _all_modules: &[ParsedModule], _ctx: &RuleContext) -> Vec<Violation> {
+    fn check(
+        &self,
+        module: &ParsedModule,
+        _all_modules: &[ParsedModule],
+        _ctx: &RuleContext,
+    ) -> Vec<Violation> {
         let mut violations = Vec::new();
         for fixture in &module.fixtures {
             if fixture.is_autouse {
@@ -55,7 +60,12 @@ impl Rule for InvalidScopeRule {
     fn category(&self) -> Category {
         Category::Fixture
     }
-    fn check(&self, module: &ParsedModule, _all_modules: &[ParsedModule], ctx: &RuleContext) -> Vec<Violation> {
+    fn check(
+        &self,
+        module: &ParsedModule,
+        _all_modules: &[ParsedModule],
+        ctx: &RuleContext,
+    ) -> Vec<Violation> {
         let mut violations = Vec::new();
 
         for fixture in &module.fixtures {
@@ -102,7 +112,12 @@ impl Rule for ShadowedFixtureRule {
     fn category(&self) -> Category {
         Category::Fixture
     }
-    fn check(&self, module: &ParsedModule, all_modules: &[ParsedModule], _ctx: &RuleContext) -> Vec<Violation> {
+    fn check(
+        &self,
+        module: &ParsedModule,
+        all_modules: &[ParsedModule],
+        _ctx: &RuleContext,
+    ) -> Vec<Violation> {
         let mut name_to_files: HashMap<String, Vec<(PathBuf, usize)>> = HashMap::new();
         for m in all_modules {
             for f in &m.fixtures {
@@ -156,7 +171,12 @@ impl Rule for UnusedFixtureRule {
     fn category(&self) -> Category {
         Category::Fixture
     }
-    fn check(&self, module: &ParsedModule, _all_modules: &[ParsedModule], ctx: &RuleContext) -> Vec<Violation> {
+    fn check(
+        &self,
+        module: &ParsedModule,
+        _all_modules: &[ParsedModule],
+        ctx: &RuleContext,
+    ) -> Vec<Violation> {
         let mut violations = Vec::new();
         for fixture in &module.fixtures {
             if fixture.is_autouse {
@@ -195,7 +215,12 @@ impl Rule for StatefulSessionFixtureRule {
     fn category(&self) -> Category {
         Category::Fixture
     }
-    fn check(&self, module: &ParsedModule, _all_modules: &[ParsedModule], _ctx: &RuleContext) -> Vec<Violation> {
+    fn check(
+        &self,
+        module: &ParsedModule,
+        _all_modules: &[ParsedModule],
+        _ctx: &RuleContext,
+    ) -> Vec<Violation> {
         let mut violations = Vec::new();
         for fixture in &module.fixtures {
             if fixture.scope == crate::models::FixtureScope::Session && fixture.returns_mutable {
@@ -234,7 +259,12 @@ impl Rule for FixtureMutationRule {
     fn category(&self) -> Category {
         Category::Fixture
     }
-    fn check(&self, module: &ParsedModule, _all_modules: &[ParsedModule], ctx: &RuleContext) -> Vec<Violation> {
+    fn check(
+        &self,
+        module: &ParsedModule,
+        _all_modules: &[ParsedModule],
+        ctx: &RuleContext,
+    ) -> Vec<Violation> {
         let mut violations = Vec::new();
         for test in &module.test_functions {
             for dep_name in &test.mutates_fixture_deps {
@@ -248,10 +278,16 @@ impl Rule for FixtureMutationRule {
                         self.name(),
                         self.severity(),
                         self.category(),
-                        format!("Test '{}' mutates fixture '{}' which may affect other tests", test.name, dep_name),
+                        format!(
+                            "Test '{}' mutates fixture '{}' which may affect other tests",
+                            test.name, dep_name
+                        ),
                         module.file_path.clone(),
                         test.line,
-                        Some("Create a fresh copy of the fixture value before modifying it".to_string()),
+                        Some(
+                            "Create a fresh copy of the fixture value before modifying it"
+                                .to_string(),
+                        ),
                         Some(test.name.clone()),
                     ));
                 }
@@ -276,7 +312,12 @@ impl Rule for FixtureDbCommitNoCleanupRule {
     fn category(&self) -> Category {
         Category::Fixture
     }
-    fn check(&self, module: &ParsedModule, _all_modules: &[ParsedModule], _ctx: &RuleContext) -> Vec<Violation> {
+    fn check(
+        &self,
+        module: &ParsedModule,
+        _all_modules: &[ParsedModule],
+        _ctx: &RuleContext,
+    ) -> Vec<Violation> {
         let mut violations = Vec::new();
         for fixture in &module.fixtures {
             if fixture.has_db_commit && !fixture.has_db_rollback && !fixture.has_yield {
@@ -291,9 +332,7 @@ impl Rule for FixtureDbCommitNoCleanupRule {
                     ),
                     module.file_path.clone(),
                     fixture.line,
-                    Some(
-                        "Use yield to provide cleanup or wrap in a transaction".to_string(),
-                    ),
+                    Some("Use yield to provide cleanup or wrap in a transaction".to_string()),
                     None,
                 ));
             }
@@ -317,7 +356,12 @@ impl Rule for FixtureOverlyBroadScopeRule {
     fn category(&self) -> Category {
         Category::Fixture
     }
-    fn check(&self, module: &ParsedModule, _all_modules: &[ParsedModule], _ctx: &RuleContext) -> Vec<Violation> {
+    fn check(
+        &self,
+        module: &ParsedModule,
+        _all_modules: &[ParsedModule],
+        _ctx: &RuleContext,
+    ) -> Vec<Violation> {
         let mut violations = Vec::new();
         for fixture in &module.fixtures {
             if fixture.scope >= crate::models::FixtureScope::Module
@@ -361,7 +405,12 @@ impl Rule for NoContractHintRule {
     fn category(&self) -> Category {
         Category::Enhancement
     }
-    fn check(&self, module: &ParsedModule, _all_modules: &[ParsedModule], _ctx: &RuleContext) -> Vec<Violation> {
+    fn check(
+        &self,
+        module: &ParsedModule,
+        _all_modules: &[ParsedModule],
+        _ctx: &RuleContext,
+    ) -> Vec<Violation> {
         let mut violations = Vec::new();
         for test in &module.test_functions {
             if test.has_assertions

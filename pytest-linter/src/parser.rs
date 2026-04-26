@@ -39,7 +39,10 @@ impl PythonParser {
                 fixtures,
             })
         } else {
-            eprintln!("Warning: tree-sitter failed to parse {}", file_path.display());
+            eprintln!(
+                "Warning: tree-sitter failed to parse {}",
+                file_path.display()
+            );
             Ok(ParsedModule {
                 file_path,
                 imports: vec![],
@@ -83,8 +86,10 @@ impl PythonParser {
                     "decorated_definition" => {
                         let mut inner = child.walk();
                         for c in child.children(&mut inner) {
-                            if c.kind() == "function_definition" {
-                                nodes.push(c);
+                            match c.kind() {
+                                "function_definition" => nodes.push(c),
+                                "class_definition" => to_visit.push(c),
+                                _ => {}
                             }
                         }
                     }
@@ -110,10 +115,7 @@ impl PythonParser {
                 let name = Self::node_text(nn, source);
                 if name.starts_with("test_") {
                     tests.push(Self::build_test_function(
-                        &func_node,
-                        source,
-                        file_path,
-                        &name,
+                        &func_node, source, file_path, &name,
                     ));
                 }
             }
@@ -129,18 +131,14 @@ impl PythonParser {
     ) -> TestFunction {
         let line = func_node.start_position().row + 1;
         let body = func_node.child_by_field_name("body");
-        let body_text = body
-            .map(|b| Self::node_text(b, source))
-            .unwrap_or_default();
+        let body_text = body.map(|b| Self::node_text(b, source)).unwrap_or_default();
 
         let decorators = Self::get_decorators(func_node, source);
         let parametrize_values = Self::extract_parametrize_values(&decorators, source);
 
         let is_async = {
             let mut cur = func_node.walk();
-            let has_async = func_node
-                .children(&mut cur)
-                .any(|c| c.kind() == "async");
+            let has_async = func_node.children(&mut cur).any(|c| c.kind() == "async");
             drop(cur);
             has_async
         };
@@ -169,7 +167,8 @@ impl PythonParser {
         let assertions = Self::extract_assertions(body.as_ref(), source);
         let uses_cwd_dependency = Self::detect_cwd_dependency(body.as_ref(), source);
         let uses_pytest_raises = Self::detect_pytest_raises(body.as_ref(), source);
-        let mutates_fixture_deps = Self::detect_fixture_mutations(body.as_ref(), source, &fixture_deps);
+        let mutates_fixture_deps =
+            Self::detect_fixture_mutations(body.as_ref(), source, &fixture_deps);
 
         TestFunction {
             name: name.to_string(),
@@ -197,7 +196,10 @@ impl PythonParser {
         }
     }
 
-    fn get_decorators<'a>(func_node: &tree_sitter::Node<'a>, source: &[u8]) -> Vec<DecoratorInfo<'a>> {
+    fn get_decorators<'a>(
+        func_node: &tree_sitter::Node<'a>,
+        source: &[u8],
+    ) -> Vec<DecoratorInfo<'a>> {
         let mut decs = Vec::new();
         let parent = func_node.parent();
         let container = if parent.is_some_and(|p| p.kind() == "decorated_definition") {
@@ -219,7 +221,13 @@ impl PythonParser {
 
     fn detect_parametrize(decorators: &[DecoratorInfo]) -> (bool, Option<usize>) {
         for dec in decorators {
-            let name = dec.text.trim_start_matches('@').split('(').next().unwrap_or("").trim();
+            let name = dec
+                .text
+                .trim_start_matches('@')
+                .split('(')
+                .next()
+                .unwrap_or("")
+                .trim();
             if name == "pytest.mark.parametrize" || name == "parametrize" {
                 let count = dec.node.map_or_else(
                     || Self::count_parametrize_args(&dec.text),
@@ -241,17 +249,26 @@ impl PythonParser {
                 let mut call_cursor = child.walk();
                 for call_child in child.children(&mut call_cursor) {
                     if call_child.kind() == "argument_list" {
+                        let mut comma_count = 0;
                         let mut args_cursor = call_child.walk();
                         for arg in call_child.children(&mut args_cursor) {
-                            if arg.kind() == "list" || arg.kind() == "tuple" {
+                            if arg.kind() == "," {
+                                comma_count += 1;
+                                continue;
+                            }
+                            if comma_count >= 1 && (arg.kind() == "list" || arg.kind() == "tuple") {
                                 let mut elem_count = 0;
                                 let mut elem_cursor = arg.walk();
                                 let mut found_comma = false;
                                 for elem in arg.children(&mut elem_cursor) {
                                     match elem.kind() {
-                                        "," => { found_comma = true; }
+                                        "," => {
+                                            found_comma = true;
+                                        }
                                         "(" | ")" | "[" | "]" | "comment" => {}
-                                        _ if !elem.is_extra() => { elem_count += 1; }
+                                        _ if !elem.is_extra() => {
+                                            elem_count += 1;
+                                        }
                                         _ => {}
                                     }
                                 }
@@ -381,7 +398,10 @@ impl PythonParser {
         false
     }
 
-    fn extract_assertions(body: Option<&tree_sitter::Node>, source: &[u8]) -> Vec<crate::models::AssertionInfo> {
+    fn extract_assertions(
+        body: Option<&tree_sitter::Node>,
+        source: &[u8],
+    ) -> Vec<crate::models::AssertionInfo> {
         body.map_or(vec![], |b| {
             let mut infos = Vec::new();
             Self::collect_assertion_info(*b, source, &mut infos);
@@ -404,9 +424,8 @@ impl PythonParser {
             let expression_text = expr_node
                 .map(|n| Self::node_text(n, source))
                 .unwrap_or_default();
-            let has_comparison = expr_node.is_some_and(|n| {
-                Self::has_node_kind_recursive(n, "comparison_operator")
-            });
+            let has_comparison =
+                expr_node.is_some_and(|n| Self::has_node_kind_recursive(n, "comparison_operator"));
             let is_magic = expr_node.is_some_and(|n| {
                 let kind = n.kind();
                 if kind == "true" || kind == "false" {
@@ -418,9 +437,7 @@ impl PythonParser {
                 }
                 !has_comparison && kind == "identifier"
             });
-            let is_suboptimal = expr_node.is_some_and(|n| {
-                Self::is_suboptimal_assertion(n, source)
-            });
+            let is_suboptimal = expr_node.is_some_and(|n| Self::is_suboptimal_assertion(n, source));
             infos.push(crate::models::AssertionInfo {
                 is_magic,
                 is_suboptimal,
@@ -496,7 +513,10 @@ impl PythonParser {
         all_values
     }
 
-    fn extract_values_from_decorator_node(decorator_node: tree_sitter::Node, source: &[u8]) -> Option<Vec<String>> {
+    fn extract_values_from_decorator_node(
+        decorator_node: tree_sitter::Node,
+        source: &[u8],
+    ) -> Option<Vec<String>> {
         let mut cursor = decorator_node.walk();
         for child in decorator_node.children(&mut cursor) {
             if child.kind() == "call" {
@@ -512,7 +532,9 @@ impl PythonParser {
                                     match elem.kind() {
                                         "," | "(" | ")" | "[" | "]" | "comment" => {}
                                         _ if !elem.is_extra() => {
-                                            values.push(Self::node_text(elem, source).trim().to_string());
+                                            values.push(
+                                                Self::node_text(elem, source).trim().to_string(),
+                                            );
                                         }
                                         _ => {}
                                     }
@@ -626,8 +648,8 @@ impl PythonParser {
                         let obj_name = Self::node_text(obj, source);
                         let method = Self::node_text(attr, source);
                         let mutating_methods = [
-                            "append", "extend", "remove", "pop", "clear",
-                            "update", "insert", "add", "discard",
+                            "append", "extend", "remove", "pop", "clear", "update", "insert",
+                            "add", "discard",
                         ];
                         if mutating_methods.contains(&method.as_str())
                             && fixture_deps.contains(&obj_name)
@@ -685,10 +707,7 @@ impl PythonParser {
         }
     }
 
-    fn extract_docstring(
-        func_node: &tree_sitter::Node,
-        source: &[u8],
-    ) -> Option<String> {
+    fn extract_docstring(func_node: &tree_sitter::Node, source: &[u8]) -> Option<String> {
         let body = func_node.child_by_field_name("body")?;
         let mut cursor = body.walk();
         for child in body.children(&mut cursor) {
@@ -704,10 +723,7 @@ impl PythonParser {
         None
     }
 
-    fn extract_fixture_deps(
-        func_node: &tree_sitter::Node,
-        source: &[u8],
-    ) -> Vec<String> {
+    fn extract_fixture_deps(func_node: &tree_sitter::Node, source: &[u8]) -> Vec<String> {
         let mut deps = Vec::new();
         let params = func_node.child_by_field_name("parameters");
         if let Some(p) = params {
@@ -715,9 +731,9 @@ impl PythonParser {
             for child in p.children(&mut cursor) {
                 let name = match child.kind() {
                     "identifier" => Some(Self::node_text(child, source)),
-                    "typed_parameter" | "default_parameter" | "typed_default_parameter" => {
-                        child.child_by_field_name("name").map(|n| Self::node_text(n, source))
-                    }
+                    "typed_parameter" | "default_parameter" | "typed_default_parameter" => child
+                        .child_by_field_name("name")
+                        .map(|n| Self::node_text(n, source)),
                     _ => None,
                 };
                 if let Some(name) = name {
@@ -730,17 +746,19 @@ impl PythonParser {
         deps
     }
 
-    fn extract_fixtures(
-        root: &tree_sitter::Node,
-        source: &[u8],
-        file_path: &Path,
-    ) -> Vec<Fixture> {
+    fn extract_fixtures(root: &tree_sitter::Node, source: &[u8], file_path: &Path) -> Vec<Fixture> {
         let mut fixtures = Vec::new();
 
         for func_node in Self::collect_function_nodes(root) {
             let decorators = Self::get_decorators(&func_node, source);
             let is_fixture = decorators.iter().any(|d| {
-                let name = d.text.trim_start_matches('@').split('(').next().unwrap_or("").trim();
+                let name = d
+                    .text
+                    .trim_start_matches('@')
+                    .split('(')
+                    .next()
+                    .unwrap_or("")
+                    .trim();
                 name == "pytest.fixture" || name == "fixture"
             });
 
@@ -748,7 +766,8 @@ impl PythonParser {
                 let name_node = func_node.child_by_field_name("name");
                 if let Some(nn) = name_node {
                     let name = Self::node_text(nn, source);
-                    let dec_texts: Vec<String> = decorators.iter().map(|d| d.text.clone()).collect();
+                    let dec_texts: Vec<String> =
+                        decorators.iter().map(|d| d.text.clone()).collect();
                     fixtures.push(Self::build_fixture(
                         &func_node, source, file_path, &name, &dec_texts,
                     ));
@@ -767,12 +786,12 @@ impl PythonParser {
     ) -> Fixture {
         let line = func_node.start_position().row + 1;
         let body = func_node.child_by_field_name("body");
-        let body_text = body
-            .map(|b| Self::node_text(b, source))
-            .unwrap_or_default();
+        let body_text = body.map(|b| Self::node_text(b, source)).unwrap_or_default();
 
         let scope = Self::extract_fixture_scope(decorators);
-        let is_autouse = decorators.iter().any(|d| d.contains("autouse") && d.contains("True"));
+        let is_autouse = decorators
+            .iter()
+            .any(|d| d.contains("autouse") && d.contains("True"));
         let dependencies = Self::extract_fixture_deps(func_node, source);
         let returns_mutable = Self::detect_mutable_return(body.as_ref(), source);
         let has_yield = body_text.contains("yield");
@@ -976,8 +995,12 @@ def test_with_deps(tmp_path, monkeypatch):
         let module = parser.parse_file(&path).unwrap();
 
         assert_eq!(module.test_functions[0].fixture_deps.len(), 2);
-        assert!(module.test_functions[0].fixture_deps.contains(&"tmp_path".to_string()));
-        assert!(module.test_functions[0].fixture_deps.contains(&"monkeypatch".to_string()));
+        assert!(module.test_functions[0]
+            .fixture_deps
+            .contains(&"tmp_path".to_string()));
+        assert!(module.test_functions[0]
+            .fixture_deps
+            .contains(&"monkeypatch".to_string()));
     }
 
     #[test]
@@ -1067,7 +1090,10 @@ def test_documented():
 
     #[test]
     fn test_count_parametrize_args_multiple_parens() {
-        assert_eq!(PythonParser::count_parametrize_args("parametrize('x', (1, 2))"), 2);
+        assert_eq!(
+            PythonParser::count_parametrize_args("parametrize('x', (1, 2))"),
+            2
+        );
     }
 
     #[test]
@@ -1082,7 +1108,9 @@ def test_documented():
 
     #[test]
     fn test_has_mock_verifications_only_false_both() {
-        assert!(!has_mock_verifications_only("mock.assert_called()\nassert True"));
+        assert!(!has_mock_verifications_only(
+            "mock.assert_called()\nassert True"
+        ));
     }
 
     #[test]
@@ -1117,12 +1145,18 @@ def test_param(x):
 
     #[test]
     fn test_count_top_level_entries_with_mixed_quotes() {
-        assert_eq!(PythonParser::count_top_level_entries("\"foo's bar\", 'baz\"qux'"), 2);
+        assert_eq!(
+            PythonParser::count_top_level_entries("\"foo's bar\", 'baz\"qux'"),
+            2
+        );
     }
 
     #[test]
     fn test_count_top_level_entries_mismatched_quotes_are_separate() {
-        assert_eq!(PythonParser::count_top_level_entries("\"hello', 'world\""), 1);
+        assert_eq!(
+            PythonParser::count_top_level_entries("\"hello', 'world\""),
+            1
+        );
     }
 
     #[test]

@@ -139,7 +139,9 @@ pub struct ParsedModule {
 
 impl PartialEq for Violation {
     fn eq(&self, other: &Self) -> bool {
-        self.file_path == other.file_path && self.line == other.line && self.rule_id == other.rule_id
+        self.file_path == other.file_path
+            && self.line == other.line
+            && self.rule_id == other.rule_id
     }
 }
 
