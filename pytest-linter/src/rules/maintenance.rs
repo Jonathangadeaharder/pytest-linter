@@ -411,8 +411,38 @@ impl Rule for ParametrizeDuplicateRule {
     fn category(&self) -> Category {
         Category::Maintenance
     }
-    fn check(&self, _module: &ParsedModule, _all_modules: &[ParsedModule], _ctx: &RuleContext) -> Vec<Violation> {
-        vec![]
+    fn check(&self, module: &ParsedModule, _all_modules: &[ParsedModule], _ctx: &RuleContext) -> Vec<Violation> {
+        let mut violations = Vec::new();
+        for test in &module.test_functions {
+            for values in &test.parametrize_values {
+                let mut seen = std::collections::HashSet::new();
+                let mut duplicates = std::collections::HashSet::new();
+                for val in values {
+                    if !seen.insert(val) {
+                        duplicates.insert(val.as_str());
+                    }
+                }
+                if !duplicates.is_empty() {
+                    let dup_str: Vec<&str> = duplicates.into_iter().collect();
+                    violations.push(make_violation(
+                        self.id(),
+                        self.name(),
+                        self.severity(),
+                        self.category(),
+                        format!(
+                            "Parametrize in test '{}' has duplicate values: {}",
+                            test.name,
+                            dup_str.join(", ")
+                        ),
+                        module.file_path.clone(),
+                        test.line,
+                        Some("Remove duplicate parametrize values".to_string()),
+                        Some(test.name.clone()),
+                    ));
+                }
+            }
+        }
+        violations
     }
 }
 

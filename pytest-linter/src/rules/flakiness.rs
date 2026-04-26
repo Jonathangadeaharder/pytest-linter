@@ -227,7 +227,7 @@ impl Rule for XdistSharedStateRule {
     fn category(&self) -> Category {
         Category::Flakiness
     }
-    fn check(&self, module: &ParsedModule, all_modules: &[ParsedModule], _ctx: &RuleContext) -> Vec<Violation> {
+    fn check(&self, _module: &ParsedModule, all_modules: &[ParsedModule], _ctx: &RuleContext) -> Vec<Violation> {
         let mut violations = Vec::new();
         let session_mutable_fixtures: Vec<&str> = all_modules
             .iter()
