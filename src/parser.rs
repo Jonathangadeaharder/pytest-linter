@@ -922,7 +922,8 @@ impl PythonParser {
                 let text = Self::node_text(f, source);
                 let network_libs = ["requests", "socket", "httpx", "aiohttp", "urllib"];
                 if network_libs.iter().any(|lib| {
-                    text.starts_with(&format!("{}.", lib)) || text.starts_with(&format!("{} (", lib))
+                    text.starts_with(&format!("{}.", lib))
+                        || text.starts_with(&format!("{} (", lib))
                 }) {
                     return true;
                 }

@@ -1,6 +1,6 @@
-use std::path::PathBuf;
 use crate::models::{Fixture, ParsedModule, Violation};
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 
 pub struct RuleContext<'a> {
     pub fixture_map: &'a HashMap<String, Vec<&'a Fixture>>,
