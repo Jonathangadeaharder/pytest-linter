@@ -152,14 +152,12 @@ main() {
     local result
     result=$(fetch_and_check_reviews "$repo" "$pr" "$saved_ts")
 
-    # Update state only after checking reviews
-    save_state "$branch" "$current_head"
-
     local item_count
     item_count=$(echo "$result" | grep "^ITEMS:" | head -1 | cut -d: -f2)
     log "Found ${item_count:-?} review items since last push"
 
     if echo "$result" | grep -q "^NONE$"; then
+        save_state "$branch" "$current_head"
         log "No major findings detected — skipping review requests"
         exit 0
     fi
@@ -172,6 +170,7 @@ main() {
     done
 
     request_reviews "$repo" "$pr"
+    save_state "$branch" "$current_head"
 }
 
 main "$@"
