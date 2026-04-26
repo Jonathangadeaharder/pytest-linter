@@ -47,21 +47,16 @@ impl TsParser {
         test_blocks: &mut Vec<TestBlock>,
     ) {
         for i in 0..node.named_child_count() {
-            let Some(child) = node.named_child(i) else { continue };
+            let Some(child) = node.named_child(i) else {
+                continue;
+            };
             match child.kind() {
                 "import_statement" => {
                     let text = child.utf8_text(source.as_bytes()).unwrap_or("").to_string();
                     imports.push(text);
                 }
                 "call_expression" => {
-                    Self::handle_call(
-                        child,
-                        source,
-                        path,
-                        describe_depth,
-                        imports,
-                        test_blocks,
-                    );
+                    Self::handle_call(child, source, path, describe_depth, imports, test_blocks);
                 }
                 _ => {
                     Self::collect(child, source, path, describe_depth, imports, test_blocks);
@@ -93,14 +88,7 @@ impl TsParser {
             }
             "describe" => {
                 if let Some(body) = Self::callback_body(node) {
-                    Self::collect(
-                        body,
-                        source,
-                        path,
-                        describe_depth + 1,
-                        imports,
-                        test_blocks,
-                    );
+                    Self::collect(body, source, path, describe_depth + 1, imports, test_blocks);
                 } else {
                     Self::collect(node, source, path, describe_depth, imports, test_blocks);
                 }
@@ -118,10 +106,7 @@ impl TsParser {
                 (name, false)
             }
             "member_expression" => {
-                let full = node
-                    .utf8_text(source.as_bytes())
-                    .unwrap_or("")
-                    .to_string();
+                let full = node.utf8_text(source.as_bytes()).unwrap_or("").to_string();
                 let is_skip = full.contains(".skip") || full.contains(".todo");
                 let base = full.split('.').next().unwrap_or("").to_string();
                 (base, is_skip)
@@ -552,7 +537,10 @@ describe('outer', () => {
         let module = parser.parse_file(&path).unwrap();
 
         assert_eq!(module.test_blocks.len(), 1);
-        assert!(module.test_blocks[0].is_nested, "test inside nested describe should be is_nested");
+        assert!(
+            module.test_blocks[0].is_nested,
+            "test inside nested describe should be is_nested"
+        );
         assert!(module.test_blocks[0].has_assertions);
     }
 }

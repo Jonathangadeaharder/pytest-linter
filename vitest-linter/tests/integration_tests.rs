@@ -371,7 +371,11 @@ test('clean test', () => {
     );
     let engine = LintEngine::new().unwrap();
     let violations = engine.lint_paths(&[path]).unwrap();
-    assert!(violations.is_empty(), "Clean file should have no violations: {:?}", violations);
+    assert!(
+        violations.is_empty(),
+        "Clean file should have no violations: {:?}",
+        violations
+    );
 }
 
 #[test]
@@ -395,7 +399,10 @@ test('b', () => { expect(1).toBe(1); });
     );
     let engine = LintEngine::new().unwrap();
     let violations = engine.lint_paths(&[dir.path().to_path_buf()]).unwrap();
-    assert!(violations.is_empty(), "Clean files should have no violations");
+    assert!(
+        violations.is_empty(),
+        "Clean files should have no violations"
+    );
 }
 
 #[test]
@@ -448,7 +455,10 @@ test('uses new Date', () => {
 "#,
     );
     let module = parse(&path);
-    assert!(module.test_blocks[0].uses_datemock, "new Date() should set uses_datemock");
+    assert!(
+        module.test_blocks[0].uses_datemock,
+        "new Date() should set uses_datemock"
+    );
     let engine = LintEngine::new().unwrap();
     let violations = engine.lint_paths(&[path]).unwrap();
     assert!(find_violation(&violations, "VITEST-FLK-002").is_some());
@@ -466,13 +476,7 @@ test('no assert', () => { const x = 1; });
 "#,
     );
     let output_path = dir.path().join("output.json");
-    let has_errors = run_cli(
-        &[test_path],
-        "json",
-        Some(&output_path),
-        true,
-    )
-    .unwrap();
+    let has_errors = run_cli(&[test_path], "json", Some(&output_path), true).unwrap();
 
     assert!(has_errors, "Should have errors (MNT-001 is Error severity)");
 
@@ -480,8 +484,12 @@ test('no assert', () => { const x = 1; });
     let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
     assert!(parsed.is_array(), "JSON output should be an array");
     let arr = parsed.as_array().unwrap();
-    assert!(arr.iter().any(|v| v["rule_id"].as_str() == Some("VITEST-MNT-001")));
-    assert!(arr.iter().any(|v| v["rule_name"].as_str() == Some("NoAssertionRule")));
+    assert!(arr
+        .iter()
+        .any(|v| v["rule_id"].as_str() == Some("VITEST-MNT-001")));
+    assert!(arr
+        .iter()
+        .any(|v| v["rule_name"].as_str() == Some("NoAssertionRule")));
 }
 
 #[test]
@@ -496,13 +504,7 @@ test('clean', () => { expect(1).toBe(1); });
 "#,
     );
     let output_path = dir.path().join("output.json");
-    let has_errors = run_cli(
-        &[test_path],
-        "json",
-        Some(&output_path),
-        true,
-    )
-    .unwrap();
+    let has_errors = run_cli(&[test_path], "json", Some(&output_path), true).unwrap();
 
     assert!(!has_errors, "Clean file should have no errors");
 
@@ -525,13 +527,7 @@ test('cond', () => { if (true) { expect(1).toBe(1); } });
 "#,
     );
     let output_path = dir.path().join("output.txt");
-    let has_errors = run_cli(
-        &[test_path],
-        "terminal",
-        Some(&output_path),
-        true,
-    )
-    .unwrap();
+    let has_errors = run_cli(&[test_path], "terminal", Some(&output_path), true).unwrap();
 
     assert!(has_errors, "Should have errors from MNT-001");
 
@@ -565,13 +561,7 @@ test('clean', () => { expect(1).toBe(1); });
 "#,
     );
     let output_path = dir.path().join("output.txt");
-    let has_errors = run_cli(
-        &[test_path],
-        "terminal",
-        Some(&output_path),
-        true,
-    )
-    .unwrap();
+    let has_errors = run_cli(&[test_path], "terminal", Some(&output_path), true).unwrap();
 
     assert!(!has_errors);
     let output = fs::read_to_string(&output_path).unwrap();
@@ -839,7 +829,10 @@ test('bad syntax' () => {
     );
     let parser = TsParser::new().unwrap();
     let result = parser.parse_file(&path);
-    assert!(result.is_ok(), "Parser should handle syntax errors gracefully");
+    assert!(
+        result.is_ok(),
+        "Parser should handle syntax errors gracefully"
+    );
 }
 
 #[test]
@@ -982,12 +975,7 @@ test('timeout', () => {
 "#,
     );
     let output_path = dir.path().join("output.txt");
-    let has_errors = run_cli(
-        &[test_path],
-        "terminal",
-        Some(&output_path),
-        true,
-    ).unwrap();
+    let has_errors = run_cli(&[test_path], "terminal", Some(&output_path), true).unwrap();
     assert!(!has_errors);
     let output = fs::read_to_string(&output_path).unwrap();
     assert!(output.contains("Suggestion:"));
@@ -1004,12 +992,7 @@ import { test } from 'vitest';
 test('no assert', () => { const x = 1; });
 "#,
     );
-    let has_errors = run_cli(
-        &[test_path],
-        "json",
-        None,
-        true,
-    ).unwrap();
+    let has_errors = run_cli(&[test_path], "json", None, true).unwrap();
     assert!(has_errors);
 }
 
@@ -1025,12 +1008,7 @@ test('clean', () => { expect(1).toBe(1); });
 "#,
     );
     let output_path = dir.path().join("output.txt");
-    run_cli(
-        &[test_path],
-        "terminal",
-        Some(&output_path),
-        true,
-    ).unwrap();
+    run_cli(&[test_path], "terminal", Some(&output_path), true).unwrap();
     let output = fs::read_to_string(&output_path).unwrap();
     assert!(output.contains("No test smells detected"));
 }
@@ -1105,12 +1083,7 @@ test('no assert', () => { const x = 1; });
 "#,
     );
     let output_path = dir.path().join("output.txt");
-    let has_errors = run_cli(
-        &[test_path],
-        "terminal",
-        Some(&output_path),
-        false,
-    ).unwrap();
+    let has_errors = run_cli(&[test_path], "terminal", Some(&output_path), false).unwrap();
     assert!(has_errors);
     let output = fs::read_to_string(&output_path).unwrap();
     assert!(output.contains("Found"));
@@ -1129,12 +1102,7 @@ test('clean', () => { expect(1).toBe(1); });
 "#,
     );
     let output_path = dir.path().join("output.txt");
-    let has_errors = run_cli(
-        &[test_path],
-        "terminal",
-        Some(&output_path),
-        false,
-    ).unwrap();
+    let has_errors = run_cli(&[test_path], "terminal", Some(&output_path), false).unwrap();
     assert!(!has_errors);
     let output = fs::read_to_string(&output_path).unwrap();
     assert!(output.contains("No test smells detected"));
@@ -1260,12 +1228,7 @@ test('has if', () => {
 "#,
     );
     let output_path = dir.path().join("output.txt");
-    run_cli(
-        &[test_path],
-        "terminal",
-        Some(&output_path),
-        true,
-    ).unwrap();
+    run_cli(&[test_path], "terminal", Some(&output_path), true).unwrap();
     let output = fs::read_to_string(&output_path).unwrap();
     assert!(output.contains("Found"));
 }
@@ -1281,12 +1244,7 @@ import { test, expect } from 'vitest';
 test('clean', () => { expect(1).toBe(1); });
 "#,
     );
-    let has_errors = run_cli(
-        &[test_path],
-        "json",
-        None,
-        true,
-    ).unwrap();
+    let has_errors = run_cli(&[test_path], "json", None, true).unwrap();
     assert!(!has_errors);
 }
 
@@ -1301,12 +1259,7 @@ import { test } from 'vitest';
 test('no assert', () => { const x = 1; });
 "#,
     );
-    let has_errors = run_cli(
-        &[test_path],
-        "terminal",
-        None,
-        true,
-    ).unwrap();
+    let has_errors = run_cli(&[test_path], "terminal", None, true).unwrap();
     assert!(has_errors);
 }
 

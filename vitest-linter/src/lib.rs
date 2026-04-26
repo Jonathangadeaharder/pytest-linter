@@ -58,12 +58,7 @@ pub fn run_cli(
                 )?;
                 writeln!(out, "  {}", v.message)?;
                 if let Some(ref suggestion) = v.suggestion {
-                    writeln!(
-                        out,
-                        "  {} {}",
-                        "Suggestion:".dimmed(),
-                        suggestion.dimmed()
-                    )?;
+                    writeln!(out, "  {} {}", "Suggestion:".dimmed(), suggestion.dimmed())?;
                 }
                 writeln!(out)?;
             }

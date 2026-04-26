@@ -62,11 +62,11 @@ impl LintEngine {
                     files.push(path.clone());
                 }
             } else if path.is_dir() {
-                for entry in WalkDir::new(path).into_iter().filter_map(std::result::Result::ok) {
-                    let name = entry
-                        .file_name()
-                        .to_string_lossy()
-                        .to_string();
+                for entry in WalkDir::new(path)
+                    .into_iter()
+                    .filter_map(std::result::Result::ok)
+                {
+                    let name = entry.file_name().to_string_lossy().to_string();
                     if is_test_file(&name) {
                         files.push(entry.into_path());
                     }

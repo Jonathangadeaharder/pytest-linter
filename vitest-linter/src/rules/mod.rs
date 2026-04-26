@@ -71,12 +71,18 @@ mod tests {
     #[test]
     fn rule_categories() {
         let rules = all_rules();
-        let flk: Vec<_> = rules.iter().filter(|r| r.category() == Category::Flakiness).collect();
+        let flk: Vec<_> = rules
+            .iter()
+            .filter(|r| r.category() == Category::Flakiness)
+            .collect();
         let mnt: Vec<_> = rules
             .iter()
             .filter(|r| r.category() == Category::Maintenance)
             .collect();
-        let str_: Vec<_> = rules.iter().filter(|r| r.category() == Category::Structure).collect();
+        let str_: Vec<_> = rules
+            .iter()
+            .filter(|r| r.category() == Category::Structure)
+            .collect();
         assert_eq!(flk.len(), 3);
         assert_eq!(mnt.len(), 5);
         assert_eq!(str_.len(), 2);
