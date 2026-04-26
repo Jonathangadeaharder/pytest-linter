@@ -487,22 +487,3 @@ impl Rule for ParametrizeExplosionRule {
     }
 }
 
-pub struct ParametrizeNoVariationRule;
-
-impl Rule for ParametrizeNoVariationRule {
-    fn id(&self) -> &'static str {
-        "PYTEST-PARAM-004"
-    }
-    fn name(&self) -> &'static str {
-        "ParametrizeNoVariationRule"
-    }
-    fn severity(&self) -> Severity {
-        Severity::Warning
-    }
-    fn category(&self) -> Category {
-        Category::Maintenance
-    }
-    fn check(&self, _module: &ParsedModule, _all_modules: &[ParsedModule], _ctx: &RuleContext) -> Vec<Violation> {
-        vec![]
-    }
-}
