@@ -2,7 +2,7 @@ use pytest_linter::config::Config;
 use pytest_linter::engine::LintEngine;
 use pytest_linter::models::{Category, FixtureScope, Severity};
 use pytest_linter::parser::PythonParser;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 fn write_temp_file(dir: &std::path::Path, name: &str, content: &str) -> PathBuf {
     let path = dir.join(name);
@@ -3846,4 +3846,828 @@ def test_no_assert():
         v.is_none(),
         "noqa on previous line should suppress violation"
     );
+}
+
+#[test]
+fn test_save_and_load_baseline() {
+    let dir = tempfile::tempdir().unwrap();
+    let baseline_path = dir.path().join("baseline.json");
+
+    let violations = vec![
+        pytest_linter::models::Violation {
+            rule_id: "PYTEST-MNT-004".to_string(),
+            rule_name: "NoAssertionRule".to_string(),
+            severity: Severity::Error,
+            category: Category::Maintenance,
+            message: "no assertions".to_string(),
+            file_path: PathBuf::from("test_foo.py"),
+            line: 5,
+            col: None,
+            suggestion: None,
+            test_name: None,
+        },
+        pytest_linter::models::Violation {
+            rule_id: "PYTEST-FLK-001".to_string(),
+            rule_name: "TimeSleepRule".to_string(),
+            severity: Severity::Warning,
+            category: Category::Flakiness,
+            message: "time.sleep".to_string(),
+            file_path: PathBuf::from("test_bar.py"),
+            line: 10,
+            col: None,
+            suggestion: None,
+            test_name: None,
+        },
+    ];
+
+    pytest_linter::engine::save_baseline(&violations, &baseline_path).unwrap();
+    let loaded = pytest_linter::engine::load_baseline(&baseline_path).unwrap();
+
+    assert_eq!(loaded.len(), 2);
+    assert!(loaded.contains(&("test_foo.py".to_string(), 5, "PYTEST-MNT-004".to_string())));
+    assert!(loaded.contains(&("test_bar.py".to_string(), 10, "PYTEST-FLK-001".to_string())));
+}
+
+#[test]
+fn test_load_baseline_invalid_json() {
+    let dir = tempfile::tempdir().unwrap();
+    let baseline_path = dir.path().join("bad_baseline.json");
+    std::fs::write(&baseline_path, "not valid json{{{").unwrap();
+
+    let result = pytest_linter::engine::load_baseline(&baseline_path);
+    assert!(result.is_err(), "Should fail on invalid JSON");
+}
+
+#[test]
+fn test_load_baseline_missing_file() {
+    let result = pytest_linter::engine::load_baseline(Path::new("/nonexistent/baseline.json"));
+    assert!(result.is_err(), "Should fail on missing file");
+}
+
+#[test]
+fn test_filter_new_violations_empty_baseline() {
+    let violations = vec![pytest_linter::models::Violation {
+        rule_id: "PYTEST-MNT-004".to_string(),
+        rule_name: "NoAssertionRule".to_string(),
+        severity: Severity::Error,
+        category: Category::Maintenance,
+        message: "no assertions".to_string(),
+        file_path: PathBuf::from("test_foo.py"),
+        line: 5,
+        col: None,
+        suggestion: None,
+        test_name: None,
+    }];
+
+    let baseline = std::collections::HashSet::new();
+    let filtered = pytest_linter::engine::filter_new_violations(&violations, &baseline);
+    assert_eq!(filtered.len(), 1);
+    assert_eq!(filtered[0].rule_id, "PYTEST-MNT-004");
+}
+
+#[test]
+fn test_filter_new_violations_with_baseline_match() {
+    let violations = vec![
+        pytest_linter::models::Violation {
+            rule_id: "PYTEST-MNT-004".to_string(),
+            rule_name: "NoAssertionRule".to_string(),
+            severity: Severity::Error,
+            category: Category::Maintenance,
+            message: "no assertions".to_string(),
+            file_path: PathBuf::from("test_foo.py"),
+            line: 5,
+            col: None,
+            suggestion: None,
+            test_name: None,
+        },
+        pytest_linter::models::Violation {
+            rule_id: "PYTEST-FLK-001".to_string(),
+            rule_name: "TimeSleepRule".to_string(),
+            severity: Severity::Warning,
+            category: Category::Flakiness,
+            message: "time.sleep".to_string(),
+            file_path: PathBuf::from("test_bar.py"),
+            line: 10,
+            col: None,
+            suggestion: None,
+            test_name: None,
+        },
+    ];
+
+    let mut baseline = std::collections::HashSet::new();
+    baseline.insert(("test_foo.py".to_string(), 5, "PYTEST-MNT-004".to_string()));
+
+    let filtered = pytest_linter::engine::filter_new_violations(&violations, &baseline);
+    assert_eq!(filtered.len(), 1);
+    assert_eq!(filtered[0].rule_id, "PYTEST-FLK-001");
+}
+
+#[test]
+fn test_filter_new_violations_all_in_baseline() {
+    let violations = vec![pytest_linter::models::Violation {
+        rule_id: "PYTEST-MNT-004".to_string(),
+        rule_name: "NoAssertionRule".to_string(),
+        severity: Severity::Error,
+        category: Category::Maintenance,
+        message: "no assertions".to_string(),
+        file_path: PathBuf::from("test_foo.py"),
+        line: 5,
+        col: None,
+        suggestion: None,
+        test_name: None,
+    }];
+
+    let mut baseline = std::collections::HashSet::new();
+    baseline.insert(("test_foo.py".to_string(), 5, "PYTEST-MNT-004".to_string()));
+
+    let filtered = pytest_linter::engine::filter_new_violations(&violations, &baseline);
+    assert!(filtered.is_empty());
+}
+
+#[test]
+fn test_save_baseline_empty_violations() {
+    let dir = tempfile::tempdir().unwrap();
+    let baseline_path = dir.path().join("empty_baseline.json");
+
+    pytest_linter::engine::save_baseline(&[], &baseline_path).unwrap();
+    let content = std::fs::read_to_string(&baseline_path).unwrap();
+    assert_eq!(content.trim(), "[]");
+}
+
+#[test]
+fn test_collect_violations_function() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_collect.py",
+        r#"
+def test_no_assert():
+    pass
+"#,
+    );
+    let violations = pytest_linter::engine::collect_violations(&[path], Config::default()).unwrap();
+    assert!(!violations.is_empty());
+    assert!(violations.iter().any(|v| v.rule_id == "PYTEST-MNT-004"));
+}
+
+#[test]
+fn test_format_json_output_to_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let output_path = dir.path().join("out.json");
+    let violations = vec![pytest_linter::models::Violation {
+        rule_id: "PYTEST-MNT-004".to_string(),
+        rule_name: "NoAssertionRule".to_string(),
+        severity: Severity::Error,
+        category: Category::Maintenance,
+        message: "no assertions".to_string(),
+        file_path: PathBuf::from("test.py"),
+        line: 1,
+        col: None,
+        suggestion: Some("add assert".to_string()),
+        test_name: Some("test_foo".to_string()),
+    }];
+
+    pytest_linter::engine::format_json_output(&violations, Some(&output_path)).unwrap();
+    let content = std::fs::read_to_string(&output_path).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
+    assert!(parsed.is_array());
+    assert_eq!(parsed.as_array().unwrap().len(), 1);
+}
+
+#[test]
+fn test_format_sarif_output_to_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let output_path = dir.path().join("out.sarif");
+    let violations = vec![pytest_linter::models::Violation {
+        rule_id: "PYTEST-MNT-004".to_string(),
+        rule_name: "NoAssertionRule".to_string(),
+        severity: Severity::Error,
+        category: Category::Maintenance,
+        message: "no assertions".to_string(),
+        file_path: PathBuf::from("test.py"),
+        line: 1,
+        col: None,
+        suggestion: None,
+        test_name: None,
+    }];
+
+    pytest_linter::engine::format_sarif_output(&violations, Some(&output_path)).unwrap();
+    let content = std::fs::read_to_string(&output_path).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
+    assert!(parsed.get("$schema").is_some());
+}
+
+#[test]
+fn test_format_terminal_output_to_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let output_path = dir.path().join("out.txt");
+    let violations = vec![pytest_linter::models::Violation {
+        rule_id: "PYTEST-MNT-004".to_string(),
+        rule_name: "NoAssertionRule".to_string(),
+        severity: Severity::Error,
+        category: Category::Maintenance,
+        message: "no assertions".to_string(),
+        file_path: PathBuf::from("test.py"),
+        line: 1,
+        col: Some(5),
+        suggestion: Some("add assert".to_string()),
+        test_name: Some("test_foo".to_string()),
+    }];
+
+    pytest_linter::engine::format_terminal_output(&violations, Some(&output_path), true).unwrap();
+    let content = std::fs::read_to_string(&output_path).unwrap();
+    assert!(content.contains("ERROR"));
+    assert!(content.contains("PYTEST-MNT-004"));
+    assert!(content.contains("Summary"));
+}
+
+#[test]
+fn test_format_terminal_output_with_col_none() {
+    let dir = tempfile::tempdir().unwrap();
+    let output_path = dir.path().join("out2.txt");
+    let violations = vec![pytest_linter::models::Violation {
+        rule_id: "PYTEST-FLK-001".to_string(),
+        rule_name: "TimeSleepRule".to_string(),
+        severity: Severity::Warning,
+        category: Category::Flakiness,
+        message: "time.sleep".to_string(),
+        file_path: PathBuf::from("test.py"),
+        line: 3,
+        col: None,
+        suggestion: None,
+        test_name: None,
+    }];
+
+    pytest_linter::engine::format_terminal_output(&violations, Some(&output_path), true).unwrap();
+    let content = std::fs::read_to_string(&output_path).unwrap();
+    assert!(content.contains("WARNING"));
+    assert!(content.contains("-"));
+}
+
+#[test]
+fn test_format_terminal_output_info_severity() {
+    let dir = tempfile::tempdir().unwrap();
+    let output_path = dir.path().join("info.txt");
+    let violations = vec![pytest_linter::models::Violation {
+        rule_id: "PYTEST-BDD-001".to_string(),
+        rule_name: "BddMissingScenarioRule".to_string(),
+        severity: Severity::Info,
+        category: Category::Enhancement,
+        message: "missing BDD".to_string(),
+        file_path: PathBuf::from("test.py"),
+        line: 1,
+        col: None,
+        suggestion: None,
+        test_name: None,
+    }];
+
+    pytest_linter::engine::format_terminal_output(&violations, Some(&output_path), true).unwrap();
+    let content = std::fs::read_to_string(&output_path).unwrap();
+    assert!(content.contains("INFO"));
+}
+
+#[test]
+fn test_format_terminal_empty_violations() {
+    let dir = tempfile::tempdir().unwrap();
+    let output_path = dir.path().join("empty.txt");
+
+    pytest_linter::engine::format_terminal_output(&[], Some(&output_path), true).unwrap();
+    let content = std::fs::read_to_string(&output_path).unwrap();
+    assert!(content.contains("No violations found"));
+}
+
+#[test]
+fn test_run_linter_sarif_format() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_sarif.py",
+        r#"
+def test_bad():
+    pass
+"#,
+    );
+    let output_path = dir.path().join("output.sarif");
+    let has_errors = pytest_linter::engine::run_linter(
+        &[path],
+        "sarif",
+        Some(&output_path),
+        true,
+        Config::default(),
+    )
+    .unwrap();
+    assert!(has_errors);
+    let content = std::fs::read_to_string(&output_path).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
+    assert!(parsed.get("$schema").is_some());
+}
+
+#[test]
+fn test_run_linter_sarif_to_stdout() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_sarif_stdout.py",
+        r#"
+def test_ok():
+    assert True
+"#,
+    );
+    let has_errors = pytest_linter::engine::run_linter(
+        &[path],
+        "sarif",
+        None::<&std::path::Path>,
+        true,
+        Config::default(),
+    )
+    .unwrap();
+    assert!(!has_errors);
+}
+
+#[test]
+fn test_get_changed_files_invalid_base() {
+    let result = pytest_linter::engine::get_changed_files("nonexistent_ref_12345");
+    assert!(result.is_err(), "Should fail with invalid git ref");
+}
+
+#[test]
+fn test_run_linter_terminal_no_color_stdout() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_no_color.py",
+        r#"
+def test_ok():
+    assert True
+"#,
+    );
+    let has_errors = pytest_linter::engine::run_linter(
+        &[path],
+        "terminal",
+        None::<&std::path::Path>,
+        false,
+        Config::default(),
+    )
+    .unwrap();
+    assert!(!has_errors);
+}
+
+#[test]
+fn test_random_without_seed_triggers_flk008() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_random.py",
+        r#"
+import random
+
+def test_random_value():
+    val = random.randint(1, 100)
+    assert val > 0
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FLK-008");
+    assert!(
+        v.is_some(),
+        "Expected PYTEST-FLK-008 for random without seed"
+    );
+    let v = v.unwrap();
+    assert_eq!(v.rule_name, "RandomWithoutSeedRule");
+    assert!(v.message.contains("random"));
+}
+
+#[test]
+fn test_random_with_seed_does_not_trigger_flk008() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_random_seed.py",
+        r#"
+import random
+
+def test_seeded_random():
+    random.seed(42)
+    val = random.randint(1, 100)
+    assert val > 0
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FLK-008");
+    assert!(
+        v.is_none(),
+        "Should not trigger FLK-008 when random.seed is called"
+    );
+}
+
+#[test]
+fn test_random_choice_triggers_flk008() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_random_choice.py",
+        r#"
+import random
+
+def test_random_choice():
+    val = random.choice([1, 2, 3])
+    assert val in [1, 2, 3]
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FLK-008");
+    assert!(v.is_some(), "Expected PYTEST-FLK-008 for random.choice");
+}
+
+#[test]
+fn test_random_shuffle_triggers_flk008() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_random_shuffle.py",
+        r#"
+import random
+
+def test_random_shuffle():
+    items = [1, 2, 3]
+    random.shuffle(items)
+    assert len(items) == 3
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FLK-008");
+    assert!(v.is_some(), "Expected PYTEST-FLK-008 for random.shuffle");
+}
+
+#[test]
+fn test_random_uniform_triggers_flk008() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_random_uniform.py",
+        r#"
+import random
+
+def test_random_uniform():
+    val = random.uniform(0.0, 1.0)
+    assert 0 <= val <= 1
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FLK-008");
+    assert!(v.is_some(), "Expected PYTEST-FLK-008 for random.uniform");
+}
+
+#[test]
+fn test_random_sample_triggers_flk008() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_random_sample.py",
+        r#"
+import random
+
+def test_random_sample():
+    val = random.sample(range(100), 5)
+    assert len(val) == 5
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FLK-008");
+    assert!(v.is_some(), "Expected PYTEST-FLK-008 for random.sample");
+}
+
+#[test]
+fn test_subprocess_without_timeout_triggers_flk009() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_subprocess.py",
+        r#"
+import subprocess
+
+def test_subprocess_run():
+    result = subprocess.run(["echo", "hello"], capture_output=True)
+    assert result.returncode == 0
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FLK-009");
+    assert!(
+        v.is_some(),
+        "Expected PYTEST-FLK-009 for subprocess without timeout"
+    );
+    let v = v.unwrap();
+    assert_eq!(v.rule_name, "SubprocessWithoutTimeoutRule");
+    assert!(v.message.contains("timeout"));
+}
+
+#[test]
+fn test_subprocess_with_timeout_detected() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_subprocess_timeout.py",
+        r#"
+import subprocess
+
+def test_subprocess_with_timeout():
+    result = subprocess.run(["echo", "hello"], capture_output=True, timeout=30)
+    assert result.returncode == 0
+"#,
+    );
+    let module = parse_file(&path);
+    assert!(module.test_functions[0].uses_subprocess);
+    assert!(
+        !module.test_functions[0].has_subprocess_timeout,
+        "has_subprocess_timeout should be false when timeout is provided"
+    );
+}
+
+#[test]
+fn test_subprocess_popen_without_timeout_triggers_flk009() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_popen.py",
+        r#"
+import subprocess
+
+def test_popen():
+    proc = subprocess.Popen(["echo", "hello"])
+    proc.wait()
+    assert proc.returncode == 0
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FLK-009");
+    assert!(
+        v.is_some(),
+        "Expected PYTEST-FLK-009 for Popen without timeout"
+    );
+}
+
+#[test]
+fn test_subprocess_check_output_without_timeout_triggers_flk009() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_check_output.py",
+        r#"
+import subprocess
+
+def test_check_output():
+    output = subprocess.check_output(["echo", "hello"])
+    assert output
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FLK-009");
+    assert!(
+        v.is_some(),
+        "Expected PYTEST-FLK-009 for check_output without timeout"
+    );
+}
+
+#[test]
+fn test_subprocess_call_without_timeout_triggers_flk009() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_subprocess_call.py",
+        r#"
+import subprocess
+
+def test_subprocess_call():
+    ret = subprocess.call(["echo", "hello"])
+    assert ret == 0
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FLK-009");
+    assert!(
+        v.is_some(),
+        "Expected PYTEST-FLK-009 for subprocess.call without timeout"
+    );
+}
+
+#[test]
+fn test_subprocess_check_call_without_timeout_triggers_flk009() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_check_call.py",
+        r#"
+import subprocess
+
+def test_check_call():
+    subprocess.check_call(["echo", "hello"])
+    assert True
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FLK-009");
+    assert!(
+        v.is_some(),
+        "Expected PYTEST-FLK-009 for check_call without timeout"
+    );
+}
+
+#[test]
+fn test_no_random_does_not_trigger_flk008() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_no_random.py",
+        r#"
+def test_no_random():
+    assert 1 + 1 == 2
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FLK-008");
+    assert!(v.is_none());
+}
+
+#[test]
+fn test_no_subprocess_does_not_trigger_flk009() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_no_subprocess.py",
+        r#"
+def test_no_subprocess():
+    assert 1 + 1 == 2
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FLK-009");
+    assert!(v.is_none());
+}
+
+#[test]
+fn test_random_in_nested_function_triggers_flk008() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_nested_random.py",
+        r#"
+import random
+
+def test_with_helper():
+    def inner():
+        return random.random()
+    val = inner()
+    assert 0 <= val <= 1
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FLK-008");
+    assert!(
+        v.is_some(),
+        "Expected PYTEST-FLK-008 for random in nested function"
+    );
+}
+
+#[test]
+fn test_subprocess_in_nested_function_triggers_flk009() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_nested_subprocess.py",
+        r#"
+import subprocess
+
+def test_with_helper():
+    def inner():
+        return subprocess.run(["echo", "hi"])
+    result = inner()
+    assert result.returncode == 0
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FLK-009");
+    assert!(
+        v.is_some(),
+        "Expected PYTEST-FLK-009 for subprocess in nested function"
+    );
+}
+
+#[test]
+fn test_random_qualified_call_triggers_flk008() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_random_qualified.py",
+        r#"
+import random
+
+def test_random_random():
+    val = random.random()
+    assert 0 <= val <= 1
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FLK-008");
+    assert!(v.is_some(), "Expected PYTEST-FLK-008 for random.random()");
+}
+
+#[test]
+fn test_subprocess_qualified_call_triggers_flk009() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_subprocess_qualified.py",
+        r#"
+import subprocess
+
+def test_subprocess_run():
+    result = subprocess.run(["echo", "hello"])
+    assert result.returncode == 0
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FLK-009");
+    assert!(v.is_some(), "Expected PYTEST-FLK-009 for subprocess.run()");
+}
+
+#[test]
+fn test_discover_files_test_prefix_in_subdir() {
+    let dir = tempfile::tempdir().unwrap();
+    let subdir = dir.path().join("subdir");
+    std::fs::create_dir_all(&subdir).unwrap();
+    write_temp_file(
+        &subdir,
+        "test_sub.py",
+        r#"
+def test_in_subdir():
+    assert True
+"#,
+    );
+    let engine = LintEngine::new(Config::default()).unwrap();
+    let violations = engine.lint_paths(&[dir.path().to_path_buf()]).unwrap();
+    assert!(
+        !violations.is_empty(),
+        "Should discover test files in subdirectories"
+    );
+}
+
+#[test]
+fn test_make_violation_function() {
+    use pytest_linter::engine::make_violation;
+    let v = make_violation(
+        "TEST-001",
+        "TestRule",
+        Severity::Warning,
+        Category::Flakiness,
+        "test message".to_string(),
+        PathBuf::from("test.py"),
+        42,
+        Some("suggestion".to_string()),
+        Some("test_name".to_string()),
+    );
+    assert_eq!(v.rule_id, "TEST-001");
+    assert_eq!(v.rule_name, "TestRule");
+    assert_eq!(v.severity, Severity::Warning);
+    assert_eq!(v.category, Category::Flakiness);
+    assert_eq!(v.message, "test message");
+    assert_eq!(v.file_path, PathBuf::from("test.py"));
+    assert_eq!(v.line, 42);
+    assert_eq!(v.col, None);
+    assert_eq!(v.suggestion.as_deref(), Some("suggestion"));
+    assert_eq!(v.test_name.as_deref(), Some("test_name"));
+}
+
+#[test]
+fn test_noqa_with_empty_rules_after_colon() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_noqa_empty.py",
+        r#"
+def test_no_assert():  # noqa:
+    pass
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-MNT-004");
+    assert!(v.is_none(), "noqa: with empty rules should suppress all");
+}
+
+#[test]
+fn test_noqa_with_whitespace_rules() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_noqa_ws.py",
+        r#"
+def test_no_assert():  # noqa:   PYTEST-MNT-004  ,  PYTEST-BDD-001
+    pass
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v1 = find_violation(&violations, "PYTEST-MNT-004");
+    let v2 = find_violation(&violations, "PYTEST-BDD-001");
+    assert!(v1.is_none());
+    assert!(v2.is_none());
 }
