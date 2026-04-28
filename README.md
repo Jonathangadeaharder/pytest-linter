@@ -2,44 +2,32 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-Fast, tree-sitter-powered test smell detectors for **pytest** (Python) and **Vitest** (TypeScript), written in Rust.
-
-## Crates
-
-| Crate | Language | Rules | Description |
-|-------|----------|:-----:|-------------|
-| [`pytest-linter/`](pytest-linter/) | Python (pytest) | 28 | Detects flakiness, maintenance, and fixture smells in pytest test suites |
-| [`vitest-linter/`](vitest-linter/) | TypeScript (Vitest) | 10 | Detects flakiness, maintenance, and structure smells in Vitest test suites |
+Fast, tree-sitter-powered test smell detector for **pytest** (Python), written in Rust.
 
 ## Quick Start
 
-### pytest-linter
-
 ```bash
-cd pytest-linter
-cargo build --release
-./target/release/pytest-linter /path/to/tests
+# Install from source
+cargo install --path .
+
+# Run
+pytest-linter /path/to/tests
 
 # JSON output
-./target/release/pytest-linter --format json /path/to/tests
+pytest-linter --format json /path/to/tests
+
+# Incremental mode (only changed files)
+pytest-linter --incremental /path/to/tests
+
+# Baseline mode
+pytest-linter --baseline violations.json /path/to/tests
+pytest-linter --check-baseline violations.json /path/to/tests
 ```
 
-### vitest-linter
+## Rules (30)
 
-```bash
-cd vitest-linter
-cargo build --release
-./target/release/vitest-linter /path/to/tests
+**Flakiness (9):**
 
-# JSON output
-./target/release/vitest-linter --format json /path/to/tests
-```
-
-## Rules
-
-### pytest-linter (28 rules)
-
-**Flakiness (7):**
 | Rule ID | Name | Severity |
 |---------|------|----------|
 | PYTEST-FLK-001 | TimeSleepRule | Warning |
@@ -47,6 +35,8 @@ cargo build --release
 | PYTEST-FLK-003 | NetworkImportRule | Warning |
 | PYTEST-FLK-004 | CwdDependencyRule | Warning |
 | PYTEST-FLK-005 | MysteryGuestRule | Warning |
+| PYTEST-FLK-008 | RandomWithoutSeedRule | Warning |
+| PYTEST-FLK-009 | SubprocessWithoutTimeoutRule | Warning |
 | PYTEST-XDIST-001 | XdistSharedStateRule | Warning |
 | PYTEST-XDIST-002 | XdistFixtureIoRule | Warning |
 
@@ -68,6 +58,7 @@ cargo build --release
 | PYTEST-PARAM-003 | ParametrizeExplosionRule | Warning |
 
 **Fixtures (9):**
+
 | Rule ID | Name | Severity |
 |---------|------|----------|
 | PYTEST-FIX-001 | AutouseFixtureRule | Warning |
@@ -80,64 +71,59 @@ cargo build --release
 | PYTEST-FIX-009 | FixtureOverlyBroadScopeRule | Warning |
 | PYTEST-DBC-001 | NoContractHintRule | Info |
 
-### vitest-linter (10 rules)
-
-**Flakiness (3):**
-| Rule ID | Name | Severity |
-|---------|------|----------|
-| VITEST-FLK-001 | TimeoutRule | Warning |
-| VITEST-FLK-002 | DateMockRule | Warning |
-| VITEST-FLK-003 | NetworkImportRule | Warning |
-
-**Maintenance (5):**
-| Rule ID | Name | Severity |
-|---------|------|----------|
-| VITEST-MNT-001 | NoAssertionRule | Error |
-| VITEST-MNT-002 | MultipleExpectRule | Warning |
-| VITEST-MNT-003 | ConditionalLogicRule | Warning |
-| VITEST-MNT-004 | TryCatchRule | Warning |
-| VITEST-MNT-005 | EmptyTestRule | Info |
-
-**Structure (2):**
-| Rule ID | Name | Severity |
-|---------|------|----------|
-| VITEST-STR-001 | NestedDescribeRule | Warning |
-| VITEST-STR-002 | ReturnInTestRule | Warning |
-
 ## CLI Options
 
-Both linters share the same interface:
-
 ```
-Usage: <linter> [OPTIONS] [PATHS]...
+Usage: pytest-linter [OPTIONS] [PATHS]...
 
 Arguments:
-  [PATHS]...  Files or directories to lint [default: .]
+  [PATHS]...  Files or directories to lint
 
 Options:
-  --format <FORMAT>    Output format: terminal, json [default: terminal]
-  --output <OUTPUT>    Write output to file instead of stdout
-  --no-color           Disable colored output
-  -h, --help           Print help
+  --format <FORMAT>              Output format: terminal, json, sarif
+  --output <OUTPUT>              Write output to file instead of stdout
+  --no-color                     Disable colored output
+  --incremental                  Only lint files changed since --base
+  --base <BASE>                  Git ref for incremental mode [default: HEAD]
+  --baseline <FILE>              Save violations to baseline file
+  --check-baseline <FILE>        Compare against baseline, fail on new violations
+  -h, --help                     Print help
 ```
 
 Exit code: **1** if any `Error` severity violations found, **0** otherwise.
 
-## Test Quality
+## Configuration
 
-| Crate | Tests | Line Coverage | Branch Coverage |
-|-------|:-----:|:-------------:|:---------------:|
-| pytest-linter | 220 | 96.6% | 80.5% |
-| vitest-linter | 65 | 99.0% | 92.4% |
+Add to your `pyproject.toml`:
+
+```toml
+[tool.pytest-linter]
+format = "json"
+
+[tool.pytest-linter.rules.PYTEST-FLK-001]
+enabled = false
+
+[tool.pytest-linter.rules.PYTEST-MNT-004]
+severity = "warning"
+```
+
+## Suppression
+
+Suppress specific rules inline:
+
+```python
+def test_something():  # noqa: PYTEST-FLK-001
+    time.sleep(1)
+    assert True
+```
 
 ## Architecture
-
-Each crate is fully self-contained — no shared core. Both use the same pattern:
 
 - **tree-sitter** for AST parsing (no regex)
 - **Rule trait** with `check(module, all_modules) -> Vec<Violation>`
 - **Engine** discovers test files, parses them, runs all rules
-- **CLI** via clap with terminal/JSON output
+- **CLI** via clap with terminal/JSON/SARIF output
+- **Parallel** file parsing and rule checking via rayon
 
 ## License
 

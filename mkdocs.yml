@@ -1,0 +1,42 @@
+site_name: pytest-linter
+site_description: Fast, tree-sitter-powered test smell detector for pytest
+site_url: https://jonathangadeaharder.github.io/pytest-linter/
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - search.suggest
+    - search.highlight
+
+nav:
+  - Home: index.md
+  - Rules:
+    - Overview: rules/index.md
+    - Flakiness:
+      - FLK-001: rules/FLK-001.md
+      - FLK-008: rules/FLK-008.md
+      - FLK-009: rules/FLK-009.md
+
+markdown_extensions:
+  - admonition
+  - pymdownx.highlight
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - tables

@@ -1,0 +1,27 @@
+name: 'pytest-linter'
+description: 'Lint Python test files for test smells using pytest-linter'
+inputs:
+  path:
+    description: 'Path to lint (file or directory)'
+    required: false
+    default: '.'
+  format:
+    description: 'Output format (terminal, json, sarif)'
+    required: false
+    default: 'terminal'
+  fail-on:
+    description: 'Minimum severity to fail on (error, warning, info)'
+    required: false
+    default: 'error'
+runs:
+  using: 'composite'
+  steps:
+    - name: Install pytest-linter
+      shell: bash
+      run: |
+        curl -sSL https://github.com/Jonathangadeaharder/pytest-linter/releases/latest/download/pytest-linter-x86_64-unknown-linux-gnu.tar.gz | tar xz
+        sudo mv pytest-linter /usr/local/bin/
+    - name: Run pytest-linter
+      shell: bash
+      run: |
+        pytest-linter --format ${{ inputs.format }} ${{ inputs.path }}
