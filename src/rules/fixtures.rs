@@ -1,8 +1,6 @@
 use crate::engine::{fixture_scope_by_name, make_violation};
 use crate::models::{Category, ParsedModule, Severity, Violation};
 use crate::rules::{Rule, RuleContext};
-use std::collections::HashMap;
-use std::path::PathBuf;
 
 pub struct AutouseFixtureRule;
 

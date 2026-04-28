@@ -137,3 +137,5 @@ Thumbs.db
 .pylintrc
 test_file.txt
 .pytest_deep_analysis_*.json
+# Duplicate Cargo lock files (e.g. "Cargo 2.lock") created by macOS copy operations
+Cargo[_ ][0-9]*.lock

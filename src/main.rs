@@ -1,5 +1,6 @@
 use anyhow::Result;
 use clap::Parser;
+use pytest_linter::config::Config;
 use std::path::PathBuf;
 use std::process;
 
@@ -10,7 +11,7 @@ struct Cli {
     #[arg(required = true)]
     paths: Vec<PathBuf>,
 
-    #[arg(long, default_value = "terminal", value_parser = ["terminal", "json"])]
+    #[arg(long, default_value = "terminal", value_parser = ["terminal", "json", "sarif"])]
     format: String,
 
     #[arg(long)]
@@ -23,11 +24,21 @@ struct Cli {
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
+    let mut config = Config::default();
+    if let Some(loaded) = Config::from_pyproject(&cli.paths[0])? {
+        config = loaded;
+    }
+    config = config.merge_cli(Some(cli.format.clone()), cli.output.clone());
+
+    let format_str = config.format.clone().unwrap_or_else(|| "terminal".to_string());
+    let output_path = config.output.clone();
+
     let has_errors = pytest_linter::engine::run_linter(
         &cli.paths,
-        &cli.format,
-        cli.output.as_deref(),
+        &format_str,
+        output_path.as_deref(),
         cli.no_color,
+        config,
     )?;
 
     if has_errors {

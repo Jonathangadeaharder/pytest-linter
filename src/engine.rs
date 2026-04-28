@@ -1,3 +1,4 @@
+use crate::config::Config;
 use crate::models::{Category, Fixture, FixtureScope, ParsedModule, Severity, Violation};
 use crate::rules::{Rule, RuleContext};
 use anyhow::Result;
@@ -10,14 +11,18 @@ use walkdir::WalkDir;
 
 pub struct LintEngine {
     rules: Vec<Box<dyn Rule>>,
+    config: Config,
 }
 
 impl LintEngine {
     #[allow(clippy::missing_errors_doc)]
-    pub fn new() -> Result<Self> {
-        Ok(Self {
-            rules: crate::rules::all_rules(),
-        })
+    pub fn new(config: Config) -> Result<Self> {
+        let all = crate::rules::all_rules();
+        let rules: Vec<Box<dyn Rule>> = all
+            .into_iter()
+            .filter(|r| config.is_rule_enabled(r.id()))
+            .collect();
+        Ok(Self { rules, config })
     }
 
     #[allow(clippy::missing_errors_doc)]
@@ -42,6 +47,9 @@ impl LintEngine {
         for module in &modules {
             for rule in &self.rules {
                 let mut v = rule.check(module, &modules, &ctx);
+                for violation in &mut v {
+                    violation.severity = self.config.rule_severity(rule.id(), rule.severity());
+                }
                 violations.append(&mut v);
             }
         }
@@ -230,16 +238,18 @@ pub fn run_linter(
     format: &str,
     output: Option<&Path>,
     no_color: bool,
+    config: Config,
 ) -> Result<bool> {
     if no_color {
         colored::control::set_override(false);
     }
 
-    let engine = LintEngine::new()?;
+    let engine = LintEngine::new(config)?;
     let violations = engine.lint_paths(paths)?;
 
     match format {
         "json" => format_json(&violations, output)?,
+        "sarif" => format_sarif(&violations, output)?,
         _ => format_terminal(&violations, output)?,
     }
 
@@ -314,6 +324,20 @@ fn format_terminal(violations: &[Violation], output_path: Option<&Path>) -> Resu
 
 fn format_json(violations: &[Violation], output_path: Option<&Path>) -> Result<()> {
     let json = serde_json::to_string_pretty(violations)?;
+
+    match output_path {
+        Some(path) => {
+            let mut file = std::fs::File::create(path)?;
+            file.write_all(json.as_bytes())?;
+        }
+        None => println!("{json}"),
+    }
+
+    Ok(())
+}
+
+fn format_sarif(violations: &[Violation], output_path: Option<&Path>) -> Result<()> {
+    let json = crate::output::format_sarif(violations)?;
 
     match output_path {
         Some(path) => {

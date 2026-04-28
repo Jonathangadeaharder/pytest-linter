@@ -798,7 +798,6 @@ impl PythonParser {
     ) -> Fixture {
         let line = func_node.start_position().row + 1;
         let body = func_node.child_by_field_name("body");
-        let body_text = body.map(|b| Self::node_text(b, source)).unwrap_or_default();
 
         let scope = Self::extract_fixture_scope(decorators);
         let is_autouse = decorators
