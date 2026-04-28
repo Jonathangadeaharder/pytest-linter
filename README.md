@@ -51,6 +51,7 @@ cargo build --release
 | PYTEST-XDIST-002 | XdistFixtureIoRule | Warning |
 
 **Maintenance (12):**
+
 | Rule ID | Name | Severity |
 |---------|------|----------|
 | PYTEST-MNT-001 | TestLogicRule | Warning |

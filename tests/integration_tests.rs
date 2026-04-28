@@ -646,7 +646,8 @@ def test_ok():
     assert True
 "#,
     );
-    let has_errors = pytest_linter::engine::run_linter(&[path], "json", None, true, Config::default()).unwrap();
+    let has_errors =
+        pytest_linter::engine::run_linter(&[path], "json", None, true, Config::default()).unwrap();
     assert!(!has_errors);
 }
 
@@ -661,7 +662,8 @@ def test_bad():
     pass
 "#,
     );
-    let has_errors = pytest_linter::engine::run_linter(&[path], "json", None, true, Config::default()).unwrap();
+    let has_errors =
+        pytest_linter::engine::run_linter(&[path], "json", None, true, Config::default()).unwrap();
     assert!(has_errors);
 }
 
@@ -677,8 +679,14 @@ def test_ok():
 "#,
     );
     let output_path = dir.path().join("output.json");
-    let has_errors =
-        pytest_linter::engine::run_linter(&[path], "json", Some(&output_path), true, Config::default()).unwrap();
+    let has_errors = pytest_linter::engine::run_linter(
+        &[path],
+        "json",
+        Some(&output_path),
+        true,
+        Config::default(),
+    )
+    .unwrap();
     assert!(!has_errors, "Info-only violations should not be errors");
     let content = std::fs::read_to_string(&output_path).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
@@ -697,8 +705,14 @@ def test_bad():
 "#,
     );
     let output_path = dir.path().join("output.txt");
-    let has_errors =
-        pytest_linter::engine::run_linter(&[path], "terminal", Some(&output_path), true, Config::default()).unwrap();
+    let has_errors = pytest_linter::engine::run_linter(
+        &[path],
+        "terminal",
+        Some(&output_path),
+        true,
+        Config::default(),
+    )
+    .unwrap();
     assert!(has_errors);
     let content = std::fs::read_to_string(&output_path).unwrap();
     assert!(content.contains("ERROR"));
@@ -717,8 +731,14 @@ def test_ok():
 "#,
     );
     let output_path = dir.path().join("info.txt");
-    let has_errors =
-        pytest_linter::engine::run_linter(&[path], "terminal", Some(&output_path), true, Config::default()).unwrap();
+    let has_errors = pytest_linter::engine::run_linter(
+        &[path],
+        "terminal",
+        Some(&output_path),
+        true,
+        Config::default(),
+    )
+    .unwrap();
     assert!(!has_errors, "Info-only violations should not be errors");
     let content = std::fs::read_to_string(&output_path).unwrap();
     assert!(content.contains("Summary"));
@@ -754,7 +774,8 @@ def test_no_assert():
 "#,
     );
     let output_path = dir.path().join("violations.json");
-    pytest_linter::engine::run_linter(&[path], "json", Some(&output_path), true, Config::default()).unwrap();
+    pytest_linter::engine::run_linter(&[path], "json", Some(&output_path), true, Config::default())
+        .unwrap();
     let content = std::fs::read_to_string(&output_path).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
     let arr = parsed.as_array().unwrap();
@@ -1617,9 +1638,14 @@ def test_bad():
     pass
 "#,
     );
-    let has_errors =
-        pytest_linter::engine::run_linter(&[path], "terminal", None::<&std::path::Path>, false, Config::default())
-            .unwrap();
+    let has_errors = pytest_linter::engine::run_linter(
+        &[path],
+        "terminal",
+        None::<&std::path::Path>,
+        false,
+        Config::default(),
+    )
+    .unwrap();
     assert!(has_errors);
 }
 
@@ -1634,8 +1660,14 @@ def test_ok():
     assert True
 "#,
     );
-    let has_errors =
-        pytest_linter::engine::run_linter(&[path], "json", None::<&std::path::Path>, true, Config::default()).unwrap();
+    let has_errors = pytest_linter::engine::run_linter(
+        &[path],
+        "json",
+        None::<&std::path::Path>,
+        true,
+        Config::default(),
+    )
+    .unwrap();
     assert!(!has_errors);
 }
 
@@ -2385,8 +2417,14 @@ def test_waits():
 "#,
     );
     let output_path = dir.path().join("warning_output.txt");
-    let has_errors =
-        pytest_linter::engine::run_linter(&[path], "terminal", Some(&output_path), true, Config::default()).unwrap();
+    let has_errors = pytest_linter::engine::run_linter(
+        &[path],
+        "terminal",
+        Some(&output_path),
+        true,
+        Config::default(),
+    )
+    .unwrap();
     assert!(!has_errors);
     let content = std::fs::read_to_string(&output_path).unwrap();
     assert!(content.contains("WARNING"));
@@ -2701,8 +2739,14 @@ def test_bad():
     pass
 "#,
     );
-    let has_errors =
-        pytest_linter::engine::run_linter(&[path], "json", None::<&std::path::Path>, true, Config::default()).unwrap();
+    let has_errors = pytest_linter::engine::run_linter(
+        &[path],
+        "json",
+        None::<&std::path::Path>,
+        true,
+        Config::default(),
+    )
+    .unwrap();
     assert!(has_errors);
 }
 

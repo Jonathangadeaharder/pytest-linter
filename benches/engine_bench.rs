@@ -86,11 +86,12 @@ fn bench_engine(c: &mut Criterion) {
         let (_dir, root) = build_repo(num_files, tests_per_file);
         let paths = vec![root.clone()];
 
+        // Create engine once outside the benchmark loop - engine creation involves
+        // rule collection and filtering which should not be measured.
+        let engine = LintEngine::new(Config::default()).expect("create engine");
+
         group.bench_with_input(BenchmarkId::from_parameter(label), label, |b, _| {
-            b.iter(|| {
-                let engine = LintEngine::new(Config::default()).expect("create engine");
-                engine.lint_paths(&paths).expect("lint")
-            });
+            b.iter(|| engine.lint_paths(&paths).expect("lint"));
         });
 
         // `_dir` is dropped here which cleans up the tempdir.

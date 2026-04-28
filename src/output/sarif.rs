@@ -1,4 +1,4 @@
-use crate::models::{Violation, Severity};
+use crate::models::{Severity, Violation};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -95,6 +95,19 @@ pub struct Region {
     pub start_column: Option<usize>,
 }
 
+/// Convert a file path to an RFC 3986 file URI.
+fn path_to_file_uri(path: &std::path::Path) -> String {
+    let path_str = path.display().to_string();
+    // On Windows, convert backslashes to forward slashes
+    let normalized = path_str.replace('\\', "/");
+    if normalized.starts_with('/') {
+        format!("file://{}", normalized)
+    } else {
+        // Relative path - use as-is
+        normalized
+    }
+}
+
 /// Convert violations into a SARIF log structure.
 pub fn violations_to_sarif(violations: &[Violation]) -> SarifLog {
     // Collect unique rules for the driver
@@ -113,7 +126,9 @@ pub fn violations_to_sarif(violations: &[Violation]) -> SarifLog {
         rules_map.entry(v.rule_id.clone()).or_insert_with(|| Rule {
             id: v.rule_id.clone(),
             name: v.rule_name.clone(),
-            short_description: Message { text: v.rule_name.clone() },
+            short_description: Message {
+                text: v.rule_name.clone(),
+            },
             default_configuration: ReportingConfiguration {
                 level: level.clone(),
             },
@@ -121,12 +136,14 @@ pub fn violations_to_sarif(violations: &[Violation]) -> SarifLog {
 
         let result = SarifResult {
             rule_id: v.rule_id.clone(),
-            level: level,
-            message: Message { text: v.message.clone() },
+            level,
+            message: Message {
+                text: v.message.clone(),
+            },
             locations: vec![Location {
                 physical_location: PhysicalLocation {
                     artifact_location: ArtifactLocation {
-                        uri: v.file_path.display().to_string(),
+                        uri: path_to_file_uri(&v.file_path),
                     },
                     region: Region {
                         start_line: v.line,
@@ -138,8 +155,10 @@ pub fn violations_to_sarif(violations: &[Violation]) -> SarifLog {
         results.push(result);
     }
 
-    // Build the final SARIF log
-    let rules: Vec<Rule> = rules_map.into_iter().map(|(_k, r)| r).collect();
+    // Sort rules by ID for deterministic output
+    let mut rules: Vec<Rule> = rules_map.into_values().collect();
+    rules.sort_by(|a, b| a.id.cmp(&b.id));
+
     let run = Run {
         tool: Tool {
             driver: ToolComponent {
@@ -168,7 +187,7 @@ pub fn format_sarif(violations: &[Violation]) -> anyhow::Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{Severity, Category};
+    use crate::models::{Category, Severity};
     use std::path::PathBuf;
 
     #[test]
@@ -192,5 +211,51 @@ mod tests {
         assert_eq!(run.results.len(), 1);
         assert_eq!(run.results[0].rule_id, "R1");
         assert_eq!(run.results[0].level, "error");
+    }
+
+    #[test]
+    fn test_sarif_rules_sorted() {
+        let violations = vec![
+            Violation {
+                rule_id: "R2".to_string(),
+                rule_name: "Rule Two".to_string(),
+                severity: Severity::Warning,
+                category: Category::Flakiness,
+                message: "test".to_string(),
+                file_path: PathBuf::from("b.py"),
+                line: 5,
+                col: None,
+                suggestion: None,
+                test_name: None,
+            },
+            Violation {
+                rule_id: "R1".to_string(),
+                rule_name: "Rule One".to_string(),
+                severity: Severity::Error,
+                category: Category::Flakiness,
+                message: "test".to_string(),
+                file_path: PathBuf::from("a.py"),
+                line: 1,
+                col: None,
+                suggestion: None,
+                test_name: None,
+            },
+        ];
+        let log = violations_to_sarif(&violations);
+        let rules = &log.runs[0].tool.driver.rules;
+        assert_eq!(rules[0].id, "R1");
+        assert_eq!(rules[1].id, "R2");
+    }
+
+    #[test]
+    fn test_sarif_file_uri() {
+        assert_eq!(
+            path_to_file_uri(&PathBuf::from("/tmp/test.py")),
+            "file:///tmp/test.py"
+        );
+        assert_eq!(
+            path_to_file_uri(&PathBuf::from("relative.py")),
+            "relative.py"
+        );
     }
 }
