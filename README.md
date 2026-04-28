@@ -50,12 +50,13 @@ cargo build --release
 | PYTEST-XDIST-001 | XdistSharedStateRule | Warning |
 | PYTEST-XDIST-002 | XdistFixtureIoRule | Warning |
 
-**Maintenance (13):**
+**Maintenance (12):**
+
 | Rule ID | Name | Severity |
 |---------|------|----------|
 | PYTEST-MNT-001 | TestLogicRule | Warning |
 | PYTEST-MNT-002 | MagicAssertRule | Warning |
-| PYTEST-MNT-003 | SuboptimalAssertRule | Warning |
+| PYTEST-MNT-003 | SuboptimalAssertRule | Info |
 | PYTEST-MNT-004 | NoAssertionRule | Error |
 | PYTEST-MNT-005 | MockOnlyVerifyRule | Warning |
 | PYTEST-MNT-006 | AssertionRouletteRule | Warning |
@@ -65,9 +66,8 @@ cargo build --release
 | PYTEST-PARAM-001 | ParametrizeEmptyRule | Warning |
 | PYTEST-PARAM-002 | ParametrizeDuplicateRule | Warning |
 | PYTEST-PARAM-003 | ParametrizeExplosionRule | Warning |
-| PYTEST-DBC-001 | NoContractHintRule | Warning |
 
-**Fixtures (8):**
+**Fixtures (9):**
 | Rule ID | Name | Severity |
 |---------|------|----------|
 | PYTEST-FIX-001 | AutouseFixtureRule | Warning |
@@ -78,6 +78,7 @@ cargo build --release
 | PYTEST-FIX-007 | FixtureMutationRule | Warning |
 | PYTEST-FIX-008 | FixtureDbCommitNoCleanupRule | Warning |
 | PYTEST-FIX-009 | FixtureOverlyBroadScopeRule | Warning |
+| PYTEST-DBC-001 | NoContractHintRule | Info |
 
 ### vitest-linter (10 rules)
 

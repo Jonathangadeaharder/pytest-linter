@@ -58,6 +58,28 @@ jobs:
       - name: Coverage pytest-linter
         run: cargo +nightly llvm-cov --fail-under-lines 90
 
+  bench:
+    name: Benchmarks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run benchmarks (smoke — single iteration)
+        run: cargo bench -- --test
+
+  audit:
+    name: Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@cargo-audit
+      - name: Audit dependencies
+        run: cargo audit
+
   dogfood:
     name: Dogfood
     needs: test

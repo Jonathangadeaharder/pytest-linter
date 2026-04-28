@@ -1,3 +1,4 @@
+use pytest_linter::config::Config;
 use pytest_linter::engine::LintEngine;
 use pytest_linter::models::{Category, FixtureScope, Severity};
 use pytest_linter::parser::PythonParser;
@@ -15,7 +16,7 @@ fn parse_file(path: &PathBuf) -> pytest_linter::models::ParsedModule {
 }
 
 fn lint_single_file(path: &PathBuf) -> Vec<pytest_linter::models::Violation> {
-    let engine = LintEngine::new().unwrap();
+    let engine = LintEngine::new(Config::default()).unwrap();
     engine.lint_paths(&[path.clone()]).unwrap()
 }
 
@@ -343,7 +344,7 @@ def test_many_asserts():
     assert 4 == 4
 "#,
     );
-    let engine = LintEngine::new().unwrap();
+    let engine = LintEngine::new(Config::default()).unwrap();
     let violations = engine.lint_paths(&[path]).unwrap();
     assert!(!violations.is_empty(), "Expected multiple violations");
 
@@ -499,7 +500,7 @@ def test_waits():
     assert True
 "#,
     );
-    let engine = LintEngine::new().unwrap();
+    let engine = LintEngine::new(Config::default()).unwrap();
     let violations = engine.lint_paths(&[path]).unwrap();
     assert!(violations.is_empty(), "Non-test files should be ignored");
 }
@@ -518,7 +519,7 @@ def auto_fixture():
     return 42
 "#,
     );
-    let engine = LintEngine::new().unwrap();
+    let engine = LintEngine::new(Config::default()).unwrap();
     let violations = engine.lint_paths(&[path]).unwrap();
     let v = find_violation(&violations, "PYTEST-FIX-001");
     assert!(
@@ -645,7 +646,8 @@ def test_ok():
     assert True
 "#,
     );
-    let has_errors = pytest_linter::engine::run_linter(&[path], "json", None, true).unwrap();
+    let has_errors =
+        pytest_linter::engine::run_linter(&[path], "json", None, true, Config::default()).unwrap();
     assert!(!has_errors);
 }
 
@@ -660,7 +662,8 @@ def test_bad():
     pass
 "#,
     );
-    let has_errors = pytest_linter::engine::run_linter(&[path], "json", None, true).unwrap();
+    let has_errors =
+        pytest_linter::engine::run_linter(&[path], "json", None, true, Config::default()).unwrap();
     assert!(has_errors);
 }
 
@@ -676,8 +679,14 @@ def test_ok():
 "#,
     );
     let output_path = dir.path().join("output.json");
-    let has_errors =
-        pytest_linter::engine::run_linter(&[path], "json", Some(&output_path), true).unwrap();
+    let has_errors = pytest_linter::engine::run_linter(
+        &[path],
+        "json",
+        Some(&output_path),
+        true,
+        Config::default(),
+    )
+    .unwrap();
     assert!(!has_errors, "Info-only violations should not be errors");
     let content = std::fs::read_to_string(&output_path).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
@@ -696,8 +705,14 @@ def test_bad():
 "#,
     );
     let output_path = dir.path().join("output.txt");
-    let has_errors =
-        pytest_linter::engine::run_linter(&[path], "terminal", Some(&output_path), true).unwrap();
+    let has_errors = pytest_linter::engine::run_linter(
+        &[path],
+        "terminal",
+        Some(&output_path),
+        true,
+        Config::default(),
+    )
+    .unwrap();
     assert!(has_errors);
     let content = std::fs::read_to_string(&output_path).unwrap();
     assert!(content.contains("ERROR"));
@@ -716,8 +731,14 @@ def test_ok():
 "#,
     );
     let output_path = dir.path().join("info.txt");
-    let has_errors =
-        pytest_linter::engine::run_linter(&[path], "terminal", Some(&output_path), true).unwrap();
+    let has_errors = pytest_linter::engine::run_linter(
+        &[path],
+        "terminal",
+        Some(&output_path),
+        true,
+        Config::default(),
+    )
+    .unwrap();
     assert!(!has_errors, "Info-only violations should not be errors");
     let content = std::fs::read_to_string(&output_path).unwrap();
     assert!(content.contains("Summary"));
@@ -733,6 +754,7 @@ fn test_run_linter_no_test_files_no_violations() {
         "terminal",
         Some(&output_path),
         true,
+        Config::default(),
     )
     .unwrap();
     assert!(!has_errors);
@@ -752,7 +774,8 @@ def test_no_assert():
 "#,
     );
     let output_path = dir.path().join("violations.json");
-    pytest_linter::engine::run_linter(&[path], "json", Some(&output_path), true).unwrap();
+    pytest_linter::engine::run_linter(&[path], "json", Some(&output_path), true, Config::default())
+        .unwrap();
     let content = std::fs::read_to_string(&output_path).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
     let arr = parsed.as_array().unwrap();
@@ -824,7 +847,7 @@ def test_b(shared_fix):
     assert shared_fix == "hello"
 "#,
     );
-    let engine = LintEngine::new().unwrap();
+    let engine = LintEngine::new(Config::default()).unwrap();
     let violations = engine.lint_paths(&[path1, path2]).unwrap();
     let v = find_violation(&violations, "PYTEST-FIX-004");
     assert!(v.is_some(), "Expected PYTEST-FIX-004 for shadowed fixture");
@@ -1554,7 +1577,7 @@ def test_something():
     assert True
 "#,
     );
-    let engine = LintEngine::new().unwrap();
+    let engine = LintEngine::new(Config::default()).unwrap();
     let violations = engine.lint_paths(&[path]).unwrap();
     assert!(
         !violations.is_empty(),
@@ -1573,7 +1596,7 @@ def test_example():
     assert True
 "#,
     );
-    let engine = LintEngine::new().unwrap();
+    let engine = LintEngine::new(Config::default()).unwrap();
     let violations = engine.lint_paths(&[dir.path().to_path_buf()]).unwrap();
     assert!(
         !violations.is_empty(),
@@ -1586,7 +1609,7 @@ fn test_discover_files_empty_directory() {
     let dir = tempfile::tempdir().unwrap();
     let subdir = dir.path().join("empty_subdir");
     std::fs::create_dir_all(&subdir).unwrap();
-    let engine = LintEngine::new().unwrap();
+    let engine = LintEngine::new(Config::default()).unwrap();
     let violations = engine.lint_paths(&[subdir]).unwrap();
     assert!(
         violations.is_empty(),
@@ -1599,7 +1622,7 @@ fn test_discover_files_non_py_file_ignored() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("test_example.txt");
     std::fs::write(&path, "def test_foo(): pass").unwrap();
-    let engine = LintEngine::new().unwrap();
+    let engine = LintEngine::new(Config::default()).unwrap();
     let violations = engine.lint_paths(&[path]).unwrap();
     assert!(violations.is_empty(), "Non-.py files should be ignored");
 }
@@ -1615,9 +1638,14 @@ def test_bad():
     pass
 "#,
     );
-    let has_errors =
-        pytest_linter::engine::run_linter(&[path], "terminal", None::<&std::path::Path>, false)
-            .unwrap();
+    let has_errors = pytest_linter::engine::run_linter(
+        &[path],
+        "terminal",
+        None::<&std::path::Path>,
+        false,
+        Config::default(),
+    )
+    .unwrap();
     assert!(has_errors);
 }
 
@@ -1632,8 +1660,14 @@ def test_ok():
     assert True
 "#,
     );
-    let has_errors =
-        pytest_linter::engine::run_linter(&[path], "json", None::<&std::path::Path>, true).unwrap();
+    let has_errors = pytest_linter::engine::run_linter(
+        &[path],
+        "json",
+        None::<&std::path::Path>,
+        true,
+        Config::default(),
+    )
+    .unwrap();
     assert!(!has_errors);
 }
 
@@ -2383,8 +2417,14 @@ def test_waits():
 "#,
     );
     let output_path = dir.path().join("warning_output.txt");
-    let has_errors =
-        pytest_linter::engine::run_linter(&[path], "terminal", Some(&output_path), true).unwrap();
+    let has_errors = pytest_linter::engine::run_linter(
+        &[path],
+        "terminal",
+        Some(&output_path),
+        true,
+        Config::default(),
+    )
+    .unwrap();
     assert!(!has_errors);
     let content = std::fs::read_to_string(&output_path).unwrap();
     assert!(content.contains("WARNING"));
@@ -2672,7 +2712,7 @@ def test_no_assert():
     pass
 "#,
     );
-    let engine = LintEngine::new().unwrap();
+    let engine = LintEngine::new(Config::default()).unwrap();
     let violations = engine.lint_paths(&[path1, path2]).unwrap();
     let rule_ids: Vec<&str> = violations.iter().map(|v| v.rule_id.as_str()).collect();
     assert!(rule_ids.contains(&"PYTEST-FLK-001"));
@@ -2683,7 +2723,7 @@ def test_no_assert():
 fn test_engine_non_existent_file_graceful() {
     let dir = tempfile::tempdir().unwrap();
     let missing = dir.path().join("nonexistent_test.py");
-    let engine = LintEngine::new().unwrap();
+    let engine = LintEngine::new(Config::default()).unwrap();
     let result = engine.lint_paths(&[missing]);
     assert!(result.is_ok());
 }
@@ -2699,8 +2739,14 @@ def test_bad():
     pass
 "#,
     );
-    let has_errors =
-        pytest_linter::engine::run_linter(&[path], "json", None::<&std::path::Path>, true).unwrap();
+    let has_errors = pytest_linter::engine::run_linter(
+        &[path],
+        "json",
+        None::<&std::path::Path>,
+        true,
+        Config::default(),
+    )
+    .unwrap();
     assert!(has_errors);
 }
 
@@ -3512,7 +3558,7 @@ def test_mutates(items):
     assert len(items) == 4
 "#,
     );
-    let engine = LintEngine::new().unwrap();
+    let engine = LintEngine::new(Config::default()).unwrap();
     let violations = engine.lint_paths(&[conftest, test_path]).unwrap();
     let v = find_violation(&violations, "PYTEST-FIX-007");
     assert!(v.is_some(), "Expected PYTEST-FIX-007 violation");
@@ -3540,7 +3586,7 @@ def test_read_only(items):
     assert len(items) == 3
 "#,
     );
-    let engine = LintEngine::new().unwrap();
+    let engine = LintEngine::new(Config::default()).unwrap();
     let violations = engine.lint_paths(&[conftest, test_path]).unwrap();
     let v = find_violation(&violations, "PYTEST-FIX-007");
     assert!(
@@ -3639,7 +3685,7 @@ def test_mutates_shared(shared_list):
     assert len(shared_list) == 1
 "#,
     );
-    let engine = LintEngine::new().unwrap();
+    let engine = LintEngine::new(Config::default()).unwrap();
     let violations = engine.lint_paths(&[conftest, test_path]).unwrap();
     let v = find_violation(&violations, "PYTEST-XDIST-001");
     assert!(v.is_some(), "Expected PYTEST-XDIST-001 violation");
@@ -3668,7 +3714,7 @@ def test_mutates_local(local_list):
     assert len(local_list) == 1
 "#,
     );
-    let engine = LintEngine::new().unwrap();
+    let engine = LintEngine::new(Config::default()).unwrap();
     let violations = engine.lint_paths(&[conftest, test_path]).unwrap();
     let v = find_violation(&violations, "PYTEST-XDIST-001");
     assert!(
