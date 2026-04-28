@@ -1,7 +1,11 @@
+//! Rules that detect test flakiness patterns: time.sleep, file I/O, network, random, subprocess.
+
 use crate::engine::make_violation;
 use crate::models::{Category, ParsedModule, Severity, Violation};
 use crate::rules::{Rule, RuleContext};
+use tree_sitter::Node;
 
+/// Rule that detects use of `time.sleep` in tests, which causes flaky behavior.
 pub struct TimeSleepRule;
 
 impl Rule for TimeSleepRule {
@@ -46,6 +50,7 @@ impl Rule for TimeSleepRule {
     }
 }
 
+/// Rule that detects file I/O without temporary fixtures.
 pub struct FileIoRule;
 
 impl Rule for FileIoRule {
@@ -96,6 +101,7 @@ impl Rule for FileIoRule {
     }
 }
 
+/// Rule that detects imports of network libraries in test files.
 pub struct NetworkImportRule;
 
 impl Rule for NetworkImportRule {
@@ -140,6 +146,7 @@ impl Rule for NetworkImportRule {
     }
 }
 
+/// Rule that detects tests depending on the current working directory.
 pub struct CwdDependencyRule;
 
 impl Rule for CwdDependencyRule {
@@ -184,6 +191,7 @@ impl Rule for CwdDependencyRule {
     }
 }
 
+/// Rule that detects mystery guest anti-pattern: file I/O without explicit temp fixtures.
 pub struct MysteryGuestRule;
 
 impl Rule for MysteryGuestRule {
@@ -236,6 +244,7 @@ impl Rule for MysteryGuestRule {
     }
 }
 
+/// Rule that detects session-scoped fixtures returning mutable state modified by tests.
 pub struct XdistSharedStateRule;
 
 impl Rule for XdistSharedStateRule {
@@ -286,6 +295,7 @@ impl Rule for XdistSharedStateRule {
     }
 }
 
+/// Rule that detects session-scoped fixtures performing file I/O.
 pub struct XdistFixtureIoRule;
 
 impl Rule for XdistFixtureIoRule {
@@ -330,6 +340,7 @@ impl Rule for XdistFixtureIoRule {
     }
 }
 
+/// Rule that detects use of random functions without a fixed seed, reported per call site.
 pub struct RandomWithoutSeedRule;
 
 impl Rule for RandomWithoutSeedRule {
@@ -354,28 +365,33 @@ impl Rule for RandomWithoutSeedRule {
         let mut violations = Vec::new();
         for test in &module.test_functions {
             if test.uses_random && !test.has_random_seed {
-                violations.push(make_violation(
-                    self.id(),
-                    self.name(),
-                    self.severity(),
-                    self.category(),
-                    format!(
-                        "Test '{}' uses random without fixed seed — causes flaky tests",
-                        test.name
-                    ),
-                    module.file_path.clone(),
-                    test.line,
-                    Some(
-                        "Call random.seed() at the start of the test or use a fixture".to_string(),
-                    ),
-                    Some(test.name.clone()),
-                ));
+                let random_lines = collect_random_call_lines(test);
+                for line in random_lines {
+                    violations.push(make_violation(
+                        self.id(),
+                        self.name(),
+                        self.severity(),
+                        self.category(),
+                        format!(
+                            "Test '{}' uses random without fixed seed — causes flaky tests",
+                            test.name
+                        ),
+                        module.file_path.clone(),
+                        line,
+                        Some(
+                            "Call random.seed() at the start of the test or use a fixture"
+                                .to_string(),
+                        ),
+                        Some(test.name.clone()),
+                    ));
+                }
             }
         }
         violations
     }
 }
 
+/// Rule that detects subprocess calls without a timeout, reported per call site.
 pub struct SubprocessWithoutTimeoutRule;
 
 impl Rule for SubprocessWithoutTimeoutRule {
@@ -399,23 +415,212 @@ impl Rule for SubprocessWithoutTimeoutRule {
     ) -> Vec<Violation> {
         let mut violations = Vec::new();
         for test in &module.test_functions {
-            if test.uses_subprocess && !test.has_subprocess_timeout {
-                violations.push(make_violation(
-                    self.id(),
-                    self.name(),
-                    self.severity(),
-                    self.category(),
-                    format!(
-                        "Test '{}' uses subprocess without timeout — may hang indefinitely",
-                        test.name
-                    ),
-                    module.file_path.clone(),
-                    test.line,
-                    Some("Add timeout parameter to subprocess calls".to_string()),
-                    Some(test.name.clone()),
-                ));
+            if test.uses_subprocess {
+                let unguarded_lines = collect_unguarded_subprocess_calls(test);
+                for line in unguarded_lines {
+                    violations.push(make_violation(
+                        self.id(),
+                        self.name(),
+                        self.severity(),
+                        self.category(),
+                        format!(
+                            "Test '{}' uses subprocess without timeout — may hang indefinitely",
+                            test.name
+                        ),
+                        module.file_path.clone(),
+                        line,
+                        Some("Add timeout parameter to subprocess calls".to_string()),
+                        Some(test.name.clone()),
+                    ));
+                }
             }
         }
         violations
     }
+}
+
+/// Collect line numbers of each `random.*` call in a test function body.
+fn collect_random_call_lines(test: &crate::models::TestFunction) -> Vec<usize> {
+    let source = match std::fs::read_to_string(&test.file_path) {
+        Ok(s) => s,
+        Err(_) => return vec![test.line],
+    };
+    let mut parser = tree_sitter::Parser::new();
+    if parser
+        .set_language(&tree_sitter_python::LANGUAGE.into())
+        .is_err()
+    {
+        return vec![test.line];
+    }
+    let tree = match parser.parse(&source, None) {
+        Some(t) => t,
+        None => return vec![test.line],
+    };
+    let root = tree.root_node();
+    let source_bytes = source.as_bytes();
+
+    let func_node = match find_function_node(&root, test.line) {
+        Some(n) => n,
+        None => return vec![test.line],
+    };
+    let body = match func_node.child_by_field_name("body") {
+        Some(b) => b,
+        None => return vec![test.line],
+    };
+
+    let mut lines = Vec::new();
+    collect_random_calls(body, source_bytes, &mut lines);
+    if lines.is_empty() {
+        vec![test.line]
+    } else {
+        lines
+    }
+}
+
+/// Recursively collect line numbers of random function calls.
+fn collect_random_calls(node: Node, source: &[u8], lines: &mut Vec<usize>) {
+    if node.kind() == "call" {
+        if let Some(f) = node.child_by_field_name("function") {
+            let text = f.utf8_text(source).unwrap_or_default();
+            let random_fns = [
+                "random.random",
+                "random.randint",
+                "random.choice",
+                "random.shuffle",
+                "random.uniform",
+                "random.randrange",
+                "random.sample",
+                "random.gauss",
+                "random.normalvariate",
+            ];
+            let is_random = random_fns.iter().any(|rf| text == *rf)
+                || (f.kind() == "attribute"
+                    && f.child_by_field_name("object")
+                        .is_some_and(|o| o.utf8_text(source).unwrap_or_default() == "random"));
+            if is_random {
+                lines.push(node.start_position().row + 1);
+            }
+        }
+    }
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        collect_random_calls(child, source, lines);
+    }
+}
+
+/// Collect line numbers of subprocess calls that lack a timeout argument.
+fn collect_unguarded_subprocess_calls(test: &crate::models::TestFunction) -> Vec<usize> {
+    let source = match std::fs::read_to_string(&test.file_path) {
+        Ok(s) => s,
+        Err(_) => return vec![test.line],
+    };
+    let mut parser = tree_sitter::Parser::new();
+    if parser
+        .set_language(&tree_sitter_python::LANGUAGE.into())
+        .is_err()
+    {
+        return vec![test.line];
+    }
+    let tree = match parser.parse(&source, None) {
+        Some(t) => t,
+        None => return vec![test.line],
+    };
+    let root = tree.root_node();
+    let source_bytes = source.as_bytes();
+
+    let func_node = match find_function_node(&root, test.line) {
+        Some(n) => n,
+        None => return vec![test.line],
+    };
+    let body = match func_node.child_by_field_name("body") {
+        Some(b) => b,
+        None => return vec![test.line],
+    };
+
+    let mut lines = Vec::new();
+    collect_subprocess_calls_without_timeout(body, source_bytes, &mut lines);
+    if lines.is_empty() {
+        vec![test.line]
+    } else {
+        lines
+    }
+}
+
+/// Recursively collect line numbers of subprocess calls missing a timeout keyword arg.
+fn collect_subprocess_calls_without_timeout(node: Node, source: &[u8], lines: &mut Vec<usize>) {
+    if node.kind() == "call" {
+        if let Some(f) = node.child_by_field_name("function") {
+            let text = f.utf8_text(source).unwrap_or_default();
+            let subprocess_fns = [
+                "subprocess.Popen",
+                "subprocess.run",
+                "subprocess.call",
+                "subprocess.check_output",
+                "subprocess.check_call",
+            ];
+            let is_subprocess = subprocess_fns.iter().any(|sf| text == *sf)
+                || (f.kind() == "attribute"
+                    && f.child_by_field_name("object")
+                        .is_some_and(|o| o.utf8_text(source).unwrap_or_default() == "subprocess"));
+            if is_subprocess && !call_has_timeout(node, source) {
+                lines.push(node.start_position().row + 1);
+            }
+        }
+    }
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        collect_subprocess_calls_without_timeout(child, source, lines);
+    }
+}
+
+/// Check if a call node has a `timeout` keyword argument.
+fn call_has_timeout(call_node: Node, source: &[u8]) -> bool {
+    if let Some(a) = call_node.child_by_field_name("arguments") {
+        let mut cursor = a.walk();
+        for child in a.children(&mut cursor) {
+            if child.kind() == "keyword_argument" {
+                if let Some(n) = child.child_by_field_name("name") {
+                    if n.utf8_text(source).unwrap_or_default() == "timeout" {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
+/// Find the function_definition node at the given 1-indexed line number.
+fn find_function_node<'tree>(root: &'tree Node<'tree>, target_line: usize) -> Option<Node<'tree>> {
+    let mut to_visit = vec![*root];
+    while let Some(node) = to_visit.pop() {
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            match child.kind() {
+                "function_definition" => {
+                    if child.start_position().row + 1 == target_line {
+                        return Some(child);
+                    }
+                }
+                "decorated_definition" => {
+                    let mut inner = child.walk();
+                    for c in child.children(&mut inner) {
+                        if c.kind() == "function_definition"
+                            && c.start_position().row + 1 == target_line
+                        {
+                            return Some(c);
+                        }
+                        if c.kind() == "class_definition" {
+                            to_visit.push(c);
+                        }
+                    }
+                }
+                "class_definition" => {
+                    to_visit.push(child);
+                }
+                _ => {}
+            }
+        }
+    }
+    None
 }

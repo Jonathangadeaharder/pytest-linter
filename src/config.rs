@@ -268,8 +268,8 @@ mod tests {
 
     #[test]
     fn test_from_pyproject_none_when_missing() {
-        let dir = std::env::temp_dir();
-        let res = Config::from_pyproject(&dir).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let res = Config::from_pyproject(dir.path()).unwrap();
         assert!(res.is_none());
     }
 

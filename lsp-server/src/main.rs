@@ -41,10 +41,30 @@ impl LanguageServer for Backend {
     async fn shutdown(&self) -> Result<()> {
         Ok(())
     }
+
+    async fn did_open(&self, params: DidOpenTextDocumentParams) {
+        let uri = params.text_document.uri;
+        let text = params.text_document.text;
+        self.publish_diagnostics(uri, text).await;
+    }
+
+    async fn did_change(&self, params: DidChangeTextDocumentParams) {
+        let uri = params.text_document.uri;
+        if let Some(change) = params.content_changes.into_iter().last() {
+            self.publish_diagnostics(uri, change.text).await;
+        }
+    }
+
+    async fn did_save(&self, params: DidSaveTextDocumentParams) {
+        let uri = params.text_document.uri;
+        if let Some(text) = params.text {
+            self.publish_diagnostics(uri, text).await;
+        }
+    }
 }
 
 impl Backend {
-    async fn publish_diagnostics(&self, uri: Url) {
+    async fn publish_diagnostics(&self, uri: Url, _text: String) {
         let path = uri.to_file_path().unwrap_or_else(|_| PathBuf::from(uri.as_str()));
         let config = Config::default();
         let violations = collect_violations(&[path.clone()], config).unwrap_or_default();

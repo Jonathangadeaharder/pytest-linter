@@ -63,7 +63,11 @@ def _download_binary() -> str:
     with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as tmp:
         urllib.request.urlretrieve(url, tmp.name)
         with tarfile.open(tmp.name) as tar:
-            tar.extractall(path=bin_dir)
+            for member in tar.getmembers():
+                member_path = os.path.normpath(os.path.join(bin_dir, member.name))
+                if not member_path.startswith(os.path.normpath(str(bin_dir)) + os.sep) and member_path != os.path.normpath(str(bin_dir)):
+                    raise RuntimeError(f"Attempted path traversal in tar: {member.name}")
+                tar.extract(member, path=bin_dir)
         os.unlink(tmp.name)
 
     binary_path.chmod(0o755)

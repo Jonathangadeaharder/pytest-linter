@@ -1,3 +1,5 @@
+//! pytest-linter: detect test smells in Python/pytest test files.
+
 use anyhow::Result;
 use clap::Parser;
 use pytest_linter::config::Config;
@@ -26,10 +28,10 @@ struct Cli {
     #[arg(long, default_value = "HEAD")]
     base: String,
 
-    #[arg(long)]
+    #[arg(long, conflicts_with = "check_baseline")]
     baseline: Option<PathBuf>,
 
-    #[arg(long)]
+    #[arg(long, conflicts_with = "baseline")]
     check_baseline: Option<PathBuf>,
 }
 

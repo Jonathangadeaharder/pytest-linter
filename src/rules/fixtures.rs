@@ -1,7 +1,10 @@
+//! Rules that detect fixture anti-patterns: autouse, scope issues, mutations, missing cleanup.
+
 use crate::engine::{fixture_scope_by_name, make_violation};
 use crate::models::{Category, ParsedModule, Severity, Violation};
 use crate::rules::{Rule, RuleContext};
 
+/// Rule that detects autouse fixtures which implicitly affect all tests.
 pub struct AutouseFixtureRule;
 
 impl Rule for AutouseFixtureRule {
@@ -43,6 +46,7 @@ impl Rule for AutouseFixtureRule {
     }
 }
 
+/// Rule that detects fixtures with invalid scope declarations.
 pub struct InvalidScopeRule;
 
 impl Rule for InvalidScopeRule {
@@ -95,6 +99,7 @@ impl Rule for InvalidScopeRule {
     }
 }
 
+/// Rule that detects fixture name shadowing across scopes.
 pub struct ShadowedFixtureRule;
 
 impl Rule for ShadowedFixtureRule {
@@ -143,6 +148,7 @@ impl Rule for ShadowedFixtureRule {
     }
 }
 
+/// Rule that detects fixtures defined but never used.
 pub struct UnusedFixtureRule;
 
 impl Rule for UnusedFixtureRule {
@@ -187,6 +193,7 @@ impl Rule for UnusedFixtureRule {
     }
 }
 
+/// Rule that detects session-scoped fixtures with mutable state.
 pub struct StatefulSessionFixtureRule;
 
 impl Rule for StatefulSessionFixtureRule {
@@ -231,6 +238,7 @@ impl Rule for StatefulSessionFixtureRule {
     }
 }
 
+/// Rule that detects tests mutating fixture-provided state.
 pub struct FixtureMutationRule;
 
 impl Rule for FixtureMutationRule {
@@ -284,6 +292,7 @@ impl Rule for FixtureMutationRule {
     }
 }
 
+/// Rule that detects fixtures with DB commits but no cleanup/rollback.
 pub struct FixtureDbCommitNoCleanupRule;
 
 impl Rule for FixtureDbCommitNoCleanupRule {
@@ -328,6 +337,7 @@ impl Rule for FixtureDbCommitNoCleanupRule {
     }
 }
 
+/// Rule that detects fixtures with overly broad scope.
 pub struct FixtureOverlyBroadScopeRule;
 
 impl Rule for FixtureOverlyBroadScopeRule {
@@ -377,6 +387,7 @@ impl Rule for FixtureOverlyBroadScopeRule {
     }
 }
 
+/// Rule that suggests adding docstrings to fixtures.
 pub struct NoContractHintRule;
 
 impl Rule for NoContractHintRule {

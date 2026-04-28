@@ -1,3 +1,5 @@
+//! Core linting engine: file discovery, parallel parsing, rule execution, and output formatting.
+
 use crate::config::Config;
 use crate::models::{Category, Fixture, FixtureScope, ParsedModule, Severity, Violation};
 use crate::rules::{Rule, RuleContext};
@@ -10,12 +12,14 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
+/// Core linting engine that orchestrates rule execution across parsed modules.
 pub struct LintEngine {
     rules: Vec<Box<dyn Rule>>,
     config: Config,
 }
 
 impl LintEngine {
+    /// Create a new engine with rules filtered by the given configuration.
     #[allow(clippy::missing_errors_doc)]
     pub fn new(config: Config) -> Result<Self> {
         let all = crate::rules::all_rules();
@@ -26,6 +30,7 @@ impl LintEngine {
         Ok(Self { rules, config })
     }
 
+    /// Lint all test files discovered under the given paths and return violations.
     #[allow(clippy::missing_errors_doc)]
     pub fn lint_paths(&self, paths: &[PathBuf]) -> Result<Vec<Violation>> {
         let files = discover_files(paths);
@@ -68,6 +73,7 @@ impl LintEngine {
     }
 }
 
+/// Discover test files from the given paths (files or directories).
 fn discover_files(paths: &[PathBuf]) -> Vec<PathBuf> {
     let mut files = Vec::new();
 
@@ -94,6 +100,7 @@ fn discover_files(paths: &[PathBuf]) -> Vec<PathBuf> {
     files
 }
 
+/// Check if a file is a Python test file by naming convention.
 fn is_test_file(path: &Path) -> bool {
     let name = path
         .file_name()
@@ -102,6 +109,7 @@ fn is_test_file(path: &Path) -> bool {
     name.starts_with("test_") || name.ends_with("_test.py") || name == "conftest.py"
 }
 
+/// Parse multiple files in parallel using rayon.
 fn parse_files_parallel(files: &[PathBuf]) -> Vec<ParsedModule> {
     files
         .par_iter()
@@ -123,24 +131,23 @@ type SuppressionMap = HashMap<(PathBuf, usize), HashSet<String>>;
 fn collect_suppressions(modules: &[ParsedModule]) -> SuppressionMap {
     let mut map: SuppressionMap = HashMap::new();
     for module in modules {
-        if let Ok(source) = std::fs::read_to_string(&module.file_path) {
-            for (line_idx, line) in source.lines().enumerate() {
-                let line_num = line_idx + 1;
-                if let Some(rules) = parse_noqa_comment(line) {
-                    map.entry((module.file_path.clone(), line_num))
-                        .or_default()
-                        .extend(rules);
-                    // Also suppress on the next line (inline noqa applies to the statement)
-                    map.entry((module.file_path.clone(), line_num + 1))
-                        .or_default()
-                        .extend(parse_noqa_comment(line).unwrap_or_default());
-                }
+        for (line_idx, line) in module.source.lines().enumerate() {
+            let line_num = line_idx + 1;
+            if let Some(rules) = parse_noqa_comment(line) {
+                map.entry((module.file_path.clone(), line_num))
+                    .or_default()
+                    .extend(rules);
+                // Also suppress on the next line (inline noqa applies to the statement)
+                map.entry((module.file_path.clone(), line_num + 1))
+                    .or_default()
+                    .extend(parse_noqa_comment(line).unwrap_or_default());
             }
         }
     }
     map
 }
 
+/// Parse `# noqa` comments from a line and return the suppressed rule IDs.
 fn parse_noqa_comment(line: &str) -> Option<Vec<String>> {
     let trimmed = line.trim();
     let noqa_pos = trimmed.find("# noqa")?;
@@ -174,6 +181,7 @@ fn parse_noqa_comment(line: &str) -> Option<Vec<String>> {
     None
 }
 
+/// Check if a violation is suppressed by a noqa comment.
 fn is_suppressed(violation: &Violation, suppressions: &SuppressionMap) -> bool {
     // Check the violation's line
     if let Some(rules) = suppressions.get(&(violation.file_path.clone(), violation.line)) {
@@ -192,6 +200,7 @@ fn is_suppressed(violation: &Violation, suppressions: &SuppressionMap) -> bool {
     false
 }
 
+/// Build a map of fixture name to all fixture definitions across modules.
 #[must_use]
 pub fn collect_all_fixtures(modules: &[ParsedModule]) -> HashMap<String, Vec<&Fixture>> {
     let mut map: HashMap<String, Vec<&Fixture>> = HashMap::new();
@@ -203,6 +212,7 @@ pub fn collect_all_fixtures(modules: &[ParsedModule]) -> HashMap<String, Vec<&Fi
     map
 }
 
+/// Build a map of fixture name to the file paths where it is defined.
 #[must_use]
 pub fn compute_fixture_locations(modules: &[ParsedModule]) -> HashMap<String, Vec<PathBuf>> {
     let mut map: HashMap<String, Vec<PathBuf>> = HashMap::new();
@@ -216,6 +226,7 @@ pub fn compute_fixture_locations(modules: &[ParsedModule]) -> HashMap<String, Ve
     map
 }
 
+/// Collect names of session-scoped fixtures that return mutable state.
 #[must_use]
 pub fn compute_session_mutable_fixtures(modules: &[ParsedModule]) -> HashSet<String> {
     modules
@@ -226,6 +237,7 @@ pub fn compute_session_mutable_fixtures(modules: &[ParsedModule]) -> HashSet<Str
         .collect()
 }
 
+/// Look up the narrowest scope for a fixture by name across all modules.
 #[must_use]
 pub fn fixture_scope_by_name<S: BuildHasher>(
     all_fixtures: &HashMap<String, Vec<&Fixture>, S>,
@@ -236,6 +248,7 @@ pub fn fixture_scope_by_name<S: BuildHasher>(
         .and_then(|v| v.iter().min_by_key(|f| f.scope).map(|f| f.scope))
 }
 
+/// Check whether a fixture is referenced by any test or other fixture.
 #[must_use]
 pub fn is_fixture_used_by_any_test_or_fixture(
     fixture_name: &str,
@@ -258,6 +271,7 @@ pub fn is_fixture_used_by_any_test_or_fixture(
     false
 }
 
+/// Compute the transitive closure of fixture names used by tests.
 #[must_use]
 pub fn compute_used_fixture_names(modules: &[ParsedModule]) -> HashSet<String> {
     let mut fixture_deps_map: HashMap<&str, Vec<&String>> = HashMap::new();
@@ -293,6 +307,7 @@ pub fn compute_used_fixture_names(modules: &[ParsedModule]) -> HashSet<String> {
     used
 }
 
+/// Construct a `Violation` from the given rule metadata and location info.
 #[allow(dead_code, clippy::too_many_arguments)]
 #[must_use]
 pub fn make_violation(
@@ -320,6 +335,7 @@ pub fn make_violation(
     }
 }
 
+/// Get test files changed since the given git base ref.
 #[allow(clippy::missing_errors_doc)]
 pub fn get_changed_files(base: &str) -> Result<Vec<PathBuf>> {
     let output = std::process::Command::new("git")
@@ -343,6 +359,7 @@ pub fn get_changed_files(base: &str) -> Result<Vec<PathBuf>> {
     Ok(files)
 }
 
+/// Run the full linter pipeline: discover, lint, format output. Returns true if errors found.
 #[allow(clippy::missing_errors_doc)]
 pub fn run_linter(
     paths: &[PathBuf],
@@ -367,6 +384,7 @@ pub fn run_linter(
     Ok(violations.iter().any(|v| v.severity == Severity::Error))
 }
 
+/// Collect all violations from the given paths without producing output.
 #[allow(clippy::missing_errors_doc)]
 pub fn collect_violations(paths: &[PathBuf], config: Config) -> Result<Vec<Violation>> {
     let engine = LintEngine::new(config)?;
@@ -380,6 +398,7 @@ struct BaselineEntry {
     rule_id: String,
 }
 
+/// Save a baseline of known violations to a JSON file.
 #[allow(clippy::missing_errors_doc)]
 pub fn save_baseline(violations: &[Violation], path: &Path) -> Result<()> {
     let entries: Vec<BaselineEntry> = violations
@@ -395,6 +414,7 @@ pub fn save_baseline(violations: &[Violation], path: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Load a baseline of known violations from a JSON file.
 #[allow(clippy::missing_errors_doc)]
 pub fn load_baseline(path: &Path) -> Result<HashSet<(String, usize, String)>> {
     let content = std::fs::read_to_string(path)?;
@@ -406,6 +426,7 @@ pub fn load_baseline(path: &Path) -> Result<HashSet<(String, usize, String)>> {
     Ok(set)
 }
 
+/// Filter violations to only those not present in the baseline.
 #[allow(clippy::missing_errors_doc)]
 pub fn filter_new_violations(
     violations: &[Violation],
@@ -425,16 +446,19 @@ pub fn filter_new_violations(
         .collect()
 }
 
+/// Format violations as JSON and write to the given path or stdout.
 #[allow(clippy::missing_errors_doc)]
 pub fn format_json_output(violations: &[Violation], output: Option<&Path>) -> Result<()> {
     format_json(violations, output)
 }
 
+/// Format violations as SARIF and write to the given path or stdout.
 #[allow(clippy::missing_errors_doc)]
 pub fn format_sarif_output(violations: &[Violation], output: Option<&Path>) -> Result<()> {
     format_sarif(violations, output)
 }
 
+/// Format violations for terminal display and write to the given path or stdout.
 #[allow(clippy::missing_errors_doc)]
 pub fn format_terminal_output(
     violations: &[Violation],

@@ -8,11 +8,13 @@ struct DecoratorInfo<'a> {
     node: Option<tree_sitter::Node<'a>>,
 }
 
+/// Tree-sitter based Python test file parser that extracts test functions and fixtures.
 pub struct PythonParser {
     parser: Parser,
 }
 
 impl PythonParser {
+    /// Create a new parser with the Python grammar loaded.
     #[allow(clippy::missing_errors_doc)]
     pub fn new() -> Result<Self> {
         let mut parser = Parser::new();
@@ -20,6 +22,7 @@ impl PythonParser {
         Ok(Self { parser })
     }
 
+    /// Parse a Python file and extract its test functions, fixtures, and imports.
     #[allow(clippy::missing_errors_doc)]
     pub fn parse_file(&mut self, path: &Path) -> Result<ParsedModule> {
         let source = std::fs::read_to_string(path)?;
@@ -34,6 +37,7 @@ impl PythonParser {
             let fixtures = Self::extract_fixtures(&root, source_bytes, &file_path);
             Ok(ParsedModule {
                 file_path,
+                source,
                 imports,
                 test_functions,
                 fixtures,
@@ -45,6 +49,7 @@ impl PythonParser {
             );
             Ok(ParsedModule {
                 file_path,
+                source,
                 imports: vec![],
                 test_functions: vec![],
                 fixtures: vec![],
@@ -1089,7 +1094,7 @@ impl PythonParser {
             let func = node.child_by_field_name("function");
             if let Some(f) = func {
                 let text = Self::node_text(f, source);
-                if text == "random.seed" || text == "seed" {
+                if text == "random.seed" {
                     return true;
                 }
                 if f.kind() == "attribute" {
@@ -1170,7 +1175,6 @@ impl PythonParser {
                     "subprocess.check_call",
                 ];
                 if subprocess_fns.iter().any(|sf| text == *sf) {
-                    // Check if 'timeout' keyword argument is present
                     let args = node.child_by_field_name("arguments");
                     if let Some(a) = args {
                         let mut cursor = a.walk();
@@ -1179,12 +1183,13 @@ impl PythonParser {
                                 let name = child.child_by_field_name("name");
                                 if let Some(n) = name {
                                     if Self::node_text(n, source) == "timeout" {
-                                        return true;
+                                        return false;
                                     }
                                 }
                             }
                         }
                     }
+                    return true;
                 }
             }
         }

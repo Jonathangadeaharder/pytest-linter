@@ -19,7 +19,21 @@ runs:
     - name: Install pytest-linter
       shell: bash
       run: |
-        curl -sSL https://github.com/Jonathangadeaharder/pytest-linter/releases/latest/download/pytest-linter-x86_64-unknown-linux-gnu.tar.gz | tar xz
+        OS="${{ runner.os }}"
+        ARCH="${{ runner.arch }}"
+        case "$OS" in
+          Linux)  PLATFORM="unknown-linux-gnu" ;;
+          macOS) PLATFORM="apple-darwin" ;;
+          Windows) PLATFORM="pc-windows-msvc" ;;
+          *) echo "Unsupported OS: $OS"; exit 1 ;;
+        esac
+        case "$ARCH" in
+          X64)  ARCH_NAME="x86_64" ;;
+          ARM64) ARCH_NAME="aarch64" ;;
+          *) echo "Unsupported arch: $ARCH"; exit 1 ;;
+        esac
+        BINARY="pytest-linter-${ARCH_NAME}-${PLATFORM}"
+        curl -sSL "https://github.com/Jonathangadeaharder/pytest-linter/releases/latest/download/${BINARY}.tar.gz" | tar xz
         sudo mv pytest-linter /usr/local/bin/
     - name: Run pytest-linter
       shell: bash

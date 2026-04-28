@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::path::PathBuf;
 
+/// Severity level for a lint violation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Severity {
@@ -20,6 +21,7 @@ impl std::fmt::Display for Severity {
     }
 }
 
+/// Category of a lint rule (flakiness, maintenance, fixture, enhancement).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Category {
@@ -40,6 +42,7 @@ impl std::fmt::Display for Category {
     }
 }
 
+/// A single lint violation found by a rule.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Violation {
     pub rule_id: String,
@@ -54,6 +57,7 @@ pub struct Violation {
     pub test_name: Option<String>,
 }
 
+/// Metadata about an assert statement found in a test.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AssertionInfo {
     pub is_magic: bool,
@@ -63,6 +67,7 @@ pub struct AssertionInfo {
     pub line: usize,
 }
 
+/// Parsed representation of a single test function with all detected characteristics.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[allow(clippy::struct_excessive_bools)]
 pub struct TestFunction {
@@ -94,6 +99,7 @@ pub struct TestFunction {
     pub has_subprocess_timeout: bool,
 }
 
+/// Scope of a pytest fixture, from narrowest (function) to widest (session).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum FixtureScope {
@@ -116,6 +122,7 @@ impl std::fmt::Display for FixtureScope {
     }
 }
 
+/// Parsed representation of a pytest fixture with scope and dependency info.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[allow(clippy::struct_excessive_bools)]
 pub struct Fixture {
@@ -133,9 +140,11 @@ pub struct Fixture {
     pub used_by: Vec<String>,
 }
 
+/// Result of parsing a single Python test file: imports, tests, and fixtures.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ParsedModule {
     pub file_path: PathBuf,
+    pub source: String,
     pub imports: Vec<String>,
     pub test_functions: Vec<TestFunction>,
     pub fixtures: Vec<Fixture>,
