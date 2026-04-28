@@ -1,7 +1,10 @@
+//! Rules that detect test maintenance issues: magic asserts, missing assertions, conditional logic.
+
 use crate::engine::make_violation;
 use crate::models::{Category, ParsedModule, Severity, Violation};
 use crate::rules::{Rule, RuleContext};
 
+/// Rule that detects conditional logic inside test functions.
 pub struct TestLogicRule;
 
 impl Rule for TestLogicRule {
@@ -46,6 +49,7 @@ impl Rule for TestLogicRule {
     }
 }
 
+/// Rule that detects magic values in assertions.
 pub struct MagicAssertRule;
 
 impl Rule for MagicAssertRule {
@@ -92,6 +96,7 @@ impl Rule for MagicAssertRule {
     }
 }
 
+/// Rule that detects suboptimal assertion patterns.
 pub struct SuboptimalAssertRule;
 
 impl Rule for SuboptimalAssertRule {
@@ -138,6 +143,7 @@ impl Rule for SuboptimalAssertRule {
     }
 }
 
+/// Rule that detects tests with no assertions.
 pub struct NoAssertionRule;
 
 impl Rule for NoAssertionRule {
@@ -179,6 +185,7 @@ impl Rule for NoAssertionRule {
     }
 }
 
+/// Rule that detects tests that only verify mock calls without real assertions.
 pub struct MockOnlyVerifyRule;
 
 impl Rule for MockOnlyVerifyRule {
@@ -223,6 +230,7 @@ impl Rule for MockOnlyVerifyRule {
     }
 }
 
+/// Rule that detects assertion roulette: too many assertions without messages.
 pub struct AssertionRouletteRule;
 
 impl Rule for AssertionRouletteRule {
@@ -267,6 +275,7 @@ impl Rule for AssertionRouletteRule {
     }
 }
 
+/// Rule that detects bare except or overly broad exception handling.
 pub struct RawExceptionHandlingRule;
 
 impl Rule for RawExceptionHandlingRule {
@@ -311,6 +320,7 @@ impl Rule for RawExceptionHandlingRule {
     }
 }
 
+/// Rule that detects BDD-style tests missing Given/When/Then scenario structure.
 pub struct BddMissingScenarioRule;
 
 impl Rule for BddMissingScenarioRule {
@@ -359,6 +369,7 @@ impl Rule for BddMissingScenarioRule {
     }
 }
 
+/// Rule that suggests using property-based testing for suitable tests.
 pub struct PropertyTestHintRule;
 
 impl Rule for PropertyTestHintRule {
@@ -407,6 +418,7 @@ impl Rule for PropertyTestHintRule {
     }
 }
 
+/// Rule that detects parametrize decorators with empty value lists.
 pub struct ParametrizeEmptyRule;
 
 impl Rule for ParametrizeEmptyRule {
@@ -455,6 +467,7 @@ impl Rule for ParametrizeEmptyRule {
     }
 }
 
+/// Rule that detects duplicate values in parametrize lists.
 pub struct ParametrizeDuplicateRule;
 
 impl Rule for ParametrizeDuplicateRule {
@@ -511,6 +524,7 @@ impl Rule for ParametrizeDuplicateRule {
     }
 }
 
+/// Rule that detects parametrize decorators with too many combinations.
 pub struct ParametrizeExplosionRule;
 
 impl Rule for ParametrizeExplosionRule {

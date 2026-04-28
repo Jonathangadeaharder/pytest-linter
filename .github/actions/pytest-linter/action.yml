@@ -1,0 +1,41 @@
+name: 'pytest-linter'
+description: 'Lint Python test files for test smells using pytest-linter'
+inputs:
+  path:
+    description: 'Path to lint (file or directory)'
+    required: false
+    default: '.'
+  format:
+    description: 'Output format (terminal, json, sarif)'
+    required: false
+    default: 'terminal'
+  fail-on:
+    description: 'Minimum severity to fail on (error, warning, info)'
+    required: false
+    default: 'error'
+runs:
+  using: 'composite'
+  steps:
+    - name: Install pytest-linter
+      shell: bash
+      run: |
+        OS="${{ runner.os }}"
+        ARCH="${{ runner.arch }}"
+        case "$OS" in
+          Linux)  PLATFORM="unknown-linux-gnu" ;;
+          macOS) PLATFORM="apple-darwin" ;;
+          Windows) PLATFORM="pc-windows-msvc" ;;
+          *) echo "Unsupported OS: $OS"; exit 1 ;;
+        esac
+        case "$ARCH" in
+          X64)  ARCH_NAME="x86_64" ;;
+          ARM64) ARCH_NAME="aarch64" ;;
+          *) echo "Unsupported arch: $ARCH"; exit 1 ;;
+        esac
+        BINARY="pytest-linter-${ARCH_NAME}-${PLATFORM}"
+        curl -sSL "https://github.com/Jonathangadeaharder/pytest-linter/releases/latest/download/${BINARY}.tar.gz" | tar xz
+        sudo mv pytest-linter /usr/local/bin/
+    - name: Run pytest-linter
+      shell: bash
+      run: |
+        pytest-linter --format ${{ inputs.format }} ${{ inputs.path }}
