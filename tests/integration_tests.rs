@@ -3761,3 +3761,92 @@ def test_unique(x):
     let v = find_violation(&violations, "PYTEST-PARAM-002");
     assert!(v.is_none());
 }
+
+#[test]
+fn test_noqa_suppresses_specific_rule() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_noqa_specific.py",
+        r#"
+def test_no_assert():  # noqa: PYTEST-MNT-004
+    pass
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-MNT-004");
+    assert!(v.is_none(), "noqa should suppress PYTEST-MNT-004");
+}
+
+#[test]
+fn test_noqa_suppresses_all_rules() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_noqa_all.py",
+        r#"
+def test_no_assert():  # noqa
+    pass
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-MNT-004");
+    assert!(v.is_none(), "bare noqa should suppress all rules");
+}
+
+#[test]
+fn test_noqa_does_not_suppress_other_rules() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_noqa_other.py",
+        r#"
+def test_no_assert():  # noqa: PYTEST-FLK-001
+    pass
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-MNT-004");
+    assert!(
+        v.is_some(),
+        "noqa for FLK-001 should not suppress MNT-004"
+    );
+}
+
+#[test]
+fn test_noqa_multiple_rules() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_noqa_multi.py",
+        r#"
+def test_no_assert():  # noqa: PYTEST-MNT-004, PYTEST-BDD-001
+    pass
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v1 = find_violation(&violations, "PYTEST-MNT-004");
+    let v2 = find_violation(&violations, "PYTEST-BDD-001");
+    assert!(v1.is_none(), "noqa should suppress PYTEST-MNT-004");
+    assert!(v2.is_none(), "noqa should suppress PYTEST-BDD-001");
+}
+
+#[test]
+fn test_noqa_on_previous_line() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_noqa_prev.py",
+        r#"
+# noqa: PYTEST-MNT-004
+def test_no_assert():
+    pass
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-MNT-004");
+    assert!(
+        v.is_none(),
+        "noqa on previous line should suppress violation"
+    );
+}

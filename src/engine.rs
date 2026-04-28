@@ -59,7 +59,11 @@ impl LintEngine {
             })
             .collect();
 
-        let mut violations = violations;
+        let suppressions = collect_suppressions(&modules);
+        let mut violations: Vec<Violation> = violations
+            .into_iter()
+            .filter(|v| !is_suppressed(v, &suppressions))
+            .collect();
         violations.sort();
         Ok(violations)
     }
@@ -113,6 +117,80 @@ fn parse_files_parallel(files: &[PathBuf]) -> Vec<ParsedModule> {
             }
         })
         .collect()
+}
+
+type SuppressionMap = HashMap<(PathBuf, usize), HashSet<String>>;
+
+fn collect_suppressions(modules: &[ParsedModule]) -> SuppressionMap {
+    let mut map: SuppressionMap = HashMap::new();
+    for module in modules {
+        if let Ok(source) = std::fs::read_to_string(&module.file_path) {
+            for (line_idx, line) in source.lines().enumerate() {
+                let line_num = line_idx + 1;
+                if let Some(rules) = parse_noqa_comment(line) {
+                    map.entry((module.file_path.clone(), line_num))
+                        .or_default()
+                        .extend(rules);
+                    // Also suppress on the next line (inline noqa applies to the statement)
+                    map.entry((module.file_path.clone(), line_num + 1))
+                        .or_default()
+                        .extend(parse_noqa_comment(line).unwrap_or_default());
+                }
+            }
+        }
+    }
+    map
+}
+
+fn parse_noqa_comment(line: &str) -> Option<Vec<String>> {
+    let trimmed = line.trim();
+    let noqa_pos = trimmed.find("# noqa")?;
+    let after_noqa = &trimmed[noqa_pos + 6..].trim();
+
+    if after_noqa.is_empty() || after_noqa.starts_with(':') {
+        let rules_str = if after_noqa.starts_with(':') {
+            after_noqa[1..].trim()
+        } else {
+            // bare `# noqa` suppresses all rules
+            return Some(vec!["*".to_string()]);
+        };
+
+        if rules_str.is_empty() {
+            return Some(vec!["*".to_string()]);
+        }
+
+        let rules: Vec<String> = rules_str
+            .split(',')
+            .map(|r| r.trim().to_string())
+            .filter(|r| !r.is_empty())
+            .collect();
+
+        if rules.is_empty() {
+            return Some(vec!["*".to_string()]);
+        }
+
+        return Some(rules);
+    }
+
+    None
+}
+
+fn is_suppressed(violation: &Violation, suppressions: &SuppressionMap) -> bool {
+    // Check the violation's line
+    if let Some(rules) = suppressions.get(&(violation.file_path.clone(), violation.line)) {
+        if rules.contains("*") || rules.contains(&violation.rule_id) {
+            return true;
+        }
+    }
+    // Also check the line above (noqa on previous line)
+    if violation.line > 1 {
+        if let Some(rules) = suppressions.get(&(violation.file_path.clone(), violation.line - 1)) {
+            if rules.contains("*") || rules.contains(&violation.rule_id) {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 #[must_use]
