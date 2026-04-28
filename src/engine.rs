@@ -368,6 +368,86 @@ pub fn run_linter(
     Ok(violations.iter().any(|v| v.severity == Severity::Error))
 }
 
+#[allow(clippy::missing_errors_doc)]
+pub fn collect_violations(paths: &[PathBuf], config: Config) -> Result<Vec<Violation>> {
+    let engine = LintEngine::new(config)?;
+    engine.lint_paths(paths)
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct BaselineEntry {
+    file_path: String,
+    line: usize,
+    rule_id: String,
+}
+
+#[allow(clippy::missing_errors_doc)]
+pub fn save_baseline(violations: &[Violation], path: &Path) -> Result<()> {
+    let entries: Vec<BaselineEntry> = violations
+        .iter()
+        .map(|v| BaselineEntry {
+            file_path: v.file_path.to_string_lossy().to_string(),
+            line: v.line,
+            rule_id: v.rule_id.clone(),
+        })
+        .collect();
+    let json = serde_json::to_string_pretty(&entries)?;
+    std::fs::write(path, json)?;
+    Ok(())
+}
+
+#[allow(clippy::missing_errors_doc)]
+pub fn load_baseline(path: &Path) -> Result<HashSet<(String, usize, String)>> {
+    let content = std::fs::read_to_string(path)?;
+    let entries: Vec<BaselineEntry> = serde_json::from_str(&content)?;
+    let set: HashSet<(String, usize, String)> = entries
+        .into_iter()
+        .map(|e| (e.file_path, e.line, e.rule_id))
+        .collect();
+    Ok(set)
+}
+
+#[allow(clippy::missing_errors_doc)]
+pub fn filter_new_violations(
+    violations: &[Violation],
+    baseline: &HashSet<(String, usize, String)>,
+) -> Vec<Violation> {
+    violations
+        .iter()
+        .filter(|v| {
+            let key = (
+                v.file_path.to_string_lossy().to_string(),
+                v.line,
+                v.rule_id.clone(),
+            );
+            !baseline.contains(&key)
+        })
+        .cloned()
+        .collect()
+}
+
+#[allow(clippy::missing_errors_doc)]
+pub fn format_json_output(violations: &[Violation], output: Option<&Path>) -> Result<()> {
+    format_json(violations, output)
+}
+
+#[allow(clippy::missing_errors_doc)]
+pub fn format_sarif_output(violations: &[Violation], output: Option<&Path>) -> Result<()> {
+    format_sarif(violations, output)
+}
+
+#[allow(clippy::missing_errors_doc)]
+pub fn format_terminal_output(
+    violations: &[Violation],
+    output: Option<&Path>,
+    no_color: bool,
+) -> Result<()> {
+    if no_color {
+        colored::control::set_override(false);
+    }
+    format_terminal(violations, output)
+}
+
 fn format_terminal(violations: &[Violation], output_path: Option<&Path>) -> Result<()> {
     let mut writer: Box<dyn Write> = match output_path {
         Some(path) => Box::new(std::fs::File::create(path)?),
