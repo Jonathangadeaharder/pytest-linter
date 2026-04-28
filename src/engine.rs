@@ -244,6 +244,29 @@ pub fn make_violation(
 }
 
 #[allow(clippy::missing_errors_doc)]
+pub fn get_changed_files(base: &str) -> Result<Vec<PathBuf>> {
+    let output = std::process::Command::new("git")
+        .args(["diff", "--name-only", "--diff-filter=ACMR", base])
+        .output()?;
+
+    if !output.status.success() {
+        anyhow::bail!(
+            "git diff failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let files: Vec<PathBuf> = stdout
+        .lines()
+        .map(|line| PathBuf::from(line.trim()))
+        .filter(|p| p.extension().is_some_and(|e| e == "py") && is_test_file(p))
+        .collect();
+
+    Ok(files)
+}
+
+#[allow(clippy::missing_errors_doc)]
 pub fn run_linter(
     paths: &[PathBuf],
     format: &str,

@@ -19,6 +19,12 @@ struct Cli {
 
     #[arg(long)]
     no_color: bool,
+
+    #[arg(long)]
+    incremental: bool,
+
+    #[arg(long, default_value = "HEAD")]
+    base: String,
 }
 
 fn main() -> Result<()> {
@@ -36,8 +42,19 @@ fn main() -> Result<()> {
         .unwrap_or_else(|| "terminal".to_string());
     let output_path = config.output.clone();
 
+    let paths = if cli.incremental {
+        let changed = pytest_linter::engine::get_changed_files(&cli.base)?;
+        if changed.is_empty() {
+            eprintln!("No changed Python test files found.");
+            process::exit(0);
+        }
+        changed
+    } else {
+        cli.paths.clone()
+    };
+
     let has_errors = pytest_linter::engine::run_linter(
-        &cli.paths,
+        &paths,
         &format_str,
         output_path.as_deref(),
         cli.no_color,
