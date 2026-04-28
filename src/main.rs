@@ -71,14 +71,28 @@ fn main() -> Result<()> {
         let baseline = pytest_linter::engine::load_baseline(baseline_path)?;
         let new_violations = pytest_linter::engine::filter_new_violations(&violations, &baseline);
         if new_violations.is_empty() {
-            eprintln!("No new violations found (baseline: {} violations)", baseline.len());
+            eprintln!(
+                "No new violations found (baseline: {} violations)",
+                baseline.len()
+            );
             process::exit(0);
         }
-        eprintln!("{} new violations found (not in baseline)", new_violations.len());
+        eprintln!(
+            "{} new violations found (not in baseline)",
+            new_violations.len()
+        );
         match format_str.as_str() {
-            "json" => pytest_linter::engine::format_json_output(&new_violations, output_path.as_deref())?,
-            "sarif" => pytest_linter::engine::format_sarif_output(&new_violations, output_path.as_deref())?,
-            _ => pytest_linter::engine::format_terminal_output(&new_violations, output_path.as_deref(), cli.no_color)?,
+            "json" => {
+                pytest_linter::engine::format_json_output(&new_violations, output_path.as_deref())?
+            }
+            "sarif" => {
+                pytest_linter::engine::format_sarif_output(&new_violations, output_path.as_deref())?
+            }
+            _ => pytest_linter::engine::format_terminal_output(
+                &new_violations,
+                output_path.as_deref(),
+                cli.no_color,
+            )?,
         }
         process::exit(1);
     }

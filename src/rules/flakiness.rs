@@ -365,7 +365,9 @@ impl Rule for RandomWithoutSeedRule {
                     ),
                     module.file_path.clone(),
                     test.line,
-                    Some("Call random.seed() at the start of the test or use a fixture".to_string()),
+                    Some(
+                        "Call random.seed() at the start of the test or use a fixture".to_string(),
+                    ),
                     Some(test.name.clone()),
                 ));
             }

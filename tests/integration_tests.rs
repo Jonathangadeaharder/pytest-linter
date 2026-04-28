@@ -3807,10 +3807,7 @@ def test_no_assert():  # noqa: PYTEST-FLK-001
     );
     let violations = lint_single_file(&path);
     let v = find_violation(&violations, "PYTEST-MNT-004");
-    assert!(
-        v.is_some(),
-        "noqa for FLK-001 should not suppress MNT-004"
-    );
+    assert!(v.is_some(), "noqa for FLK-001 should not suppress MNT-004");
 }
 
 #[test]

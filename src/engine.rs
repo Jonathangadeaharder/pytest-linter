@@ -50,8 +50,7 @@ impl LintEngine {
                 for rule in &self.rules {
                     let mut v = rule.check(module, &modules, &ctx);
                     for violation in &mut v {
-                        violation.severity =
-                            self.config.rule_severity(rule.id(), rule.severity());
+                        violation.severity = self.config.rule_severity(rule.id(), rule.severity());
                     }
                     module_violations.append(&mut v);
                 }

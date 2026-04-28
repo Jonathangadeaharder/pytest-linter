@@ -1047,9 +1047,15 @@ impl PythonParser {
             if let Some(f) = func {
                 let text = Self::node_text(f, source);
                 let random_fns = [
-                    "random.random", "random.randint", "random.choice",
-                    "random.shuffle", "random.uniform", "random.randrange",
-                    "random.sample", "random.gauss", "random.normalvariate",
+                    "random.random",
+                    "random.randint",
+                    "random.choice",
+                    "random.shuffle",
+                    "random.uniform",
+                    "random.randrange",
+                    "random.sample",
+                    "random.gauss",
+                    "random.normalvariate",
                 ];
                 if random_fns.iter().any(|rf| text == *rf) {
                     return true;
@@ -1118,8 +1124,10 @@ impl PythonParser {
             if let Some(f) = func {
                 let text = Self::node_text(f, source);
                 let subprocess_fns = [
-                    "subprocess.Popen", "subprocess.run",
-                    "subprocess.call", "subprocess.check_output",
+                    "subprocess.Popen",
+                    "subprocess.run",
+                    "subprocess.call",
+                    "subprocess.check_output",
                     "subprocess.check_call",
                 ];
                 if subprocess_fns.iter().any(|sf| text == *sf) {
@@ -1155,8 +1163,10 @@ impl PythonParser {
             if let Some(f) = func {
                 let text = Self::node_text(f, source);
                 let subprocess_fns = [
-                    "subprocess.Popen", "subprocess.run",
-                    "subprocess.call", "subprocess.check_output",
+                    "subprocess.Popen",
+                    "subprocess.run",
+                    "subprocess.call",
+                    "subprocess.check_output",
                     "subprocess.check_call",
                 ];
                 if subprocess_fns.iter().any(|sf| text == *sf) {
