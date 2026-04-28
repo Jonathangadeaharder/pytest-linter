@@ -88,6 +88,10 @@ pub struct TestFunction {
     pub uses_cwd_dependency: bool,
     pub uses_pytest_raises: bool,
     pub mutates_fixture_deps: Vec<String>,
+    pub uses_random: bool,
+    pub has_random_seed: bool,
+    pub uses_subprocess: bool,
+    pub has_subprocess_timeout: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]

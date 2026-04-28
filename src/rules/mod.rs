@@ -36,6 +36,8 @@ pub fn all_rules() -> Vec<Box<dyn Rule>> {
         Box::new(flakiness::MysteryGuestRule),
         Box::new(flakiness::XdistSharedStateRule),
         Box::new(flakiness::XdistFixtureIoRule),
+        Box::new(flakiness::RandomWithoutSeedRule),
+        Box::new(flakiness::SubprocessWithoutTimeoutRule),
         Box::new(maintenance::TestLogicRule),
         Box::new(maintenance::MagicAssertRule),
         Box::new(maintenance::SuboptimalAssertRule),
@@ -65,9 +67,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_all_rules_returns_28() {
+    fn test_all_rules_returns_30() {
         let rules = all_rules();
-        assert_eq!(rules.len(), 28);
+        assert_eq!(rules.len(), 30);
     }
 
     #[test]

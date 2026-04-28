@@ -58,7 +58,7 @@ impl Default for Config {
 }
 
 impl Config {
-    // 28 rule IDs to be enabled by default (as per task requirements)
+    // 30 rule IDs to be enabled by default
     fn default_rule_ids() -> Vec<&'static str> {
         vec![
             "PYTEST-FLK-001",
@@ -66,6 +66,8 @@ impl Config {
             "PYTEST-FLK-003",
             "PYTEST-FLK-004",
             "PYTEST-FLK-005",
+            "PYTEST-FLK-008",
+            "PYTEST-FLK-009",
             "PYTEST-XDIST-001",
             "PYTEST-XDIST-002",
             "PYTEST-MNT-001",
@@ -214,9 +216,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_default_has_28_rules_enabled() {
+    fn test_default_has_30_rules_enabled() {
         let cfg = Config::default();
-        assert_eq!(cfg.rules.len(), 28);
+        assert_eq!(cfg.rules.len(), 30);
         for rid in Config::default_rule_ids() {
             assert!(
                 cfg.is_rule_enabled(rid),

@@ -161,6 +161,10 @@ impl PythonParser {
         let uses_pytest_raises = Self::detect_pytest_raises(body.as_ref(), source);
         let mutates_fixture_deps =
             Self::detect_fixture_mutations(body.as_ref(), source, &fixture_deps);
+        let uses_random = Self::detect_random_usage(body.as_ref(), source);
+        let has_random_seed = Self::detect_random_seed(body.as_ref(), source);
+        let uses_subprocess = Self::detect_subprocess_usage(body.as_ref(), source);
+        let has_subprocess_timeout = Self::detect_subprocess_timeout(body.as_ref(), source);
 
         TestFunction {
             name: name.to_string(),
@@ -185,6 +189,10 @@ impl PythonParser {
             uses_cwd_dependency,
             uses_pytest_raises,
             mutates_fixture_deps,
+            uses_random,
+            has_random_seed,
+            uses_subprocess,
+            has_subprocess_timeout,
         }
     }
 
@@ -1027,6 +1035,156 @@ impl PythonParser {
             }
             _ => false,
         }
+    }
+
+    fn detect_random_usage(body: Option<&tree_sitter::Node>, source: &[u8]) -> bool {
+        body.is_some_and(|b| Self::has_random_call(*b, source))
+    }
+
+    fn has_random_call(node: tree_sitter::Node, source: &[u8]) -> bool {
+        if node.kind() == "call" {
+            let func = node.child_by_field_name("function");
+            if let Some(f) = func {
+                let text = Self::node_text(f, source);
+                let random_fns = [
+                    "random.random", "random.randint", "random.choice",
+                    "random.shuffle", "random.uniform", "random.randrange",
+                    "random.sample", "random.gauss", "random.normalvariate",
+                ];
+                if random_fns.iter().any(|rf| text == *rf) {
+                    return true;
+                }
+                if f.kind() == "attribute" {
+                    let obj = f.child_by_field_name("object");
+                    if let Some(o) = obj {
+                        let obj_name = Self::node_text(o, source);
+                        if obj_name == "random" {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if Self::has_random_call(child, source) {
+                return true;
+            }
+        }
+        false
+    }
+
+    fn detect_random_seed(body: Option<&tree_sitter::Node>, source: &[u8]) -> bool {
+        body.is_some_and(|b| Self::has_random_seed_call(*b, source))
+    }
+
+    fn has_random_seed_call(node: tree_sitter::Node, source: &[u8]) -> bool {
+        if node.kind() == "call" {
+            let func = node.child_by_field_name("function");
+            if let Some(f) = func {
+                let text = Self::node_text(f, source);
+                if text == "random.seed" || text == "seed" {
+                    return true;
+                }
+                if f.kind() == "attribute" {
+                    let attr = f.child_by_field_name("attribute");
+                    let obj = f.child_by_field_name("object");
+                    if let (Some(a), Some(o)) = (attr, obj) {
+                        let attr_name = Self::node_text(a, source);
+                        let obj_name = Self::node_text(o, source);
+                        if attr_name == "seed" && obj_name == "random" {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if Self::has_random_seed_call(child, source) {
+                return true;
+            }
+        }
+        false
+    }
+
+    fn detect_subprocess_usage(body: Option<&tree_sitter::Node>, source: &[u8]) -> bool {
+        body.is_some_and(|b| Self::has_subprocess_call(*b, source))
+    }
+
+    fn has_subprocess_call(node: tree_sitter::Node, source: &[u8]) -> bool {
+        if node.kind() == "call" {
+            let func = node.child_by_field_name("function");
+            if let Some(f) = func {
+                let text = Self::node_text(f, source);
+                let subprocess_fns = [
+                    "subprocess.Popen", "subprocess.run",
+                    "subprocess.call", "subprocess.check_output",
+                    "subprocess.check_call",
+                ];
+                if subprocess_fns.iter().any(|sf| text == *sf) {
+                    return true;
+                }
+                if f.kind() == "attribute" {
+                    let obj = f.child_by_field_name("object");
+                    if let Some(o) = obj {
+                        let obj_name = Self::node_text(o, source);
+                        if obj_name == "subprocess" {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if Self::has_subprocess_call(child, source) {
+                return true;
+            }
+        }
+        false
+    }
+
+    fn detect_subprocess_timeout(body: Option<&tree_sitter::Node>, source: &[u8]) -> bool {
+        body.is_some_and(|b| Self::has_timeout_arg(*b, source))
+    }
+
+    fn has_timeout_arg(node: tree_sitter::Node, source: &[u8]) -> bool {
+        if node.kind() == "call" {
+            let func = node.child_by_field_name("function");
+            if let Some(f) = func {
+                let text = Self::node_text(f, source);
+                let subprocess_fns = [
+                    "subprocess.Popen", "subprocess.run",
+                    "subprocess.call", "subprocess.check_output",
+                    "subprocess.check_call",
+                ];
+                if subprocess_fns.iter().any(|sf| text == *sf) {
+                    // Check if 'timeout' keyword argument is present
+                    let args = node.child_by_field_name("arguments");
+                    if let Some(a) = args {
+                        let mut cursor = a.walk();
+                        for child in a.children(&mut cursor) {
+                            if child.kind() == "keyword_argument" {
+                                let name = child.child_by_field_name("name");
+                                if let Some(n) = name {
+                                    if Self::node_text(n, source) == "timeout" {
+                                        return true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if Self::has_timeout_arg(child, source) {
+                return true;
+            }
+        }
+        false
     }
 }
 

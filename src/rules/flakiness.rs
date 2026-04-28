@@ -329,3 +329,91 @@ impl Rule for XdistFixtureIoRule {
         violations
     }
 }
+
+pub struct RandomWithoutSeedRule;
+
+impl Rule for RandomWithoutSeedRule {
+    fn id(&self) -> &'static str {
+        "PYTEST-FLK-008"
+    }
+    fn name(&self) -> &'static str {
+        "RandomWithoutSeedRule"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Warning
+    }
+    fn category(&self) -> Category {
+        Category::Flakiness
+    }
+    fn check(
+        &self,
+        module: &ParsedModule,
+        _all_modules: &[ParsedModule],
+        _ctx: &RuleContext,
+    ) -> Vec<Violation> {
+        let mut violations = Vec::new();
+        for test in &module.test_functions {
+            if test.uses_random && !test.has_random_seed {
+                violations.push(make_violation(
+                    self.id(),
+                    self.name(),
+                    self.severity(),
+                    self.category(),
+                    format!(
+                        "Test '{}' uses random without fixed seed — causes flaky tests",
+                        test.name
+                    ),
+                    module.file_path.clone(),
+                    test.line,
+                    Some("Call random.seed() at the start of the test or use a fixture".to_string()),
+                    Some(test.name.clone()),
+                ));
+            }
+        }
+        violations
+    }
+}
+
+pub struct SubprocessWithoutTimeoutRule;
+
+impl Rule for SubprocessWithoutTimeoutRule {
+    fn id(&self) -> &'static str {
+        "PYTEST-FLK-009"
+    }
+    fn name(&self) -> &'static str {
+        "SubprocessWithoutTimeoutRule"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Warning
+    }
+    fn category(&self) -> Category {
+        Category::Flakiness
+    }
+    fn check(
+        &self,
+        module: &ParsedModule,
+        _all_modules: &[ParsedModule],
+        _ctx: &RuleContext,
+    ) -> Vec<Violation> {
+        let mut violations = Vec::new();
+        for test in &module.test_functions {
+            if test.uses_subprocess && !test.has_subprocess_timeout {
+                violations.push(make_violation(
+                    self.id(),
+                    self.name(),
+                    self.severity(),
+                    self.category(),
+                    format!(
+                        "Test '{}' uses subprocess without timeout — may hang indefinitely",
+                        test.name
+                    ),
+                    module.file_path.clone(),
+                    test.line,
+                    Some("Add timeout parameter to subprocess calls".to_string()),
+                    Some(test.name.clone()),
+                ));
+            }
+        }
+        violations
+    }
+}
