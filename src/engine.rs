@@ -3,6 +3,7 @@ use crate::models::{Category, Fixture, FixtureScope, ParsedModule, Severity, Vio
 use crate::rules::{Rule, RuleContext};
 use anyhow::Result;
 use colored::Colorize;
+use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::hash::BuildHasher;
 use std::io::Write;
@@ -28,9 +29,7 @@ impl LintEngine {
     #[allow(clippy::missing_errors_doc)]
     pub fn lint_paths(&self, paths: &[PathBuf]) -> Result<Vec<Violation>> {
         let files = discover_files(paths);
-        let mut parser = crate::parser::PythonParser::new()?;
-        let modules = parse_files(&mut parser, &files);
-        let mut violations = Vec::new();
+        let modules = parse_files_parallel(&files);
 
         let fixture_map = collect_all_fixtures(&modules);
         let used_fixture_names = compute_used_fixture_names(&modules);
@@ -44,16 +43,23 @@ impl LintEngine {
             session_mutable_fixtures: &session_mutable_fixtures,
         };
 
-        for module in &modules {
-            for rule in &self.rules {
-                let mut v = rule.check(module, &modules, &ctx);
-                for violation in &mut v {
-                    violation.severity = self.config.rule_severity(rule.id(), rule.severity());
+        let violations: Vec<Violation> = modules
+            .par_iter()
+            .flat_map(|module| {
+                let mut module_violations = Vec::new();
+                for rule in &self.rules {
+                    let mut v = rule.check(module, &modules, &ctx);
+                    for violation in &mut v {
+                        violation.severity =
+                            self.config.rule_severity(rule.id(), rule.severity());
+                    }
+                    module_violations.append(&mut v);
                 }
-                violations.append(&mut v);
-            }
-        }
+                module_violations
+            })
+            .collect();
 
+        let mut violations = violations;
         violations.sort();
         Ok(violations)
     }
@@ -93,15 +99,20 @@ fn is_test_file(path: &Path) -> bool {
     name.starts_with("test_") || name.ends_with("_test.py") || name == "conftest.py"
 }
 
-fn parse_files(parser: &mut crate::parser::PythonParser, files: &[PathBuf]) -> Vec<ParsedModule> {
-    let mut modules = Vec::new();
-    for file in files {
-        match parser.parse_file(file) {
-            Ok(m) => modules.push(m),
-            Err(e) => eprintln!("Warning: failed to parse {}: {}", file.display(), e),
-        }
-    }
-    modules
+fn parse_files_parallel(files: &[PathBuf]) -> Vec<ParsedModule> {
+    files
+        .par_iter()
+        .filter_map(|file| {
+            let mut parser = crate::parser::PythonParser::new().ok()?;
+            match parser.parse_file(file) {
+                Ok(m) => Some(m),
+                Err(e) => {
+                    eprintln!("Warning: failed to parse {}: {}", file.display(), e);
+                    None
+                }
+            }
+        })
+        .collect()
 }
 
 #[must_use]
