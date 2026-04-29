@@ -83,7 +83,7 @@ impl Default for Config {
 }
 
 impl Config {
-    // 36 rule IDs enabled by default (matches the full rule registry)
+    // 38 rule IDs enabled by default (matches the full rule registry)
     fn default_rule_ids() -> Vec<&'static str> {
         vec![
             "PYTEST-FLK-001",
@@ -91,6 +91,8 @@ impl Config {
             "PYTEST-FLK-003",
             "PYTEST-FLK-004",
             "PYTEST-FLK-005",
+            "PYTEST-FLK-008",
+            "PYTEST-FLK-009",
             "PYTEST-FLK-010",
             "PYTEST-FLK-011",
             "PYTEST-XDIST-001",
@@ -122,6 +124,7 @@ impl Config {
             "PYTEST-FIX-010",
             "PYTEST-FIX-011",
             "PYTEST-FIX-012",
+            "PYTEST-FIX-013",
         ]
     }
 
@@ -375,9 +378,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_default_has_37_rules_enabled() {
+    fn test_default_has_39_rules_enabled() {
         let cfg = Config::default();
-        assert_eq!(cfg.rules.len(), 36);
+        assert_eq!(cfg.rules.len(), 39);
         for rid in Config::default_rule_ids() {
             assert!(
                 cfg.is_rule_enabled(rid),
@@ -426,8 +429,8 @@ mod tests {
 
     #[test]
     fn test_from_pyproject_none_when_missing() {
-        let dir = std::env::temp_dir();
-        let res = Config::from_pyproject(&dir).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let res = Config::from_pyproject(dir.path()).unwrap();
         assert!(res.is_none());
     }
 
@@ -555,7 +558,7 @@ format = "terminal"
         let dir = tempfile::tempdir().unwrap();
         let cfg = Config::discover(dir.path()).unwrap();
         assert_eq!(cfg.format, None);
-        assert_eq!(cfg.rules.len(), 36);
+        assert_eq!(cfg.rules.len(), 39);
     }
 
     #[test]

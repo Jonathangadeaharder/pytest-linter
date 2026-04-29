@@ -1,8 +1,11 @@
+//! Core linting engine: file discovery, parallel parsing, rule execution, and output formatting.
+
 use crate::config::Config;
 use crate::models::{Category, Fixture, FixtureScope, ParsedModule, Severity, Violation};
 use crate::rules::{Rule, RuleContext};
 use anyhow::Result;
 use colored::Colorize;
+use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::hash::BuildHasher;
 use std::io::Write;
@@ -99,6 +102,7 @@ pub struct LintEngine {
 }
 
 impl LintEngine {
+    /// Create a new engine with rules filtered by the given configuration.
     #[allow(clippy::missing_errors_doc)]
     pub fn new(config: Config) -> Result<Self> {
         Ok(Self {
@@ -118,6 +122,7 @@ impl LintEngine {
         })
     }
 
+    /// Lint all test files discovered under the given paths and return violations.
     #[allow(clippy::missing_errors_doc)]
     pub fn lint_paths(&self, paths: &[PathBuf]) -> Result<Vec<Violation>> {
         let files = discover_files(paths);
@@ -132,9 +137,7 @@ impl LintEngine {
             );
         }
 
-        let mut parser = crate::parser::PythonParser::new()?;
-
-        let modules = parse_files(&mut parser, &files);
+        let modules = parse_files_parallel(&files);
 
         let fixture_map = collect_all_fixtures(&modules);
         let used_fixture_names = compute_used_fixture_names(&modules);
@@ -156,6 +159,11 @@ impl LintEngine {
             violations.append(&mut v);
         }
 
+        let suppressions = collect_suppressions(&modules);
+        let mut violations: Vec<Violation> = violations
+            .into_iter()
+            .filter(|v| !is_suppressed(v, &suppressions))
+            .collect();
         violations.sort();
         Ok(violations)
     }
@@ -186,6 +194,7 @@ impl LintEngine {
     }
 }
 
+/// Discover test files from the given paths (files or directories).
 fn discover_files(paths: &[PathBuf]) -> Vec<PathBuf> {
     let mut files = Vec::new();
 
@@ -212,6 +221,7 @@ fn discover_files(paths: &[PathBuf]) -> Vec<PathBuf> {
     files
 }
 
+/// Check if a file is a Python test file by naming convention.
 fn is_test_file(path: &Path) -> bool {
     let name = path
         .file_name()
@@ -220,17 +230,98 @@ fn is_test_file(path: &Path) -> bool {
     name.starts_with("test_") || name.ends_with("_test.py") || name == "conftest.py"
 }
 
-fn parse_files(parser: &mut crate::parser::PythonParser, files: &[PathBuf]) -> Vec<ParsedModule> {
-    let mut modules = Vec::new();
-    for file in files {
-        match parser.parse_file(file) {
-            Ok(m) => modules.push(m),
-            Err(e) => eprintln!("Warning: failed to parse {}: {}", file.display(), e),
-        }
-    }
-    modules
+/// Parse multiple files in parallel using rayon.
+fn parse_files_parallel(files: &[PathBuf]) -> Vec<ParsedModule> {
+    files
+        .par_iter()
+        .filter_map(|file| {
+            let mut parser = crate::parser::PythonParser::new().ok()?;
+            match parser.parse_file(file) {
+                Ok(m) => Some(m),
+                Err(e) => {
+                    eprintln!("Warning: failed to parse {}: {}", file.display(), e);
+                    None
+                }
+            }
+        })
+        .collect()
 }
 
+type SuppressionMap = HashMap<(PathBuf, usize), HashSet<String>>;
+
+fn collect_suppressions(modules: &[ParsedModule]) -> SuppressionMap {
+    let mut map: SuppressionMap = HashMap::new();
+    for module in modules {
+        for (line_idx, line) in module.source.lines().enumerate() {
+            let line_num = line_idx + 1;
+            if let Some(rules) = parse_noqa_comment(line) {
+                map.entry((module.file_path.clone(), line_num))
+                    .or_default()
+                    .extend(rules);
+                // Also suppress on the next line (inline noqa applies to the statement)
+                map.entry((module.file_path.clone(), line_num + 1))
+                    .or_default()
+                    .extend(parse_noqa_comment(line).unwrap_or_default());
+            }
+        }
+    }
+    map
+}
+
+/// Parse `# noqa` comments from a line and return the suppressed rule IDs.
+fn parse_noqa_comment(line: &str) -> Option<Vec<String>> {
+    let trimmed = line.trim();
+    let noqa_pos = trimmed.find("# noqa")?;
+    let after_noqa = &trimmed[noqa_pos + 6..].trim();
+
+    if after_noqa.is_empty() || after_noqa.starts_with(':') {
+        let rules_str = if let Some(stripped) = after_noqa.strip_prefix(':') {
+            stripped.trim()
+        } else {
+            // bare `# noqa` suppresses all rules
+            return Some(vec!["*".to_string()]);
+        };
+
+        if rules_str.is_empty() {
+            return Some(vec!["*".to_string()]);
+        }
+
+        let rules: Vec<String> = rules_str
+            .split(',')
+            .map(|r| r.trim().to_string())
+            .filter(|r| !r.is_empty())
+            .collect();
+
+        if rules.is_empty() {
+            return Some(vec!["*".to_string()]);
+        }
+
+        return Some(rules);
+    }
+
+    None
+}
+
+/// Check if a violation is suppressed by a noqa comment.
+fn is_suppressed(violation: &Violation, suppressions: &SuppressionMap) -> bool {
+    // Check the violation's line
+    if let Some(rules) = suppressions.get(&(violation.file_path.clone(), violation.line)) {
+        if rules.contains("*") || rules.contains(&violation.rule_id) {
+            return true;
+        }
+    }
+    // Also check the line above (noqa on previous line)
+    if violation.line > 1 {
+        if let Some(rules) = suppressions.get(&(violation.file_path.clone(), violation.line - 1)) {
+            if rules.contains("*") || rules.contains(&violation.rule_id) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// Build a map of fixture name to all fixture definitions across modules.
 #[must_use]
 pub fn collect_all_fixtures(modules: &[ParsedModule]) -> HashMap<String, Vec<&Fixture>> {
     let mut map: HashMap<String, Vec<&Fixture>> = HashMap::new();
@@ -242,6 +333,7 @@ pub fn collect_all_fixtures(modules: &[ParsedModule]) -> HashMap<String, Vec<&Fi
     map
 }
 
+/// Build a map of fixture name to the file paths where it is defined.
 #[must_use]
 pub fn compute_fixture_locations(modules: &[ParsedModule]) -> HashMap<String, Vec<PathBuf>> {
     let mut map: HashMap<String, Vec<PathBuf>> = HashMap::new();
@@ -255,6 +347,7 @@ pub fn compute_fixture_locations(modules: &[ParsedModule]) -> HashMap<String, Ve
     map
 }
 
+/// Collect names of session-scoped fixtures that return mutable state.
 #[must_use]
 pub fn compute_session_mutable_fixtures(modules: &[ParsedModule]) -> HashSet<String> {
     modules
@@ -265,6 +358,7 @@ pub fn compute_session_mutable_fixtures(modules: &[ParsedModule]) -> HashSet<Str
         .collect()
 }
 
+/// Look up the narrowest scope for a fixture by name across all modules.
 #[must_use]
 pub fn fixture_scope_by_name<S: BuildHasher>(
     all_fixtures: &HashMap<String, Vec<&Fixture>, S>,
@@ -275,6 +369,7 @@ pub fn fixture_scope_by_name<S: BuildHasher>(
         .and_then(|v| v.iter().min_by_key(|f| f.scope).map(|f| f.scope))
 }
 
+/// Check whether a fixture is referenced by any test or other fixture.
 #[must_use]
 pub fn is_fixture_used_by_any_test_or_fixture(
     fixture_name: &str,
@@ -297,6 +392,7 @@ pub fn is_fixture_used_by_any_test_or_fixture(
     false
 }
 
+/// Compute the transitive closure of fixture names used by tests.
 #[must_use]
 pub fn compute_used_fixture_names(modules: &[ParsedModule]) -> HashSet<String> {
     let mut fixture_deps_map: HashMap<&str, Vec<&String>> = HashMap::new();
@@ -332,6 +428,7 @@ pub fn compute_used_fixture_names(modules: &[ParsedModule]) -> HashSet<String> {
     used
 }
 
+/// Construct a `Violation` from the given rule metadata and location info.
 #[allow(dead_code, clippy::too_many_arguments)]
 #[must_use]
 pub fn make_violation(
@@ -359,6 +456,31 @@ pub fn make_violation(
     }
 }
 
+/// Get test files changed since the given git base ref.
+#[allow(clippy::missing_errors_doc)]
+pub fn get_changed_files(base: &str) -> Result<Vec<PathBuf>> {
+    let output = std::process::Command::new("git")
+        .args(["diff", "--name-only", "--diff-filter=ACMR", base])
+        .output()?;
+
+    if !output.status.success() {
+        anyhow::bail!(
+            "git diff failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let files: Vec<PathBuf> = stdout
+        .lines()
+        .map(|line| PathBuf::from(line.trim()))
+        .filter(|p| p.extension().is_some_and(|e| e == "py") && is_test_file(p))
+        .collect();
+
+    Ok(files)
+}
+
+/// Run the full linter pipeline: discover, lint, format output. Returns true if errors found.
 #[allow(clippy::missing_errors_doc)]
 pub fn run_linter(
     paths: &[PathBuf],
@@ -393,6 +515,93 @@ pub fn run_linter_with_memory_limit(
     }
 
     Ok(violations.iter().any(|v| v.severity == Severity::Error))
+}
+
+/// Collect all violations from the given paths without producing output.
+#[allow(clippy::missing_errors_doc)]
+pub fn collect_violations(paths: &[PathBuf], config: Config) -> Result<Vec<Violation>> {
+    let engine = LintEngine::new(config)?;
+    engine.lint_paths(paths)
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct BaselineEntry {
+    file_path: String,
+    line: usize,
+    rule_id: String,
+}
+
+/// Save a baseline of known violations to a JSON file.
+#[allow(clippy::missing_errors_doc)]
+pub fn save_baseline(violations: &[Violation], path: &Path) -> Result<()> {
+    let entries: Vec<BaselineEntry> = violations
+        .iter()
+        .map(|v| BaselineEntry {
+            file_path: v.file_path.to_string_lossy().to_string(),
+            line: v.line,
+            rule_id: v.rule_id.clone(),
+        })
+        .collect();
+    let json = serde_json::to_string_pretty(&entries)?;
+    std::fs::write(path, json)?;
+    Ok(())
+}
+
+/// Load a baseline of known violations from a JSON file.
+#[allow(clippy::missing_errors_doc)]
+pub fn load_baseline(path: &Path) -> Result<HashSet<(String, usize, String)>> {
+    let content = std::fs::read_to_string(path)?;
+    let entries: Vec<BaselineEntry> = serde_json::from_str(&content)?;
+    let set: HashSet<(String, usize, String)> = entries
+        .into_iter()
+        .map(|e| (e.file_path, e.line, e.rule_id))
+        .collect();
+    Ok(set)
+}
+
+/// Filter violations to only those not present in the baseline.
+#[allow(clippy::missing_errors_doc)]
+pub fn filter_new_violations(
+    violations: &[Violation],
+    baseline: &HashSet<(String, usize, String)>,
+) -> Vec<Violation> {
+    violations
+        .iter()
+        .filter(|v| {
+            let key = (
+                v.file_path.to_string_lossy().to_string(),
+                v.line,
+                v.rule_id.clone(),
+            );
+            !baseline.contains(&key)
+        })
+        .cloned()
+        .collect()
+}
+
+/// Format violations as JSON and write to the given path or stdout.
+#[allow(clippy::missing_errors_doc)]
+pub fn format_json_output(violations: &[Violation], output: Option<&Path>) -> Result<()> {
+    format_json(violations, output)
+}
+
+/// Format violations as SARIF and write to the given path or stdout.
+#[allow(clippy::missing_errors_doc)]
+pub fn format_sarif_output(violations: &[Violation], output: Option<&Path>) -> Result<()> {
+    format_sarif(violations, output)
+}
+
+/// Format violations for terminal display and write to the given path or stdout.
+#[allow(clippy::missing_errors_doc)]
+pub fn format_terminal_output(
+    violations: &[Violation],
+    output: Option<&Path>,
+    no_color: bool,
+) -> Result<()> {
+    if no_color {
+        colored::control::set_override(false);
+    }
+    format_terminal(violations, output)
 }
 
 fn format_terminal(violations: &[Violation], output_path: Option<&Path>) -> Result<()> {

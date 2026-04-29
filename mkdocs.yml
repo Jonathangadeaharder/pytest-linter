@@ -57,8 +57,10 @@ nav:
           - PYTEST-FLK-003 (NetworkImportRule): rules/PYTEST-FLK-003.md
           - PYTEST-FLK-004 (CwdDependencyRule): rules/PYTEST-FLK-004.md
           - PYTEST-FLK-005 (MysteryGuestRule): rules/PYTEST-FLK-005.md
-          - PYTEST-FLK-010 (NetworkCallRule): rules/PYTEST-FLK-010.md
-          - PYTEST-FLK-011 (HardcodedHostRule): rules/PYTEST-FLK-011.md
+          - PYTEST-FLK-008 (RandomWithoutSeedRule): rules/PYTEST-FLK-008.md
+          - PYTEST-FLK-009 (SubprocessWithoutTimeoutRule): rules/PYTEST-FLK-009.md
+          - PYTEST-FLK-010 (SocketWithoutBindTimeoutRule): rules/PYTEST-FLK-010.md
+          - PYTEST-FLK-011 (DatetimeInAssertionRule): rules/PYTEST-FLK-011.md
           - PYTEST-XDIST-001 (XdistSharedStateRule): rules/PYTEST-XDIST-001.md
           - PYTEST-XDIST-002 (XdistFixtureIoRule): rules/PYTEST-XDIST-002.md
       - Maintenance:
@@ -86,7 +88,7 @@ nav:
           - PYTEST-FIX-006 (StatefulSessionFixtureRule): rules/PYTEST-FIX-006.md
           - PYTEST-FIX-007 (FixtureMutationRule): rules/PYTEST-FIX-007.md
           - PYTEST-FIX-008 (FixtureDbCommitNoCleanupRule): rules/PYTEST-FIX-008.md
-          - PYTEST-FIX-009 (FixtureOverlyBroadScopeRule): rules/PYTEST-FIX-009.md
+          - PYTEST-FIX-009 (AutouseCascadeDepthRule): rules/PYTEST-FIX-009.md
           - PYTEST-FIX-010 (UnusedYieldFixtureRule): rules/PYTEST-FIX-010.md
           - PYTEST-FIX-011 (MissingYieldCleanupRule): rules/PYTEST-FIX-011.md
           - PYTEST-FIX-012 (FixtureParamCountRule): rules/PYTEST-FIX-012.md

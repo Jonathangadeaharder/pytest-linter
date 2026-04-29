@@ -2,6 +2,7 @@ use crate::models::{Fixture, ParsedModule, Violation};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
+/// Context passed to each rule containing cross-module fixture information.
 pub struct RuleContext<'a> {
     pub fixture_map: &'a HashMap<String, Vec<&'a Fixture>>,
     pub used_fixture_names: &'a HashSet<String>,
@@ -9,11 +10,17 @@ pub struct RuleContext<'a> {
     pub session_mutable_fixtures: &'a HashSet<String>,
 }
 
+/// Trait implemented by all lint rules.
 pub trait Rule: Send + Sync {
+    /// Unique rule identifier (e.g., "PYTEST-FLK-001").
     fn id(&self) -> &'static str;
+    /// Human-readable rule name.
     fn name(&self) -> &'static str;
+    /// Default severity for violations produced by this rule.
     fn severity(&self) -> crate::models::Severity;
+    /// Category this rule belongs to.
     fn category(&self) -> crate::models::Category;
+    /// Check a module and return any violations found.
     fn check(
         &self,
         module: &ParsedModule,
@@ -26,6 +33,7 @@ pub mod fixtures;
 pub mod flakiness;
 pub mod maintenance;
 
+/// Return all available lint rules.
 #[must_use]
 pub fn all_rules() -> Vec<Box<dyn Rule>> {
     vec![
@@ -36,6 +44,8 @@ pub fn all_rules() -> Vec<Box<dyn Rule>> {
         Box::new(flakiness::MysteryGuestRule),
         Box::new(flakiness::XdistSharedStateRule),
         Box::new(flakiness::XdistFixtureIoRule),
+        Box::new(flakiness::RandomWithoutSeedRule),
+        Box::new(flakiness::SubprocessWithoutTimeoutRule),
         Box::new(maintenance::TestLogicRule),
         Box::new(maintenance::MagicAssertRule),
         Box::new(maintenance::SuboptimalAssertRule),
@@ -55,6 +65,7 @@ pub fn all_rules() -> Vec<Box<dyn Rule>> {
         Box::new(fixtures::StatefulSessionFixtureRule),
         Box::new(fixtures::FixtureMutationRule),
         Box::new(fixtures::FixtureDbCommitNoCleanupRule),
+        Box::new(fixtures::FixtureOverlyBroadScopeRule),
         Box::new(fixtures::AutouseCascadeDepthRule),
         Box::new(fixtures::ModuleScopeFixtureMutatedRule),
         Box::new(fixtures::YieldWithoutTryFinallyRule),
@@ -73,9 +84,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_all_rules_returns_37() {
+    fn test_all_rules_returns_39() {
         let rules = all_rules();
-        assert_eq!(rules.len(), 36);
+        assert_eq!(rules.len(), 39);
     }
 
     #[test]

@@ -42,9 +42,9 @@ def db_commit_no_cleanup():
     return conn
 
 
-# --- FIX-009: (removed, no autouse cascade in this file) ---
+# --- FIX-009: overly broad scope ---
 @pytest.fixture(scope="session")
-def simple_val():
+def simple_val():  # expect: PYTEST-FIX-009
     return 42
 
 

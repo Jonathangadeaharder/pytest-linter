@@ -1,9 +1,12 @@
+//! Rules that detect fixture anti-patterns: autouse, scope issues, mutations, missing cleanup.
+
 use std::collections::{HashMap, HashSet};
 
 use crate::engine::{fixture_scope_by_name, make_violation};
 use crate::models::{Category, Fixture, FixtureScope, ParsedModule, Severity, Violation};
 use crate::rules::{Rule, RuleContext};
 
+/// Rule that detects autouse fixtures which implicitly affect all tests.
 pub struct AutouseFixtureRule;
 
 impl Rule for AutouseFixtureRule {
@@ -45,6 +48,7 @@ impl Rule for AutouseFixtureRule {
     }
 }
 
+/// Rule that detects fixtures with invalid scope declarations.
 pub struct InvalidScopeRule;
 
 impl Rule for InvalidScopeRule {
@@ -97,6 +101,7 @@ impl Rule for InvalidScopeRule {
     }
 }
 
+/// Rule that detects fixture name shadowing across scopes.
 pub struct ShadowedFixtureRule;
 
 impl Rule for ShadowedFixtureRule {
@@ -145,6 +150,7 @@ impl Rule for ShadowedFixtureRule {
     }
 }
 
+/// Rule that detects fixtures defined but never used.
 pub struct UnusedFixtureRule;
 
 impl Rule for UnusedFixtureRule {
@@ -189,6 +195,7 @@ impl Rule for UnusedFixtureRule {
     }
 }
 
+/// Rule that detects session-scoped fixtures with mutable state.
 pub struct StatefulSessionFixtureRule;
 
 impl Rule for StatefulSessionFixtureRule {
@@ -233,6 +240,7 @@ impl Rule for StatefulSessionFixtureRule {
     }
 }
 
+/// Rule that detects tests mutating fixture-provided state.
 pub struct FixtureMutationRule;
 
 impl Rule for FixtureMutationRule {
@@ -286,6 +294,7 @@ impl Rule for FixtureMutationRule {
     }
 }
 
+/// Rule that detects fixtures with DB commits but no cleanup/rollback.
 pub struct FixtureDbCommitNoCleanupRule;
 
 impl Rule for FixtureDbCommitNoCleanupRule {
@@ -330,11 +339,60 @@ impl Rule for FixtureDbCommitNoCleanupRule {
     }
 }
 
+pub struct FixtureOverlyBroadScopeRule;
+
+impl Rule for FixtureOverlyBroadScopeRule {
+    fn id(&self) -> &'static str {
+        "PYTEST-FIX-009"
+    }
+    fn name(&self) -> &'static str {
+        "FixtureOverlyBroadScopeRule"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Warning
+    }
+    fn category(&self) -> Category {
+        Category::Fixture
+    }
+    fn check(
+        &self,
+        module: &ParsedModule,
+        _all_modules: &[ParsedModule],
+        _ctx: &RuleContext,
+    ) -> Vec<Violation> {
+        let mut violations = Vec::new();
+        for fixture in &module.fixtures {
+            if fixture.scope >= crate::models::FixtureScope::Module
+                && !fixture.has_yield
+                && !fixture.has_db_commit
+                && !fixture.has_db_rollback
+                && !fixture.uses_file_io
+            {
+                violations.push(make_violation(
+                    self.id(),
+                    self.name(),
+                    self.severity(),
+                    self.category(),
+                    format!(
+                        "Fixture '{}' has scope '{}' but no expensive setup — consider using function scope for better isolation",
+                        fixture.name, fixture.scope
+                    ),
+                    module.file_path.clone(),
+                    fixture.line,
+                    Some("Change fixture scope to 'function'".to_string()),
+                    None,
+                ));
+            }
+        }
+        violations
+    }
+}
+
 pub struct AutouseCascadeDepthRule;
 
 impl Rule for AutouseCascadeDepthRule {
     fn id(&self) -> &'static str {
-        "PYTEST-FIX-009"
+        "PYTEST-FIX-013"
     }
     fn name(&self) -> &'static str {
         "AutouseCascadeDepthRule"
@@ -568,6 +626,7 @@ impl Rule for FixtureNameShadowsBuiltinRule {
     }
 }
 
+/// Rule that suggests adding docstrings to fixtures.
 pub struct NoContractHintRule;
 
 impl Rule for NoContractHintRule {
