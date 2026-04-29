@@ -335,9 +335,12 @@ def main() -> None:
         parser.error(f"--num-files must be positive, got {args.num_files}")
 
     if os.path.exists(args.output_dir):
+        if not os.path.isdir(args.output_dir):
+            parser.error(f"--output-dir {args.output_dir!r} exists but is not a directory")
         for f in os.listdir(args.output_dir):
-            if f.startswith("test_soak_") and f.endswith(".py"):
-                os.remove(os.path.join(args.output_dir, f))
+            path = os.path.join(args.output_dir, f)
+            if f.startswith("test_soak_") and f.endswith(".py") and os.path.isfile(path):
+                os.remove(path)
     os.makedirs(args.output_dir, exist_ok=True)
     rng = random.Random(args.seed)
 

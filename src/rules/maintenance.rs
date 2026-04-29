@@ -653,26 +653,30 @@ impl Rule for DuplicateTestBodiesRule {
             if indices.len() < 2 {
                 continue;
             }
-            for window in indices.windows(2) {
-                let a = &tests[window[0]];
-                let b = &tests[window[1]];
-                if !reported.contains(&a.name) {
-                    violations.push(make_violation(
-                        self.id(),
-                        self.name(),
-                        self.severity(),
-                        self.category(),
-                        format!(
-                            "Tests '{}' and '{}' have identical function bodies — possible duplicate test",
-                            a.name, b.name
-                        ),
-                        module.file_path.clone(),
-                        a.line,
-                        Some("Consolidate or differentiate the test bodies".to_string()),
-                        Some(a.name.clone()),
-                    ));
-                    reported.insert(a.name.clone());
+            let names: Vec<&str> = indices.iter().map(|i| tests[*i].name.as_str()).collect();
+            for &i in indices {
+                let test = &tests[i];
+                if reported.contains(&test.name) {
+                    continue;
                 }
+                let peers: Vec<&str> = names.iter().filter(|n| **n != test.name).copied().collect();
+                violations.push(make_violation(
+                    self.id(),
+                    self.name(),
+                    self.severity(),
+                    self.category(),
+                    format!(
+                        "Test '{}' has identical body to {} other test(s): {} (shared body hash)",
+                        test.name,
+                        peers.len(),
+                        peers.join(", ")
+                    ),
+                    module.file_path.clone(),
+                    test.line,
+                    Some("Consolidate or differentiate the test bodies".to_string()),
+                    Some(test.name.clone()),
+                ));
+                reported.insert(test.name.clone());
             }
         }
         violations

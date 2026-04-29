@@ -170,14 +170,27 @@ impl LintEngine {
 
     #[allow(clippy::missing_errors_doc)]
     pub fn lint_source(&self, source: &str, file_path: &Path) -> Result<Vec<Violation>> {
+        self.lint_source_with_context(source, file_path, &[])
+    }
+
+    #[allow(clippy::missing_errors_doc)]
+    pub fn lint_source_with_context(
+        &self,
+        source: &str,
+        file_path: &Path,
+        context_modules: &[ParsedModule],
+    ) -> Result<Vec<Violation>> {
         let mut parser = crate::parser::PythonParser::new()?;
         let module = parser.parse_source(source, file_path)?;
-        let modules = vec![module];
 
-        let fixture_map = collect_all_fixtures(&modules);
-        let used_fixture_names = compute_used_fixture_names(&modules);
-        let fixture_locations = compute_fixture_locations(&modules);
-        let session_mutable_fixtures = compute_session_mutable_fixtures(&modules);
+        let mut all_modules: Vec<ParsedModule> = context_modules.to_vec();
+        all_modules.push(module);
+        let primary = &all_modules[all_modules.len() - 1];
+
+        let fixture_map = collect_all_fixtures(&all_modules);
+        let used_fixture_names = compute_used_fixture_names(&all_modules);
+        let fixture_locations = compute_fixture_locations(&all_modules);
+        let session_mutable_fixtures = compute_session_mutable_fixtures(&all_modules);
 
         let ctx = RuleContext {
             fixture_map: &fixture_map,
@@ -188,7 +201,7 @@ impl LintEngine {
 
         let violations = self
             .dispatcher
-            .check_module(&modules[0], &modules, &ctx, &self.config)?;
+            .check_module(primary, &all_modules, &ctx, &self.config)?;
 
         Ok(violations)
     }

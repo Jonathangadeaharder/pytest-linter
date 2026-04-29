@@ -83,6 +83,7 @@ jobs:
           path: |
             staging/*.tar.gz
             staging/*.zip
+            staging/*.sha256
 
   release:
     name: Create Release

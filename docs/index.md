@@ -39,6 +39,8 @@ tests/test_models.py:45 PYTEST-MNT-004 [error] Test 'test_create' has no asserti
 
 ## Installation
 
+<!-- markdownlint-disable MD046 -->
+
 === "Prebuilt Binary (Recommended)"
 
     Download from [GitHub Releases](https://github.com/Jonathangadeaharder/pytest-linter/releases).
@@ -60,6 +62,8 @@ tests/test_models.py:45 PYTEST-MNT-004 [error] Test 'test_create' has no asserti
     ```bash
     cargo install pytest-linter
     ```
+
+<!-- markdownlint-enable MD046 -->
 
 ## Next Steps
 

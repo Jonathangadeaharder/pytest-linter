@@ -494,7 +494,11 @@ impl Rule for ModuleScopeFixtureMutatedRule {
         for test in &module.test_functions {
             for dep in &test.mutates_fixture_deps {
                 let is_broad_scoped = ctx.fixture_map.get(dep).is_some_and(|fixtures| {
-                    fixtures.iter().any(|f| f.scope >= FixtureScope::Module)
+                    fixtures
+                        .iter()
+                        .find(|f| f.file_path == module.file_path)
+                        .or_else(|| fixtures.first())
+                        .is_some_and(|f| f.scope >= FixtureScope::Module)
                 });
                 if is_broad_scoped {
                     violations.push(make_violation(

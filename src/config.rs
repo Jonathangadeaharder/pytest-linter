@@ -9,7 +9,8 @@ use crate::models::Severity;
 /// Per-rule configuration options for pytest-linter
 #[derive(Debug, Deserialize, Clone, Default, PartialEq)]
 pub struct RuleConfig {
-    /// None means use the default (true). Some(false) disables the rule.
+    /// None means "not explicitly set" (inherit/enable by default).
+    /// Some(true) explicitly enables, Some(false) explicitly disables.
     pub enabled: Option<bool>,
     /// Optional severity override for this rule
     pub severity: Option<Severity>,
@@ -67,7 +68,7 @@ impl Default for Config {
             rules.insert(
                 rid.to_string(),
                 RuleConfig {
-                    enabled: Some(true),
+                    enabled: None,
                     severity: None,
                 },
             );
@@ -580,6 +581,49 @@ format = "terminal"
     }
 
     #[test]
+    fn test_format_only_config_does_not_lock_enabled() {
+        let dir = tempfile::tempdir().unwrap();
+        let toml_content = r#"
+format = "json"
+"#;
+        std::fs::write(dir.path().join("pytest-linter.toml"), toml_content).unwrap();
+
+        let cfg = Config::from_standalone(dir.path()).unwrap().unwrap();
+        for rid in Config::default_rule_ids() {
+            assert_eq!(
+                cfg.rules.get(rid).unwrap().enabled,
+                None,
+                "rule {} should have enabled=None (not locked)",
+                rid
+            );
+            assert!(
+                cfg.is_rule_enabled(rid),
+                "rule {} should be enabled by default",
+                rid
+            );
+        }
+    }
+
+    #[test]
+    fn test_merge_default_does_not_override_explicit_disable() {
+        let mut base = Config::default();
+        base.rules.insert(
+            "PYTEST-FLK-001".to_string(),
+            RuleConfig {
+                enabled: Some(false),
+                severity: None,
+            },
+        );
+        let higher = Config::default();
+        let merged = base.merge(higher);
+        assert_eq!(
+            merged.is_rule_enabled("PYTEST-FLK-001"),
+            false,
+            "default (None) should not override explicit Some(false)"
+        );
+    }
+
+    #[test]
     fn test_overrides_from_pyproject() {
         let dir = tempfile::tempdir().unwrap();
         let toml_content = r#"
@@ -660,7 +704,7 @@ rules = { PYTEST-FLK-001 = { enabled = false } }
         let file_path = dir.path().join("tests/unit/test_bar.py");
         let effective = cfg.effective_rules_for_file(&file_path).unwrap();
 
-        assert_eq!(effective.get("PYTEST-FLK-001").unwrap().enabled, Some(true));
+        assert_eq!(effective.get("PYTEST-FLK-001").unwrap().enabled, None);
     }
 
     #[test]

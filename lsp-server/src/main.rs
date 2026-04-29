@@ -4,9 +4,9 @@ use anyhow::Result;
 use lsp_server::{Connection, Message, Notification};
 use lsp_types::{
     Diagnostic, DiagnosticSeverity, DidChangeConfigurationParams, DidChangeTextDocumentParams,
-    DidOpenTextDocumentParams, InitializeParams, InitializeResult, Position, Range,
-    ServerCapabilities, TextDocumentSyncCapability, TextDocumentSyncKind, TextDocumentSyncOptions,
-    Url,
+    DidCloseTextDocumentParams, DidOpenTextDocumentParams, InitializeParams, InitializeResult,
+    Position, Range, ServerCapabilities, TextDocumentSyncCapability, TextDocumentSyncKind,
+    TextDocumentSyncOptions, Url,
 };
 use pytest_linter::config::Config;
 
@@ -110,6 +110,11 @@ fn main_loop(connection: Connection, mut state: LspState) -> Result<()> {
                         .unwrap_or_default();
                     let diagnostics = lint_document(uri, &text, &state).unwrap_or_default();
                     publish_diagnostics(&connection, uri.clone(), diagnostics)?;
+                }
+                "textDocument/didClose" => {
+                    let params: DidCloseTextDocumentParams =
+                        serde_json::from_value(not.params.clone())?;
+                    publish_diagnostics(&connection, params.text_document.uri, vec![])?;
                 }
                 "workspace/didChangeConfiguration" => {
                     let _params: DidChangeConfigurationParams =

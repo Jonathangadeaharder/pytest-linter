@@ -32,9 +32,15 @@ def _get_platform_asset_name() -> str:
             return f"{BIN_NAME}-x86_64-pc-windows-msvc.exe.zip"
         if machine in ("aarch64", "arm64"):
             raise RuntimeError(
-                f"Windows ARM64 is not yet supported: {system}-{machine}"
+                f"Windows ARM64 is not yet supported. "
+                f"Use an x86_64 Python installation or install manually from "
+                f"https://github.com/{REPO}/releases"
             )
-        raise RuntimeError(f"Unsupported Windows architecture: {system}-{machine}")
+        raise RuntimeError(
+            f"Unsupported Windows architecture: {machine}. "
+            f"Supported: x86_64/amd64. "
+            f"Install manually from https://github.com/{REPO}/releases"
+        )
 
     raise RuntimeError(f"Unsupported platform: {system}-{machine}")
 
@@ -43,9 +49,9 @@ def _get_bin_dir() -> Path:
     system = platform.system()
     if system == "Windows":
         base = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
-        return base / "pytest-linter" / "bin"
+        return base / "pytest-linter" / "bin" / VERSION
     base = Path(os.environ.get("XDG_BIN_HOME", Path.home() / ".local" / "bin"))
-    return base / "pytest-linter"
+    return base / "pytest-linter" / VERSION
 
 
 def _download(url: str, dest: Path) -> None:
@@ -61,7 +67,15 @@ def _verify_checksum(filepath: Path, checksum_url: str) -> None:
 
     first_line = checksum_data.splitlines()[0].strip()
     parts = first_line.split(None, 1)
+    if not parts:
+        raise RuntimeError(f"Invalid checksum format: {first_line!r}")
     expected_hash = parts[0]
+    if len(parts) > 1:
+        checksum_filename = parts[1].lstrip("*")
+        if checksum_filename != filepath.name:
+            raise RuntimeError(
+                f"Checksum filename mismatch: expected {filepath.name!r}, got {checksum_filename!r}"
+            )
 
     sha256 = hashlib.sha256(filepath.read_bytes()).hexdigest()
     if sha256 != expected_hash:
@@ -75,7 +89,8 @@ def install_binary() -> Path:
     binary_name = "pytest-linter.exe" if platform.system() == "Windows" else "pytest-linter"
     binary_path = bin_dir / binary_name
 
-    if binary_path.exists():
+    version_marker = bin_dir / ".version"
+    if binary_path.exists() and version_marker.exists() and version_marker.read_text().strip() == VERSION:
         return binary_path
 
     asset_name = _get_platform_asset_name()
@@ -101,6 +116,8 @@ def install_binary() -> Path:
 
     if platform.system() != "Windows":
         binary_path.chmod(binary_path.stat().st_mode | stat.S_IEXEC)
+
+    (bin_dir / ".version").write_text(VERSION + "\n")
 
     return binary_path
 
