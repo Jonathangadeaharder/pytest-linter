@@ -3875,7 +3875,7 @@ def test_plain():
 }
 
 #[test]
-fn test_conditional_logic_parametrized_triggers_mnt014() {
+fn test_conditional_logic_parametrized_triggers_mnt001_not_mnt014() {
     let dir = tempfile::tempdir().unwrap();
     let path = write_temp_file(
         dir.path(),
@@ -3893,10 +3893,15 @@ def test_with_if(x):
     );
     let violations = lint_single_file(&path);
     let v = find_violation(&violations, "PYTEST-MNT-014");
-    assert!(v.is_some(), "Expected PYTEST-MNT-014 violation");
-    let v = v.unwrap();
-    assert_eq!(v.rule_name, "ConditionalLogicInTestRule");
-    assert!(v.message.contains("conditional logic"));
+    assert!(
+        v.is_none(),
+        "MNT-014 removed; MNT-001 covers conditional logic"
+    );
+    let v = find_violation(&violations, "PYTEST-MNT-001");
+    assert!(
+        v.is_some(),
+        "Expected PYTEST-MNT-001 violation for conditional logic"
+    );
 }
 
 #[test]
@@ -3918,8 +3923,10 @@ def test_plain():
     let v = find_violation(&violations, "PYTEST-MNT-014");
     assert!(
         v.is_none(),
-        "Non-parametrized test with conditional should not trigger MNT-014 (covered by MNT-001)"
+        "MNT-014 removed; MNT-001 covers non-parametrized conditional logic"
     );
+    let v = find_violation(&violations, "PYTEST-MNT-001");
+    assert!(v.is_some(), "Expected PYTEST-MNT-001 for conditional logic");
 }
 
 #[test]
@@ -3943,7 +3950,7 @@ def test_two():
     assert!(v.is_some(), "Expected PYTEST-MNT-015 violation");
     let v = v.unwrap();
     assert_eq!(v.rule_name, "DuplicateTestBodiesRule");
-    assert!(v.message.contains("identical assertion sequences"));
+    assert!(v.message.contains("identical function bodies"));
 }
 
 #[test]

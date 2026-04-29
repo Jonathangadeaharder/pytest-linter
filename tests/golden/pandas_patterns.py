@@ -49,7 +49,7 @@ def simple_val():
 
 
 # --- MNT-002: magic assert ---
-def test_magic_bool():  # expect: PYTEST-MNT-015
+def test_magic_bool():
     assert True  # expect: PYTEST-MNT-002
 
 
@@ -69,7 +69,6 @@ def test_mock_only():
 
 
 # --- BDD-001: missing Gherkin ---
-# expect: PYTEST-MNT-015
 def test_plain():  # expect: PYTEST-BDD-001
     assert True
 

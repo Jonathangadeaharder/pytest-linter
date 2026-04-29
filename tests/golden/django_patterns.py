@@ -38,7 +38,7 @@ def test_conditional():  # expect: PYTEST-MNT-001
 
 
 # --- MNT-002: magic assert ---
-def test_magic_boolean():  # expect: PYTEST-MNT-015
+def test_magic_boolean():
     assert True  # expect: PYTEST-MNT-002
 
 

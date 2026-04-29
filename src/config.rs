@@ -83,7 +83,7 @@ impl Default for Config {
 }
 
 impl Config {
-    // 37 rule IDs enabled by default (matches the full rule registry)
+    // 36 rule IDs enabled by default (matches the full rule registry)
     fn default_rule_ids() -> Vec<&'static str> {
         vec![
             "PYTEST-FLK-001",
@@ -102,7 +102,6 @@ impl Config {
             "PYTEST-MNT-005",
             "PYTEST-MNT-006",
             "PYTEST-MNT-007",
-            "PYTEST-MNT-014",
             "PYTEST-MNT-015",
             "PYTEST-MNT-016",
             "PYTEST-MNT-017",
@@ -378,7 +377,7 @@ mod tests {
     #[test]
     fn test_default_has_37_rules_enabled() {
         let cfg = Config::default();
-        assert_eq!(cfg.rules.len(), 37);
+        assert_eq!(cfg.rules.len(), 36);
         for rid in Config::default_rule_ids() {
             assert!(
                 cfg.is_rule_enabled(rid),
@@ -556,7 +555,7 @@ format = "terminal"
         let dir = tempfile::tempdir().unwrap();
         let cfg = Config::discover(dir.path()).unwrap();
         assert_eq!(cfg.format, None);
-        assert_eq!(cfg.rules.len(), 37);
+        assert_eq!(cfg.rules.len(), 36);
     }
 
     #[test]

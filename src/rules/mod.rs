@@ -61,7 +61,6 @@ pub fn all_rules() -> Vec<Box<dyn Rule>> {
         Box::new(fixtures::FixtureNameShadowsBuiltinRule),
         Box::new(flakiness::SocketWithoutBindTimeoutRule),
         Box::new(flakiness::DatetimeInAssertionRule),
-        Box::new(maintenance::ConditionalLogicInTestRule),
         Box::new(maintenance::DuplicateTestBodiesRule),
         Box::new(maintenance::SleepWithValueRule),
         Box::new(maintenance::TestNameLengthRule),
@@ -76,7 +75,7 @@ mod tests {
     #[test]
     fn test_all_rules_returns_37() {
         let rules = all_rules();
-        assert_eq!(rules.len(), 37);
+        assert_eq!(rules.len(), 36);
     }
 
     #[test]

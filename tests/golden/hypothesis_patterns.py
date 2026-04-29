@@ -18,7 +18,7 @@ def test_single_case(x):
 
 # --- PARAM-002: duplicate parametrize values ---
 @pytest.mark.parametrize("x", [1, 2, 2, 3])  # expect: PYTEST-PARAM-002
-def test_dup(x):
+def test_dup(x):  # expect: PYTEST-MNT-015
     assert x > 0
 
 
@@ -46,7 +46,6 @@ def test_file_io():
 
 
 # --- BDD-001: no Gherkin docstring ---
-# expect: PYTEST-MNT-015
 def test_plain():  # expect: PYTEST-BDD-001
     assert True
 

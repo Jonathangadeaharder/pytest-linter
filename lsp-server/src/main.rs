@@ -96,9 +96,8 @@ fn main_loop(connection: Connection, mut state: LspState) -> Result<()> {
                         serde_json::from_value(not.params.clone())?;
                     let uri = &params.text_document.uri;
                     let text = &params.text_document.text;
-                    if let Some(diagnostics) = lint_document(uri, text, &state) {
-                        publish_diagnostics(&connection, uri.clone(), diagnostics)?;
-                    }
+                    let diagnostics = lint_document(uri, text, &state).unwrap_or_default();
+                    publish_diagnostics(&connection, uri.clone(), diagnostics)?;
                 }
                 "textDocument/didChange" => {
                     let params: DidChangeTextDocumentParams =
@@ -109,9 +108,8 @@ fn main_loop(connection: Connection, mut state: LspState) -> Result<()> {
                         .last()
                         .map(|c| c.text.clone())
                         .unwrap_or_default();
-                    if let Some(diagnostics) = lint_document(uri, &text, &state) {
-                        publish_diagnostics(&connection, uri.clone(), diagnostics)?;
-                    }
+                    let diagnostics = lint_document(uri, &text, &state).unwrap_or_default();
+                    publish_diagnostics(&connection, uri.clone(), diagnostics)?;
                 }
                 "workspace/didChangeConfiguration" => {
                     let _params: DidChangeConfigurationParams =

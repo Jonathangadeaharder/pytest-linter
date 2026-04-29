@@ -38,14 +38,8 @@ impl RuleDispatcher {
         all_modules: &[ParsedModule],
         ctx: &RuleContext,
         config: &Config,
-    ) -> Vec<Violation> {
-        let effective = match config.effective_rules_for_file(&module.file_path) {
-            Ok(e) => e,
-            Err(err) => {
-                eprintln!("Warning: {}", err);
-                config.rules.clone()
-            }
-        };
+    ) -> Result<Vec<Violation>> {
+        let effective = config.effective_rules_for_file(&module.file_path)?;
         let mut violations = Vec::new();
 
         for rule in &self.all_rules {
@@ -73,7 +67,7 @@ impl RuleDispatcher {
             violations.append(&mut v);
         }
 
-        violations
+        Ok(violations)
     }
 }
 
@@ -158,7 +152,7 @@ impl LintEngine {
         for module in &modules {
             let mut v = self
                 .dispatcher
-                .check_module(module, &modules, &ctx, &self.config);
+                .check_module(module, &modules, &ctx, &self.config)?;
             violations.append(&mut v);
         }
 
@@ -186,7 +180,7 @@ impl LintEngine {
 
         let violations = self
             .dispatcher
-            .check_module(&modules[0], &modules, &ctx, &self.config);
+            .check_module(&modules[0], &modules, &ctx, &self.config)?;
 
         Ok(violations)
     }

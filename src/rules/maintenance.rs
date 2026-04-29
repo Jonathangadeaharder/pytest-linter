@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::engine::make_violation;
 use crate::models::{Category, ParsedModule, Severity, Violation};
 use crate::rules::{Rule, RuleContext};
@@ -624,26 +626,30 @@ impl Rule for DuplicateTestBodiesRule {
     ) -> Vec<Violation> {
         let mut violations = Vec::new();
         let tests = &module.test_functions;
-        for i in 0..tests.len() {
-            for j in (i + 1)..tests.len() {
-                let a = &tests[i];
-                let b = &tests[j];
-                if a.assertions.is_empty() || a.assertions.len() != b.assertions.len() {
-                    continue;
-                }
-                let identical = a
-                    .assertions
-                    .iter()
-                    .zip(b.assertions.iter())
-                    .all(|(x, y)| x.expression_text == y.expression_text);
-                if identical {
+
+        let mut hash_map: HashMap<u64, Vec<usize>> = HashMap::new();
+        for (i, test) in tests.iter().enumerate() {
+            if let Some(hash) = test.body_hash {
+                hash_map.entry(hash).or_default().push(i);
+            }
+        }
+
+        let mut reported = std::collections::HashSet::new();
+        for indices in hash_map.values() {
+            if indices.len() < 2 {
+                continue;
+            }
+            for window in indices.windows(2) {
+                let a = &tests[window[0]];
+                let b = &tests[window[1]];
+                if !reported.contains(&a.name) {
                     violations.push(make_violation(
                         self.id(),
                         self.name(),
                         self.severity(),
                         self.category(),
                         format!(
-                            "Tests '{}' and '{}' have identical assertion sequences — possible duplicate test body",
+                            "Tests '{}' and '{}' have identical function bodies — possible duplicate test",
                             a.name, b.name
                         ),
                         module.file_path.clone(),
@@ -651,6 +657,7 @@ impl Rule for DuplicateTestBodiesRule {
                         Some("Consolidate or differentiate the test bodies".to_string()),
                         Some(a.name.clone()),
                     ));
+                    reported.insert(a.name.clone());
                 }
             }
         }

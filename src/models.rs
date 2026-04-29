@@ -89,6 +89,7 @@ pub struct TestFunction {
     pub uses_cwd_dependency: bool,
     pub uses_pytest_raises: bool,
     pub mutates_fixture_deps: Vec<String>,
+    pub body_hash: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]

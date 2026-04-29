@@ -28,13 +28,24 @@ def _get_platform_asset_name() -> str:
         if machine in ("aarch64", "arm64"):
             return f"{BIN_NAME}-aarch64-apple-darwin.tar.gz"
     elif system == "windows":
-        return f"{BIN_NAME}-x86_64-pc-windows-msvc.exe.zip"
+        if machine in ("x86_64", "amd64"):
+            return f"{BIN_NAME}-x86_64-pc-windows-msvc.exe.zip"
+        if machine in ("aarch64", "arm64"):
+            raise RuntimeError(
+                f"Windows ARM64 is not yet supported: {system}-{machine}"
+            )
+        raise RuntimeError(f"Unsupported Windows architecture: {system}-{machine}")
 
     raise RuntimeError(f"Unsupported platform: {system}-{machine}")
 
 
 def _get_bin_dir() -> Path:
-    return Path(__file__).parent / "bin"
+    system = platform.system()
+    if system == "Windows":
+        base = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
+        return base / "pytest-linter" / "bin"
+    base = Path(os.environ.get("XDG_BIN_HOME", Path.home() / ".local" / "bin"))
+    return base / "pytest-linter"
 
 
 def _download(url: str, dest: Path) -> None:
@@ -48,7 +59,10 @@ def _verify_checksum(filepath: Path, checksum_url: str) -> None:
     except Exception as exc:
         raise RuntimeError(f"Failed to fetch checksum from {checksum_url}") from exc
 
-    expected_hash = checksum_data.split()[0]
+    first_line = checksum_data.splitlines()[0].strip()
+    parts = first_line.split(None, 1)
+    expected_hash = parts[0]
+
     sha256 = hashlib.sha256(filepath.read_bytes()).hexdigest()
     if sha256 != expected_hash:
         raise RuntimeError(f"Checksum mismatch for {filepath}")

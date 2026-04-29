@@ -4,6 +4,7 @@
 import argparse
 import os
 import random
+import shutil
 import sys
 
 CLEAN_TEMPLATE = """\
@@ -333,6 +334,10 @@ def main() -> None:
     if args.num_files <= 0:
         parser.error(f"--num-files must be positive, got {args.num_files}")
 
+    if os.path.exists(args.output_dir):
+        for f in os.listdir(args.output_dir):
+            if f.startswith("test_soak_") and f.endswith(".py"):
+                os.remove(os.path.join(args.output_dir, f))
     os.makedirs(args.output_dir, exist_ok=True)
     rng = random.Random(args.seed)
 

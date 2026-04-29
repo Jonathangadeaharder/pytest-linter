@@ -1,5 +1,6 @@
 use crate::models::{Fixture, FixtureScope, ParsedModule, TestFunction};
 use anyhow::Result;
+use std::hash::{Hash, Hasher};
 use std::path::Path;
 use tree_sitter::Parser;
 
@@ -168,6 +169,13 @@ impl PythonParser {
         let mutates_fixture_deps =
             Self::detect_fixture_mutations(body.as_ref(), source, &fixture_deps);
 
+        let body_hash = body.map(|b| {
+            let text = Self::node_text(b, source);
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            text.hash(&mut hasher);
+            hasher.finish()
+        });
+
         TestFunction {
             name: name.to_string(),
             file_path: file_path.to_path_buf(),
@@ -192,6 +200,7 @@ impl PythonParser {
             uses_cwd_dependency,
             uses_pytest_raises,
             mutates_fixture_deps,
+            body_hash,
         }
     }
 
@@ -923,66 +932,77 @@ impl PythonParser {
         body.and_then(|b| Self::find_sleep_value(*b, source))
     }
 
-    fn find_sleep_value(node: tree_sitter::Node, source: &[u8]) -> Option<f64> {
-        if node.kind() == "call" {
-            let func = node.child_by_field_name("function");
-            if let Some(f) = func {
-                let text = Self::node_text(f, source);
-                if text == "time.sleep" || text == "sleep" {
-                    if let Some(arg) = node.child_by_field_name("arguments") {
-                        for child in arg.children(&mut arg.walk()) {
-                            if child.kind() == "integer" || child.kind() == "float" {
-                                let val_str = Self::node_text(child, source);
-                                if let Ok(val) = val_str.parse::<f64>() {
-                                    return Some(val);
-                                }
-                            } else if child.kind() == "unary_operator" {
-                                let op = child
-                                    .child_by_field_name("operator")
-                                    .map(|op| Self::node_text(op, source));
-                                if op.as_deref() == Some("-") {
-                                    if let Some(operand) = child.child_by_field_name("operand") {
-                                        let val_str = Self::node_text(operand, source);
-                                        if let Ok(val) = val_str.parse::<f64>() {
-                                            return Some(-val);
-                                        }
-                                    }
-                                }
+    fn extract_sleep_arg(node: tree_sitter::Node, source: &[u8]) -> Option<f64> {
+        if let Some(arg) = node.child_by_field_name("arguments") {
+            for child in arg.children(&mut arg.walk()) {
+                if child.kind() == "integer" || child.kind() == "float" {
+                    let val_str = Self::node_text(child, source);
+                    if let Ok(val) = val_str.parse::<f64>() {
+                        return Some(val);
+                    }
+                } else if child.kind() == "unary_operator" {
+                    let op = child
+                        .child_by_field_name("operator")
+                        .map(|op| Self::node_text(op, source));
+                    if op.as_deref() == Some("-") {
+                        if let Some(operand) = child.child_by_field_name("operand") {
+                            let val_str = Self::node_text(operand, source);
+                            if let Ok(val) = val_str.parse::<f64>() {
+                                return Some(-val);
                             }
                         }
                     }
                 }
-                if f.kind() == "attribute" {
-                    let attr = f.child_by_field_name("attribute");
-                    if let Some(a) = attr {
-                        let name = Self::node_text(a, source);
-                        if name == "sleep" {
-                            if let Some(arg) = node.child_by_field_name("arguments") {
-                                for child in arg.children(&mut arg.walk()) {
-                                    if child.kind() == "integer" || child.kind() == "float" {
-                                        let val_str = Self::node_text(child, source);
-                                        if let Ok(val) = val_str.parse::<f64>() {
-                                            return Some(val);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            if let Some(val) = Self::find_sleep_value(child, source) {
-                return Some(val);
             }
         }
         None
     }
 
+    fn is_sleep_call(func: tree_sitter::Node, source: &[u8]) -> bool {
+        let text = Self::node_text(func, source);
+        if text == "time.sleep" || text == "sleep" {
+            return true;
+        }
+        if func.kind() == "attribute" {
+            if let Some(attr) = func.child_by_field_name("attribute") {
+                let name = Self::node_text(attr, source);
+                if name == "sleep" {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    fn find_sleep_value(node: tree_sitter::Node, source: &[u8]) -> Option<f64> {
+        let mut max_val: Option<f64> = None;
+
+        if node.kind() == "call" {
+            if let Some(func) = node.child_by_field_name("function") {
+                if Self::is_sleep_call(func, source) {
+                    if let Some(val) = Self::extract_sleep_arg(node, source) {
+                        max_val = Some(val);
+                    }
+                }
+            }
+        }
+
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if let Some(val) = Self::find_sleep_value(child, source) {
+                match max_val {
+                    None => max_val = Some(val),
+                    Some(current) if val > current => max_val = Some(val),
+                    _ => {}
+                }
+            }
+        }
+
+        max_val
+    }
+
     fn detect_cleanup_pattern(body: Option<&tree_sitter::Node>, source: &[u8]) -> bool {
-        let cleanup_patterns = [
+        let cleanup_text_patterns = [
             ".close()",
             ".teardown_",
             "env_reset",
@@ -993,8 +1013,60 @@ impl PythonParser {
         ];
         body.is_some_and(|b| {
             let text = String::from_utf8_lossy(&source[b.start_byte()..b.end_byte()]);
-            cleanup_patterns.iter().any(|p| text.contains(p))
+
+            if cleanup_text_patterns.iter().any(|p| text.contains(p)) {
+                return true;
+            }
+
+            if text.contains("addfinalizer") || text.contains("request.addfinalizer") {
+                return true;
+            }
+
+            if text.contains("mock.patch") || text.contains("patch(") {
+                return true;
+            }
+
+            if text.contains("tmp_path") || text.contains("tmpdir") {
+                return true;
+            }
+
+            if Self::has_try_wrapping_yield(*b, source) {
+                return true;
+            }
+
+            if Self::has_with_wrapping_yield(*b, source) {
+                return true;
+            }
+
+            false
         })
+    }
+
+    fn has_try_wrapping_yield(body: tree_sitter::Node, _source: &[u8]) -> bool {
+        let mut cursor = body.walk();
+        for child in body.children(&mut cursor) {
+            if child.kind() == "try_statement" {
+                let mut try_cursor = child.walk();
+                for try_child in child.children(&mut try_cursor) {
+                    if (try_child.kind() == "block" || try_child.kind() == "suite")
+                        && Self::has_node_kind_recursive(try_child, "yield")
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    fn has_with_wrapping_yield(body: tree_sitter::Node, _source: &[u8]) -> bool {
+        let mut cursor = body.walk();
+        for child in body.children(&mut cursor) {
+            if child.kind() == "with_statement" && Self::has_node_kind_recursive(child, "yield") {
+                return true;
+            }
+        }
+        false
     }
 
     fn detect_network_usage(body: Option<&tree_sitter::Node>, source: &[u8]) -> bool {

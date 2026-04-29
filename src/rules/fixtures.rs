@@ -395,7 +395,11 @@ fn compute_cascade_depth(
             .map(|dep| {
                 fixture_map
                     .get(dep)
-                    .and_then(|v| v.first())
+                    .and_then(|v| {
+                        v.iter()
+                            .find(|f| f.file_path == fixture.file_path || v.len() == 1)
+                            .or_else(|| v.first())
+                    })
                     .map(|f| compute_cascade_depth(f, fixture_map, visited))
                     .unwrap_or(1)
             })
