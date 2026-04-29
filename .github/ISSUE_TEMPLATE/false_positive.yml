@@ -1,0 +1,45 @@
+name: False Positive Report
+description: Report a false positive from the linter
+labels: ["false-positive", "triage"]
+body:
+  - type: input
+    id: rule-id
+    attributes:
+      label: Rule ID
+      description: The rule that produced the false positive (e.g. PYTEST-FLK-001)
+      placeholder: PYTEST-XXX-NNN
+    validations:
+      required: true
+  - type: textarea
+    id: code-sample
+    attributes:
+      label: Code sample
+      description: The Python code that triggered the false positive
+      render: python
+    validations:
+      required: true
+  - type: textarea
+    id: expected-behavior
+    attributes:
+      label: Expected behavior
+      description: Why you believe this is not a violation
+    validations:
+      required: true
+  - type: textarea
+    id: actual-behavior
+    attributes:
+      label: Actual behavior
+      description: What the linter reported
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: pytest-linter version
+      description: The version of pytest-linter you are using
+      placeholder: "0.1.0"
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional context
+      description: Any other information that might help

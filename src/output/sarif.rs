@@ -40,6 +40,8 @@ pub struct Rule {
     pub id: String,
     pub name: String,
     pub short_description: Message,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub help_uri: Option<String>,
     pub default_configuration: ReportingConfiguration,
 }
 
@@ -129,6 +131,10 @@ pub fn violations_to_sarif(violations: &[Violation]) -> SarifLog {
             short_description: Message {
                 text: v.rule_name.clone(),
             },
+            help_uri: Some(format!(
+                "https://github.com/your-org/pytest-linter/blob/main/docs/rules/{}.md",
+                v.rule_id
+            )),
             default_configuration: ReportingConfiguration {
                 level: level.clone(),
             },

@@ -7,7 +7,7 @@ use serde::Deserialize;
 use crate::models::Severity;
 
 /// Per-rule configuration options for pytest-linter
-#[derive(Debug, Deserialize, Clone, Default)]
+#[derive(Debug, Deserialize, Clone, Default, PartialEq)]
 pub struct RuleConfig {
     /// None means use the default (true). Some(false) disables the rule.
     pub enabled: Option<bool>,
@@ -15,7 +15,19 @@ pub struct RuleConfig {
     pub severity: Option<Severity>,
 }
 
-/// TOML section [tool.pytest-linter] in a pyproject.toml
+/// Per-glob override configuration. Allows enabling/disabling rules or changing
+/// severity for files matching a glob pattern.
+#[derive(Debug, Deserialize, Clone)]
+pub struct OverrideConfig {
+    /// Glob pattern to match file paths (relative to config directory).
+    /// Examples: "tests/integration/**", "tests/e2e/*.py"
+    pub path: String,
+    /// Per-rule overrides for files matching this pattern
+    pub rules: HashMap<String, RuleConfig>,
+}
+
+/// TOML section [tool.pytest-linter] in a pyproject.toml, or the top-level
+/// structure of a standalone pytest-linter.toml file.
 #[derive(Debug, Deserialize, Clone, Default)]
 pub struct ToolConfig {
     /// Per-rule overrides. Key is the rule ID (e.g., "PYTEST-FLK-001")
@@ -24,9 +36,17 @@ pub struct ToolConfig {
     pub format: Option<String>,
     /// Optional output path override
     pub output: Option<PathBuf>,
+    /// Per-glob override configurations
+    pub overrides: Option<Vec<OverrideConfig>>,
 }
 
-/// Final, merged configuration used by the linter
+/// Final, merged configuration used by the linter.
+///
+/// Config priority (highest to lowest):
+/// 1. CLI arguments
+/// 2. pytest-linter.toml (standalone, walks up directories)
+/// 3. pyproject.toml [tool.pytest-linter] (walks up directories)
+/// 4. Built-in defaults
 #[derive(Debug, Clone)]
 pub struct Config {
     /// Resolved rule configurations. Each rule has its own enabled flag (defaults applied)
@@ -35,6 +55,10 @@ pub struct Config {
     pub format: Option<String>,
     /// Optional global output path override
     pub output: Option<PathBuf>,
+    /// Per-glob override configurations for per-directory rule scoping
+    pub overrides: Vec<OverrideConfig>,
+    /// Directory containing the config file, used for resolving override glob patterns
+    pub config_dir: Option<PathBuf>,
 }
 
 impl Default for Config {
@@ -53,6 +77,8 @@ impl Default for Config {
             rules,
             format: None,
             output: None,
+            overrides: vec![],
+            config_dir: None,
         }
     }
 }
@@ -95,8 +121,8 @@ impl Config {
     /// Check if a specific rule is enabled. Unknown rules are treated as enabled.
     pub fn is_rule_enabled(&self, rule_id: &str) -> bool {
         match self.rules.get(rule_id) {
-            Some(rc) => rc.enabled.unwrap_or(true), // None means default (true)
-            None => true,                           // Unknown rules default to enabled per spec
+            Some(rc) => rc.enabled.unwrap_or(true),
+            None => true,
         }
     }
 
@@ -109,21 +135,53 @@ impl Config {
         }
     }
 
+    /// Build a Config from a parsed ToolConfig, resolving paths relative to config_dir.
+    fn build_from_tool_config(tool_config: ToolConfig, config_dir: &Path) -> Self {
+        let mut cfg = Config::default();
+        if let Some(rules) = tool_config.rules {
+            for (id, override_rc) in rules.into_iter() {
+                cfg.rules
+                    .entry(id)
+                    .and_modify(|existing| {
+                        if let Some(e) = override_rc.enabled {
+                            existing.enabled = Some(e);
+                        }
+                        if let Some(sev) = override_rc.severity {
+                            existing.severity = Some(sev);
+                        }
+                    })
+                    .or_insert(RuleConfig {
+                        enabled: override_rc.enabled,
+                        severity: override_rc.severity,
+                    });
+            }
+        }
+        if tool_config.format.is_some() {
+            cfg.format = tool_config.format;
+        }
+        if let Some(output_path) = tool_config.output {
+            if output_path.is_absolute() {
+                cfg.output = Some(output_path);
+            } else {
+                cfg.output = Some(config_dir.join(output_path));
+            }
+        }
+        cfg.overrides = tool_config.overrides.unwrap_or_default();
+        cfg.config_dir = Some(config_dir.to_path_buf());
+        cfg
+    }
+
     /// Load configuration by walking up from `dir` to find pyproject.toml and the [tool.pytest-linter] section
     pub fn from_pyproject(dir: &Path) -> Result<Option<Self>> {
-        // Start at dir and walk up until filesystem root
         let mut current = dir;
         loop {
             let candidate = current.join("pyproject.toml");
             if candidate.exists() {
-                // Read and parse TOML
                 let contents = std::fs::read_to_string(&candidate)
                     .with_context(|| format!("read {}", candidate.display()))?;
-                // Deserialize the [tool.pytest-linter] section by deserializing the whole TOML and pulling the nested table
                 let full: toml::Value = toml::from_str(&contents)
                     .with_context(|| format!("parse TOML in {}", candidate.display()))?;
 
-                // Convert the nested [tool.pytest-linter] into ToolConfig via intermediate path
                 let tool_table = full
                     .get("tool")
                     .and_then(|t| t.as_table())
@@ -131,7 +189,6 @@ impl Config {
                     .cloned()
                     .unwrap_or_else(|| toml::Value::Table(toml::map::Map::new()));
 
-                // If there is no real section, return None per contract
                 let table = match tool_table.as_table() {
                     Some(t) => t,
                     None => return Ok(None),
@@ -140,7 +197,6 @@ impl Config {
                     return Ok(None);
                 }
 
-                // Direct deserialization from the toml::Value instead of roundtrip
                 let tool_config: ToolConfig = tool_table.try_into().with_context(|| {
                     format!(
                         "deserialize tool.pytest-linter from {}",
@@ -148,53 +204,137 @@ impl Config {
                     )
                 })?;
 
-                // Start from defaults and apply overrides from the TOML
-                let mut cfg = Config::default();
-                if let Some(rules) = tool_config.rules {
-                    for (id, override_rc) in rules.into_iter() {
-                        cfg.rules
-                            .entry(id)
-                            .and_modify(|existing| {
-                                if let Some(e) = override_rc.enabled {
-                                    existing.enabled = Some(e);
-                                }
-                                if let Some(sev) = override_rc.severity {
-                                    existing.severity = Some(sev);
-                                }
-                            })
-                            .or_insert(RuleConfig {
-                                enabled: override_rc.enabled,
-                                severity: override_rc.severity,
-                            });
-                    }
-                }
-                if tool_config.format.is_some() {
-                    cfg.format = tool_config.format;
-                }
-                // Resolve relative output paths against the config file location
-                if let Some(output_path) = tool_config.output {
-                    if output_path.is_absolute() {
-                        cfg.output = Some(output_path);
-                    } else {
-                        cfg.output = Some(
-                            candidate
-                                .parent()
-                                .unwrap_or(Path::new("."))
-                                .join(output_path),
-                        );
-                    }
-                }
-
+                let config_dir = candidate.parent().unwrap_or(Path::new("."));
+                let cfg = Self::build_from_tool_config(tool_config, config_dir);
                 return Ok(Some(cfg));
             }
 
-            // If we reached filesystem root, stop
             match current.parent() {
                 Some(parent) => current = parent,
                 None => break,
             }
         }
         Ok(None)
+    }
+
+    /// Load configuration by walking up from `dir` to find a standalone pytest-linter.toml file.
+    /// The standalone file uses a flat structure (no `[tool]` prefix).
+    pub fn from_standalone(dir: &Path) -> Result<Option<Self>> {
+        let mut current = dir;
+        loop {
+            let candidate = current.join("pytest-linter.toml");
+            if candidate.exists() {
+                let contents = std::fs::read_to_string(&candidate)
+                    .with_context(|| format!("read {}", candidate.display()))?;
+
+                if contents.trim().is_empty() {
+                    return Ok(None);
+                }
+
+                let tool_config: ToolConfig = toml::from_str(&contents)
+                    .with_context(|| format!("parse {}", candidate.display()))?;
+
+                let config_dir = candidate.parent().unwrap_or(Path::new("."));
+                let cfg = Self::build_from_tool_config(tool_config, config_dir);
+                return Ok(Some(cfg));
+            }
+
+            match current.parent() {
+                Some(parent) => current = parent,
+                None => break,
+            }
+        }
+        Ok(None)
+    }
+
+    /// Discover configuration by searching for both pytest-linter.toml and
+    /// pyproject.toml, walking up from `start_dir`.
+    ///
+    /// Priority: pytest-linter.toml > pyproject.toml [tool.pytest-linter] > defaults.
+    /// CLI arguments are applied separately via `merge_cli`.
+    pub fn discover(start_dir: &Path) -> Result<Self> {
+        let mut config = Config::default();
+
+        if let Some(pyproject_cfg) = Self::from_pyproject(start_dir)? {
+            config = config.merge(pyproject_cfg);
+        }
+
+        if let Some(standalone_cfg) = Self::from_standalone(start_dir)? {
+            config = config.merge(standalone_cfg);
+        }
+
+        if config.config_dir.is_none() {
+            config.config_dir = Some(start_dir.to_path_buf());
+        }
+
+        Ok(config)
+    }
+
+    /// Merge another config on top of this one. `other` takes priority for
+    /// any explicitly set values.
+    pub fn merge(mut self, other: Config) -> Self {
+        for (id, rc) in other.rules {
+            self.rules
+                .entry(id)
+                .and_modify(|existing| {
+                    if rc.enabled.is_some() {
+                        existing.enabled = rc.enabled;
+                    }
+                    if rc.severity.is_some() {
+                        existing.severity = rc.severity;
+                    }
+                })
+                .or_insert(rc);
+        }
+
+        if other.format.is_some() {
+            self.format = other.format;
+        }
+        if other.output.is_some() {
+            self.output = other.output;
+        }
+
+        self.overrides.extend(other.overrides);
+
+        if other.config_dir.is_some() {
+            self.config_dir = other.config_dir;
+        }
+
+        self
+    }
+
+    /// Compute the effective rule configuration for a specific file path,
+    /// applying any matching override entries on top of the global config.
+    pub fn effective_rules_for_file(&self, file_path: &Path) -> HashMap<String, RuleConfig> {
+        let mut effective = self.rules.clone();
+
+        let relative_path = self
+            .config_dir
+            .as_ref()
+            .and_then(|dir| file_path.strip_prefix(dir).ok())
+            .unwrap_or(file_path);
+
+        for override_cfg in &self.overrides {
+            if let Ok(pattern) = glob::Pattern::new(&override_cfg.path) {
+                if pattern.matches_path(relative_path) {
+                    for (rule_id, rule_config) in &override_cfg.rules {
+                        effective
+                            .entry(rule_id.clone())
+                            .and_modify(|existing| {
+                                if rule_config.enabled.is_some() {
+                                    existing.enabled = rule_config.enabled;
+                                }
+                                if rule_config.severity.is_some() {
+                                    existing.severity = rule_config.severity;
+                                }
+                            })
+                            .or_insert((*rule_config).clone());
+                    }
+                }
+            }
+        }
+
+        effective
     }
 
     /// Apply CLI overrides on top of existing config. If value is None, keep current value
@@ -224,6 +364,8 @@ mod tests {
                 rid
             );
         }
+        assert!(cfg.overrides.is_empty());
+        assert!(cfg.config_dir.is_none());
     }
 
     #[test]
@@ -238,14 +380,12 @@ mod tests {
         );
         assert_eq!(cfg.is_rule_enabled("UNKNOWN-001"), false);
         assert_eq!(cfg.is_rule_enabled("PYTEST-FLK-001"), true);
-        // Unknown rule (not present) should default to enabled
         assert_eq!(cfg.is_rule_enabled("SOME-NONEXISTENT"), true);
     }
 
     #[test]
     fn test_rule_severity_override_and_default() {
         let mut cfg = Config::default();
-        // Override severity for a known rule
         cfg.rules.insert(
             "PYTEST-FLK-001".to_string(),
             RuleConfig {
@@ -257,7 +397,6 @@ mod tests {
             cfg.rule_severity("PYTEST-FLK-001", Severity::Warning),
             Severity::Info
         );
-        // Unknown rule should return the provided default
         assert_eq!(
             cfg.rule_severity("UNKNOWN-001", Severity::Error),
             Severity::Error
@@ -273,7 +412,6 @@ mod tests {
 
     #[test]
     fn test_from_pyproject_parses_valid_toml() {
-        // Create a temporary directory and pyproject.toml with overrides
         let dir = tempfile::tempdir().unwrap();
         let toml_content = r#"
 [tool.pytest-linter]
@@ -290,17 +428,14 @@ severity = "info"
         std::fs::write(dir.path().join("pyproject.toml"), toml_content).unwrap();
 
         let cfg = Config::from_pyproject(dir.path()).unwrap().unwrap();
-        // format/output overrides
         assert_eq!(cfg.format, Some("json".to_string()));
-        // Output should be resolved relative to the config file location
         assert_eq!(cfg.output, Some(dir.path().join("report.json")));
-        // overrides applied for PYTEST-FLK-001
         let rc = cfg.rules.get("PYTEST-FLK-001").unwrap();
         assert_eq!(rc.enabled, Some(false));
         assert_eq!(rc.severity, Some(Severity::Warning));
-        // PYTEST-MNT-001 severity override
         let rc2 = cfg.rules.get("PYTEST-MNT-001").unwrap();
         assert_eq!(rc2.severity, Some(Severity::Info));
+        assert_eq!(cfg.config_dir, Some(dir.path().to_path_buf()));
     }
 
     #[test]
@@ -309,5 +444,210 @@ severity = "info"
         let merged = cfg.merge_cli(Some("json".to_string()), Some(PathBuf::from("out.log")));
         assert_eq!(merged.format, Some("json".to_string()));
         assert_eq!(merged.output, Some(PathBuf::from("out.log")));
+    }
+
+    #[test]
+    fn test_from_standalone_none_when_missing() {
+        let dir = std::env::temp_dir();
+        let res = Config::from_standalone(&dir).unwrap();
+        assert!(res.is_none());
+    }
+
+    #[test]
+    fn test_from_standalone_parses_flat_toml() {
+        let dir = tempfile::tempdir().unwrap();
+        let toml_content = r#"
+format = "json"
+output = "report.json"
+
+[rules.PYTEST-FLK-001]
+enabled = false
+severity = "warning"
+"#;
+        std::fs::write(dir.path().join("pytest-linter.toml"), toml_content).unwrap();
+
+        let cfg = Config::from_standalone(dir.path()).unwrap().unwrap();
+        assert_eq!(cfg.format, Some("json".to_string()));
+        assert_eq!(cfg.output, Some(dir.path().join("report.json")));
+        let rc = cfg.rules.get("PYTEST-FLK-001").unwrap();
+        assert_eq!(rc.enabled, Some(false));
+        assert_eq!(rc.severity, Some(Severity::Warning));
+        assert_eq!(cfg.config_dir, Some(dir.path().to_path_buf()));
+    }
+
+    #[test]
+    fn test_from_standalone_empty_file_returns_none() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("pytest-linter.toml"), "").unwrap();
+        let res = Config::from_standalone(dir.path()).unwrap();
+        assert!(res.is_none());
+    }
+
+    #[test]
+    fn test_discover_prefers_standalone_over_pyproject() {
+        let dir = tempfile::tempdir().unwrap();
+
+        std::fs::write(
+            dir.path().join("pyproject.toml"),
+            r#"
+[tool.pytest-linter]
+format = "terminal"
+[tool.pytest-linter.rules.PYTEST-FLK-001]
+enabled = false
+"#,
+        )
+        .unwrap();
+
+        std::fs::write(
+            dir.path().join("pytest-linter.toml"),
+            r#"
+format = "json"
+[rules.PYTEST-FLK-001]
+enabled = true
+"#,
+        )
+        .unwrap();
+
+        let cfg = Config::discover(dir.path()).unwrap();
+        assert_eq!(cfg.format, Some("json".to_string()));
+        assert_eq!(cfg.is_rule_enabled("PYTEST-FLK-001"), true);
+    }
+
+    #[test]
+    fn test_discover_falls_back_to_pyproject() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("pyproject.toml"),
+            r#"
+[tool.pytest-linter]
+format = "terminal"
+"#,
+        )
+        .unwrap();
+
+        let cfg = Config::discover(dir.path()).unwrap();
+        assert_eq!(cfg.format, Some("terminal".to_string()));
+    }
+
+    #[test]
+    fn test_discover_returns_default_when_no_config() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = Config::discover(dir.path()).unwrap();
+        assert_eq!(cfg.format, None);
+        assert_eq!(cfg.rules.len(), 28);
+    }
+
+    #[test]
+    fn test_merge_combines_rules() {
+        let base = Config::default();
+        let mut higher = Config::default();
+        higher.rules.insert(
+            "PYTEST-FLK-001".to_string(),
+            RuleConfig {
+                enabled: Some(false),
+                severity: Some(Severity::Info),
+            },
+        );
+        higher.format = Some("json".to_string());
+
+        let merged = base.merge(higher);
+        assert_eq!(merged.is_rule_enabled("PYTEST-FLK-001"), false);
+        assert_eq!(merged.format, Some("json".to_string()));
+    }
+
+    #[test]
+    fn test_overrides_from_pyproject() {
+        let dir = tempfile::tempdir().unwrap();
+        let toml_content = r#"
+[tool.pytest-linter]
+
+[[tool.pytest-linter.overrides]]
+path = "tests/integration/**"
+rules = { PYTEST-FLK-001 = { enabled = false } }
+
+[[tool.pytest-linter.overrides]]
+path = "tests/e2e/**"
+rules = { PYTEST-MNT-001 = { severity = "info" } }
+"#;
+        std::fs::write(dir.path().join("pyproject.toml"), toml_content).unwrap();
+
+        let cfg = Config::from_pyproject(dir.path()).unwrap().unwrap();
+        assert_eq!(cfg.overrides.len(), 2);
+        assert_eq!(cfg.overrides[0].path, "tests/integration/**");
+        assert_eq!(cfg.overrides[1].path, "tests/e2e/**");
+    }
+
+    #[test]
+    fn test_overrides_from_standalone() {
+        let dir = tempfile::tempdir().unwrap();
+        let toml_content = r#"
+format = "json"
+
+[[overrides]]
+path = "tests/smoke/**"
+rules = { PYTEST-MNT-001 = { severity = "info" } }
+"#;
+        std::fs::write(dir.path().join("pytest-linter.toml"), toml_content).unwrap();
+
+        let cfg = Config::from_standalone(dir.path()).unwrap().unwrap();
+        assert_eq!(cfg.overrides.len(), 1);
+        assert_eq!(cfg.overrides[0].path, "tests/smoke/**");
+    }
+
+    #[test]
+    fn test_effective_rules_no_overrides() {
+        let cfg = Config::default();
+        let file_path = PathBuf::from("tests/test_foo.py");
+        let effective = cfg.effective_rules_for_file(&file_path);
+        assert_eq!(effective.len(), cfg.rules.len());
+    }
+
+    #[test]
+    fn test_effective_rules_with_matching_override() {
+        let dir = tempfile::tempdir().unwrap();
+        let toml_content = r#"
+[[overrides]]
+path = "tests/integration/**"
+rules = { PYTEST-FLK-001 = { enabled = false } }
+"#;
+        std::fs::write(dir.path().join("pytest-linter.toml"), toml_content).unwrap();
+
+        let cfg = Config::from_standalone(dir.path()).unwrap().unwrap();
+
+        let file_path = dir.path().join("tests/integration/test_api.py");
+        let effective = cfg.effective_rules_for_file(&file_path);
+
+        let rc = effective.get("PYTEST-FLK-001").unwrap();
+        assert_eq!(rc.enabled, Some(false));
+    }
+
+    #[test]
+    fn test_effective_rules_no_match_keeps_global() {
+        let dir = tempfile::tempdir().unwrap();
+        let toml_content = r#"
+[[overrides]]
+path = "tests/integration/**"
+rules = { PYTEST-FLK-001 = { enabled = false } }
+"#;
+        std::fs::write(dir.path().join("pytest-linter.toml"), toml_content).unwrap();
+
+        let cfg = Config::from_standalone(dir.path()).unwrap().unwrap();
+
+        let file_path = dir.path().join("tests/unit/test_bar.py");
+        let effective = cfg.effective_rules_for_file(&file_path);
+
+        assert_eq!(effective.get("PYTEST-FLK-001").unwrap().enabled, Some(true));
+    }
+
+    #[test]
+    fn test_walk_up_finds_config() {
+        let dir = tempfile::tempdir().unwrap();
+        let subdir = dir.path().join("src").join("deep");
+        std::fs::create_dir_all(&subdir).unwrap();
+
+        std::fs::write(dir.path().join("pytest-linter.toml"), r#"format = "json""#).unwrap();
+
+        let cfg = Config::from_standalone(&subdir).unwrap().unwrap();
+        assert_eq!(cfg.format, Some("json".to_string()));
     }
 }

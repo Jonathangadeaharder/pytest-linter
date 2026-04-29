@@ -1,0 +1,46 @@
+name: pytest-linter
+
+on:
+  workflow_call:
+    inputs:
+      path:
+        description: "File or directory to lint"
+        required: false
+        default: "."
+        type: string
+      sarif-output:
+        description: "Path for SARIF output file"
+        required: false
+        default: "results.sarif"
+        type: string
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build pytest-linter
+        run: cargo build --release
+
+      - name: Run pytest-linter
+        run: |
+          ./target/release/pytest-linter \
+            --format sarif \
+            --output ${{ inputs.sarif-output }} \
+            ${{ inputs.path }} || true
+
+      - name: Upload SARIF results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: ${{ inputs.sarif-output }}
+          category: pytest-linter

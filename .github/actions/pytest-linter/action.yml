@@ -1,0 +1,44 @@
+name: "pytest-linter"
+description: "Run pytest-linter on Python test files with optional SARIF output"
+inputs:
+  path:
+    description: "File or directory to lint"
+    required: false
+    default: "."
+  format:
+    description: "Output format (terminal, json, sarif)"
+    required: false
+    default: "sarif"
+  output:
+    description: "Output file path (for SARIF/JSON)"
+    required: false
+    default: "results.sarif"
+  no-color:
+    description: "Disable colored output"
+    required: false
+    default: "false"
+runs:
+  using: "composite"
+  steps:
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+    - name: Cache Rust artifacts
+      uses: Swatinem/rust-cache@v2
+    - name: Build pytest-linter
+      shell: bash
+      run: cargo build --release --manifest-path ${{ github.action_path }}/../../Cargo.toml
+    - name: Run pytest-linter
+      shell: bash
+      run: |
+        ARGS="--format ${{ inputs.format }}"
+        if [ "${{ inputs.output }}" != "" ]; then
+          ARGS="$ARGS --output ${{ inputs.output }}"
+        fi
+        if [ "${{ inputs.no-color }}" == "true" ]; then
+          ARGS="$ARGS --no-color"
+        fi
+        ${{ github.action_path }}/../../target/release/pytest-linter $ARGS ${{ inputs.path }} || true
+outputs:
+  sarif-file:
+    description: "Path to the SARIF output file"
+    value: ${{ inputs.output }}

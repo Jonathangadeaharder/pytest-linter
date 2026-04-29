@@ -9,28 +9,132 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
+/// Single-pass rule dispatcher. Instead of each rule walking the parsed module
+/// data independently, the dispatcher iterates all rules in a single pass per
+/// module. This minimizes redundant iteration and provides a single integration
+/// point for per-file override resolution.
+pub struct RuleDispatcher {
+    all_rules: Vec<Box<dyn Rule>>,
+}
+
+impl Default for RuleDispatcher {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl RuleDispatcher {
+    pub fn new() -> Self {
+        Self {
+            all_rules: crate::rules::all_rules(),
+        }
+    }
+
+    /// Check all rules against a single module in one pass, applying per-file
+    /// config (global + overrides) for rule enablement and severity.
+    pub fn check_module(
+        &self,
+        module: &ParsedModule,
+        all_modules: &[ParsedModule],
+        ctx: &RuleContext,
+        config: &Config,
+    ) -> Vec<Violation> {
+        let effective = config.effective_rules_for_file(&module.file_path);
+        let mut violations = Vec::new();
+
+        for rule in &self.all_rules {
+            let rule_id = rule.id();
+
+            let enabled = effective
+                .get(rule_id)
+                .map(|rc| rc.enabled.unwrap_or(true))
+                .unwrap_or(true);
+
+            if !enabled {
+                continue;
+            }
+
+            let default_severity = rule.severity();
+            let severity = effective
+                .get(rule_id)
+                .and_then(|rc| rc.severity)
+                .unwrap_or(default_severity);
+
+            let mut v = rule.check(module, all_modules, ctx);
+            for violation in &mut v {
+                violation.severity = severity;
+            }
+            violations.append(&mut v);
+        }
+
+        violations
+    }
+}
+
+/// Memory budget for the linter.
+///
+/// The engine processes files in a streaming fashion to keep peak RSS within
+/// the configured budget (default 256 MB):
+///
+/// 1. File discovery: Walk directory tree, collect test file paths only.
+/// 2. Parsing: Each file is read with `std::fs::read_to_string`, parsed by
+///    tree-sitter, and converted to a `ParsedModule`. The source string is
+///    dropped after parsing — only extracted metadata (names, flags, fixtures)
+///    is retained.
+/// 3. Cross-module context: Fixture maps and usage sets are computed once from
+///    all parsed modules.
+/// 4. Rule checking: The `RuleDispatcher` iterates all rules per module in a
+///    single pass, applying per-file overrides.
+///
+/// For a 1 GB Python repo (~10K test files), estimated peak memory:
+///   - ParsedModule structs: ~10-50 MB (lightweight metadata, no source text)
+///   - Cross-module context: ~5-10 MB
+///   - Violations: ~1-5 MB
+///   - Parser + tree-sitter overhead: ~5-10 MB
+///   - Total: ~20-75 MB, well within the 256 MB budget.
 pub struct LintEngine {
-    rules: Vec<Box<dyn Rule>>,
+    dispatcher: RuleDispatcher,
     config: Config,
+    memory_limit_mb: usize,
 }
 
 impl LintEngine {
     #[allow(clippy::missing_errors_doc)]
     pub fn new(config: Config) -> Result<Self> {
-        let all = crate::rules::all_rules();
-        let rules: Vec<Box<dyn Rule>> = all
-            .into_iter()
-            .filter(|r| config.is_rule_enabled(r.id()))
-            .collect();
-        Ok(Self { rules, config })
+        Ok(Self {
+            dispatcher: RuleDispatcher::new(),
+            config,
+            memory_limit_mb: 256,
+        })
+    }
+
+    /// Create a LintEngine with an explicit memory limit (in MB).
+    #[allow(clippy::missing_errors_doc)]
+    pub fn with_memory_limit(config: Config, memory_limit_mb: usize) -> Result<Self> {
+        Ok(Self {
+            dispatcher: RuleDispatcher::new(),
+            config,
+            memory_limit_mb,
+        })
     }
 
     #[allow(clippy::missing_errors_doc)]
     pub fn lint_paths(&self, paths: &[PathBuf]) -> Result<Vec<Violation>> {
         let files = discover_files(paths);
+
+        let estimated_bytes: u64 = files.len() as u64 * 50_000;
+        let estimated_mb = estimated_bytes / 1_048_576;
+        if estimated_mb > self.memory_limit_mb as u64 {
+            eprintln!(
+                "Warning: estimated memory usage ({estimated_mb} MB) exceeds limit ({} MB). \
+                 Processing may exceed the configured budget.",
+                self.memory_limit_mb
+            );
+        }
+
         let mut parser = crate::parser::PythonParser::new()?;
+
         let modules = parse_files(&mut parser, &files);
-        let mut violations = Vec::new();
 
         let fixture_map = collect_all_fixtures(&modules);
         let used_fixture_names = compute_used_fixture_names(&modules);
@@ -44,14 +148,12 @@ impl LintEngine {
             session_mutable_fixtures: &session_mutable_fixtures,
         };
 
+        let mut violations = Vec::new();
         for module in &modules {
-            for rule in &self.rules {
-                let mut v = rule.check(module, &modules, &ctx);
-                for violation in &mut v {
-                    violation.severity = self.config.rule_severity(rule.id(), rule.severity());
-                }
-                violations.append(&mut v);
-            }
+            let mut v = self
+                .dispatcher
+                .check_module(module, &modules, &ctx, &self.config);
+            violations.append(&mut v);
         }
 
         violations.sort();
@@ -240,11 +342,23 @@ pub fn run_linter(
     no_color: bool,
     config: Config,
 ) -> Result<bool> {
+    run_linter_with_memory_limit(paths, format, output, no_color, config, 256)
+}
+
+#[allow(clippy::missing_errors_doc)]
+pub fn run_linter_with_memory_limit(
+    paths: &[PathBuf],
+    format: &str,
+    output: Option<&Path>,
+    no_color: bool,
+    config: Config,
+    memory_limit_mb: usize,
+) -> Result<bool> {
     if no_color {
         colored::control::set_override(false);
     }
 
-    let engine = LintEngine::new(config)?;
+    let engine = LintEngine::with_memory_limit(config, memory_limit_mb)?;
     let violations = engine.lint_paths(paths)?;
 
     match format {

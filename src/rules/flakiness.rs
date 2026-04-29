@@ -286,6 +286,107 @@ impl Rule for XdistSharedStateRule {
     }
 }
 
+pub struct SocketWithoutBindTimeoutRule;
+
+impl Rule for SocketWithoutBindTimeoutRule {
+    fn id(&self) -> &'static str {
+        "PYTEST-FLK-010"
+    }
+    fn name(&self) -> &'static str {
+        "SocketWithoutBindTimeoutRule"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Warning
+    }
+    fn category(&self) -> Category {
+        Category::Flakiness
+    }
+    fn check(
+        &self,
+        module: &ParsedModule,
+        _all_modules: &[ParsedModule],
+        _ctx: &RuleContext,
+    ) -> Vec<Violation> {
+        let mut violations = Vec::new();
+        let has_socket_import = module.imports.iter().any(|imp| imp.contains("socket"));
+        if !has_socket_import {
+            return violations;
+        }
+        for test in &module.test_functions {
+            if test.uses_network {
+                violations.push(make_violation(
+                    self.id(),
+                    self.name(),
+                    self.severity(),
+                    self.category(),
+                    format!(
+                        "Test '{}' uses socket without proper bind and timeout setup",
+                        test.name
+                    ),
+                    module.file_path.clone(),
+                    test.line,
+                    Some(
+                        "Add socket.settimeout() or use timeout parameter in socket.socket()"
+                            .to_string(),
+                    ),
+                    Some(test.name.clone()),
+                ));
+            }
+        }
+        violations
+    }
+}
+
+pub struct DatetimeInAssertionRule;
+
+impl Rule for DatetimeInAssertionRule {
+    fn id(&self) -> &'static str {
+        "PYTEST-FLK-011"
+    }
+    fn name(&self) -> &'static str {
+        "DatetimeInAssertionRule"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Warning
+    }
+    fn category(&self) -> Category {
+        Category::Flakiness
+    }
+    fn check(
+        &self,
+        module: &ParsedModule,
+        _all_modules: &[ParsedModule],
+        _ctx: &RuleContext,
+    ) -> Vec<Violation> {
+        let mut violations = Vec::new();
+        let has_datetime_import = module.imports.iter().any(|imp| imp.contains("datetime"));
+        if !has_datetime_import {
+            return violations;
+        }
+        for test in &module.test_functions {
+            if test.has_assertions {
+                violations.push(make_violation(
+                    self.id(),
+                    self.name(),
+                    self.severity(),
+                    self.category(),
+                    format!(
+                        "Test '{}' uses datetime functions near assertions — tests relying on real time are flaky",
+                        test.name
+                    ),
+                    module.file_path.clone(),
+                    test.line,
+                    Some(
+                        "Use freezegun or time mocking to make assertions deterministic".to_string(),
+                    ),
+                    Some(test.name.clone()),
+                ));
+            }
+        }
+        violations
+    }
+}
+
 pub struct XdistFixtureIoRule;
 
 impl Rule for XdistFixtureIoRule {

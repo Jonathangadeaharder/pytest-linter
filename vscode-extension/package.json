@@ -1,0 +1,58 @@
+{
+  "name": "pytest-linter",
+  "displayName": "pytest-linter",
+  "description": "Detect test smells in Python/pytest test files",
+  "version": "0.1.0",
+  "publisher": "pytest-linter",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Linters",
+    "Programming Languages",
+    "Testing"
+  ],
+  "keywords": [
+    "pytest",
+    "linter",
+    "testing",
+    "python"
+  ],
+  "activationEvents": [
+    "onLanguage:python"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "configuration": {
+      "type": "object",
+      "title": "pytest-linter",
+      "properties": {
+        "pytestLinter.path": {
+          "type": "string",
+          "default": "pytest-linter-lsp",
+          "description": "Path to the pytest-linter LSP server binary"
+        },
+        "pytestLinter.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable pytest-linter diagnostics"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node",
+    "compile": "esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --sourcemap",
+    "watch": "esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --sourcemap --watch"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.0"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "@types/node": "^20.0.0",
+    "esbuild": "^0.20.0",
+    "typescript": "^5.3.0"
+  }
+}

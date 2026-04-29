@@ -1,0 +1,86 @@
+site_name: pytest-linter
+site_description: Fast, tree-sitter-powered test smell detector for pytest
+site_url: https://pytest-linter.readthedocs.io
+repo_url: https://github.com/your-org/pytest-linter
+repo_name: your-org/pytest-linter
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme)"
+      toggle:
+        icon: material/brightness-auto
+        name: Switch to light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/brightness-4
+        name: Switch to system preference
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+
+plugins:
+  - search
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.tabbed:
+      alternate_style: true
+  - tables
+  - attr_list
+
+nav:
+  - Home: index.md
+  - Getting Started: getting-started.md
+  - Rules:
+      - Overview: rules/index.md
+      - Flakiness:
+          - PYTEST-FLK-001 (TimeSleepRule): rules/PYTEST-FLK-001.md
+          - PYTEST-FLK-002 (FileIoRule): rules/PYTEST-FLK-002.md
+          - PYTEST-FLK-003 (NetworkImportRule): rules/PYTEST-FLK-003.md
+          - PYTEST-FLK-004 (CwdDependencyRule): rules/PYTEST-FLK-004.md
+          - PYTEST-FLK-005 (MysteryGuestRule): rules/PYTEST-FLK-005.md
+          - PYTEST-XDIST-001 (XdistSharedStateRule): rules/PYTEST-XDIST-001.md
+          - PYTEST-XDIST-002 (XdistFixtureIoRule): rules/PYTEST-XDIST-002.md
+      - Maintenance:
+          - PYTEST-MNT-001 (TestLogicRule): rules/PYTEST-MNT-001.md
+          - PYTEST-MNT-002 (MagicAssertRule): rules/PYTEST-MNT-002.md
+          - PYTEST-MNT-003 (SuboptimalAssertRule): rules/PYTEST-MNT-003.md
+          - PYTEST-MNT-004 (NoAssertionRule): rules/PYTEST-MNT-004.md
+          - PYTEST-MNT-005 (MockOnlyVerifyRule): rules/PYTEST-MNT-005.md
+          - PYTEST-MNT-006 (AssertionRouletteRule): rules/PYTEST-MNT-006.md
+          - PYTEST-MNT-007 (RawExceptionHandlingRule): rules/PYTEST-MNT-007.md
+          - PYTEST-BDD-001 (BddMissingScenarioRule): rules/PYTEST-BDD-001.md
+          - PYTEST-PBT-001 (PropertyTestHintRule): rules/PYTEST-PBT-001.md
+          - PYTEST-PARAM-001 (ParametrizeEmptyRule): rules/PYTEST-PARAM-001.md
+          - PYTEST-PARAM-002 (ParametrizeDuplicateRule): rules/PYTEST-PARAM-002.md
+          - PYTEST-PARAM-003 (ParametrizeExplosionRule): rules/PYTEST-PARAM-003.md
+      - Fixtures:
+          - PYTEST-FIX-001 (AutouseFixtureRule): rules/PYTEST-FIX-001.md
+          - PYTEST-FIX-003 (InvalidScopeRule): rules/PYTEST-FIX-003.md
+          - PYTEST-FIX-004 (ShadowedFixtureRule): rules/PYTEST-FIX-004.md
+          - PYTEST-FIX-005 (UnusedFixtureRule): rules/PYTEST-FIX-005.md
+          - PYTEST-FIX-006 (StatefulSessionFixtureRule): rules/PYTEST-FIX-006.md
+          - PYTEST-FIX-007 (FixtureMutationRule): rules/PYTEST-FIX-007.md
+          - PYTEST-FIX-008 (FixtureDbCommitNoCleanupRule): rules/PYTEST-FIX-008.md
+          - PYTEST-FIX-009 (FixtureOverlyBroadScopeRule): rules/PYTEST-FIX-009.md
+          - PYTEST-DBC-001 (NoContractHintRule): rules/PYTEST-DBC-001.md
+  - Comparison: comparison.md
+  - Migration Guide: migration.md

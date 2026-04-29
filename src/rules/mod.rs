@@ -55,7 +55,16 @@ pub fn all_rules() -> Vec<Box<dyn Rule>> {
         Box::new(fixtures::StatefulSessionFixtureRule),
         Box::new(fixtures::FixtureMutationRule),
         Box::new(fixtures::FixtureDbCommitNoCleanupRule),
-        Box::new(fixtures::FixtureOverlyBroadScopeRule),
+        Box::new(fixtures::AutouseCascadeDepthRule),
+        Box::new(fixtures::ModuleScopeFixtureMutatedRule),
+        Box::new(fixtures::YieldWithoutTryFinallyRule),
+        Box::new(fixtures::FixtureNameShadowsBuiltinRule),
+        Box::new(flakiness::SocketWithoutBindTimeoutRule),
+        Box::new(flakiness::DatetimeInAssertionRule),
+        Box::new(maintenance::ConditionalLogicInTestRule),
+        Box::new(maintenance::DuplicateTestBodiesRule),
+        Box::new(maintenance::SleepWithValueRule),
+        Box::new(maintenance::TestNameLengthRule),
         Box::new(fixtures::NoContractHintRule),
     ]
 }
@@ -65,9 +74,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_all_rules_returns_28() {
+    fn test_all_rules_returns_37() {
         let rules = all_rules();
-        assert_eq!(rules.len(), 28);
+        assert_eq!(rules.len(), 37);
     }
 
     #[test]

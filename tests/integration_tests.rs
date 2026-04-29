@@ -3391,50 +3391,86 @@ def test_thing(unknown_dep):
 #[test]
 fn test_overly_broad_scope_triggers_fix009() {
     let dir = tempfile::tempdir().unwrap();
-    let path = write_temp_file(
+    let conftest = write_temp_file(
         dir.path(),
         "conftest.py",
         r#"
 import pytest
 
-@pytest.fixture(scope="session")
-def simple_value():
-    return 42
+@pytest.fixture(autouse=True)
+def fixture_a(fixture_b):
+    return fixture_b
 
-@pytest.fixture(scope="module")
-def another_simple():
-    return "hello"
+@pytest.fixture
+def fixture_b(fixture_c):
+    return fixture_c
+
+@pytest.fixture
+def fixture_c(fixture_d):
+    return fixture_d
+
+@pytest.fixture
+def fixture_d():
+    return 42
 "#,
     );
-    let violations = lint_single_file(&path);
-    let v1 = find_violation(&violations, "PYTEST-FIX-009");
-    assert!(
-        v1.is_some(),
-        "Expected PYTEST-FIX-009 for session-scoped simple fixture"
+    let test_path = write_temp_file(
+        dir.path(),
+        "test_cascade.py",
+        r#"
+def test_thing():
+    assert True
+"#,
     );
+    let engine = LintEngine::new(Config::default()).unwrap();
+    let violations = engine.lint_paths(&[conftest, test_path]).unwrap();
+    let v = find_violation(&violations, "PYTEST-FIX-009");
+    assert!(
+        v.is_some(),
+        "Expected PYTEST-FIX-009 for autouse cascade depth > 3"
+    );
+    let v = v.unwrap();
+    assert_eq!(v.rule_name, "AutouseCascadeDepthRule");
+    assert!(v.message.contains("fixture_a"));
+    assert!(v.message.contains("cascade depth"));
 }
 
 #[test]
-fn test_broad_scope_with_expensive_setup_does_not_trigger_fix009() {
+fn test_broad_scope_with_short_chain_does_not_trigger_fix009() {
     let dir = tempfile::tempdir().unwrap();
-    let path = write_temp_file(
+    let conftest = write_temp_file(
         dir.path(),
         "conftest.py",
         r#"
 import pytest
 
-@pytest.fixture(scope="session")
-def db_connection():
-    conn = create_engine(DB_URL)
-    yield conn
-    conn.close()
+@pytest.fixture(autouse=True)
+def fixture_a(fixture_b):
+    return fixture_b
+
+@pytest.fixture
+def fixture_b(fixture_c):
+    return fixture_c
+
+@pytest.fixture
+def fixture_c():
+    return 42
 "#,
     );
-    let violations = lint_single_file(&path);
+    let test_path = write_temp_file(
+        dir.path(),
+        "test_short_chain.py",
+        r#"
+def test_thing():
+    assert True
+"#,
+    );
+    let engine = LintEngine::new(Config::default()).unwrap();
+    let violations = engine.lint_paths(&[conftest, test_path]).unwrap();
     let v = find_violation(&violations, "PYTEST-FIX-009");
     assert!(
         v.is_none(),
-        "Session-scoped fixture with yield should not trigger FIX-009"
+        "Autouse cascade depth 3 should not trigger FIX-009"
     );
 }
 
@@ -3759,5 +3795,401 @@ def test_unique(x):
     );
     let violations = lint_single_file(&path);
     let v = find_violation(&violations, "PYTEST-PARAM-002");
+    assert!(v.is_none());
+}
+
+#[test]
+fn test_socket_without_timeout_triggers_flk010() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_socket.py",
+        r#"
+import socket
+
+def test_socket():
+    s = socket.socket()
+    assert s
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FLK-010");
+    assert!(v.is_some(), "Expected PYTEST-FLK-010 violation");
+    let v = v.unwrap();
+    assert_eq!(v.rule_name, "SocketWithoutBindTimeoutRule");
+    assert!(v.message.contains("socket"));
+    assert!(v.suggestion.as_ref().unwrap().contains("settimeout"));
+}
+
+#[test]
+fn test_no_socket_does_not_trigger_flk010() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_no_socket.py",
+        r#"
+def test_plain():
+    assert True
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FLK-010");
+    assert!(v.is_none());
+}
+
+#[test]
+fn test_datetime_in_assertion_triggers_flk011() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_datetime.py",
+        r#"
+from datetime import datetime
+
+def test_time():
+    now = datetime.now()
+    assert now is not None
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FLK-011");
+    assert!(v.is_some(), "Expected PYTEST-FLK-011 violation");
+    let v = v.unwrap();
+    assert_eq!(v.rule_name, "DatetimeInAssertionRule");
+    assert!(v.message.contains("datetime"));
+}
+
+#[test]
+fn test_no_datetime_does_not_trigger_flk011() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_no_datetime.py",
+        r#"
+def test_plain():
+    assert True
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FLK-011");
+    assert!(v.is_none());
+}
+
+#[test]
+fn test_conditional_logic_not_parametrized_triggers_mnt014() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_conditional.py",
+        r#"
+def test_with_if():
+    x = 5
+    if x > 3:
+        assert True
+    else:
+        assert False
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-MNT-014");
+    assert!(v.is_some(), "Expected PYTEST-MNT-014 violation");
+    let v = v.unwrap();
+    assert_eq!(v.rule_name, "ConditionalLogicInTestRule");
+    assert!(v.message.contains("conditional logic"));
+}
+
+#[test]
+fn test_conditional_logic_parametrized_does_not_trigger_mnt014() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_param_cond.py",
+        r#"
+import pytest
+
+@pytest.mark.parametrize("x", [1, 2, 3])
+def test_param(x):
+    if x > 2:
+        assert True
+    else:
+        assert x > 0
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-MNT-014");
+    assert!(
+        v.is_none(),
+        "Parametrized test with conditional should not trigger MNT-014"
+    );
+}
+
+#[test]
+fn test_duplicate_test_bodies_triggers_mnt015() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_dup_body.py",
+        r#"
+def test_one():
+    assert 1 == 1
+    assert 2 == 2
+
+def test_two():
+    assert 1 == 1
+    assert 2 == 2
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-MNT-015");
+    assert!(v.is_some(), "Expected PYTEST-MNT-015 violation");
+    let v = v.unwrap();
+    assert_eq!(v.rule_name, "DuplicateTestBodiesRule");
+    assert!(v.message.contains("identical assertion sequences"));
+}
+
+#[test]
+fn test_different_test_bodies_does_not_trigger_mnt015() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_diff_body.py",
+        r#"
+def test_one():
+    assert 1 == 1
+
+def test_two():
+    assert 2 == 2
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-MNT-015");
+    assert!(v.is_none());
+}
+
+#[test]
+fn test_sleep_with_value_triggers_mnt016() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_sleep_val.py",
+        r#"
+import time
+
+def test_slow():
+    time.sleep(2)
+    assert True
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-MNT-016");
+    assert!(v.is_some(), "Expected PYTEST-MNT-016 violation");
+    let v = v.unwrap();
+    assert_eq!(v.rule_name, "SleepWithValueRule");
+    assert!(v.message.contains("time.sleep"));
+}
+
+#[test]
+fn test_no_sleep_does_not_trigger_mnt016() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_no_sleep_val.py",
+        r#"
+def test_fast():
+    assert True
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-MNT-016");
+    assert!(v.is_none());
+}
+
+#[test]
+fn test_long_test_name_triggers_mnt017() {
+    let dir = tempfile::tempdir().unwrap();
+    let long_name = format!("def test_{}():\n    assert True", "a".repeat(80));
+    let path = write_temp_file(dir.path(), "test_long_name.py", &long_name);
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-MNT-017");
+    assert!(v.is_some(), "Expected PYTEST-MNT-017 violation");
+    let v = v.unwrap();
+    assert_eq!(v.rule_name, "TestNameLengthRule");
+    assert!(v.message.contains("exceeds 80 characters"));
+    assert_eq!(v.severity, Severity::Info);
+}
+
+#[test]
+fn test_short_test_name_does_not_trigger_mnt017() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_short_name.py",
+        r#"
+def test_short():
+    assert True
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-MNT-017");
+    assert!(v.is_none());
+}
+
+#[test]
+fn test_module_scope_fixture_mutated_triggers_fix010() {
+    let dir = tempfile::tempdir().unwrap();
+    let conftest = write_temp_file(
+        dir.path(),
+        "conftest.py",
+        r#"
+import pytest
+
+@pytest.fixture(scope="module")
+def shared_items():
+    return [1, 2, 3]
+"#,
+    );
+    let test_path = write_temp_file(
+        dir.path(),
+        "test_mutate_mod.py",
+        r#"
+def test_mutates(shared_items):
+    shared_items.append(4)
+    assert len(shared_items) == 4
+"#,
+    );
+    let engine = LintEngine::new(Config::default()).unwrap();
+    let violations = engine.lint_paths(&[conftest, test_path]).unwrap();
+    let v = find_violation(&violations, "PYTEST-FIX-010");
+    assert!(v.is_some(), "Expected PYTEST-FIX-010 violation");
+    let v = v.unwrap();
+    assert_eq!(v.rule_name, "ModuleScopeFixtureMutatedRule");
+    assert_eq!(v.severity, Severity::Error);
+    assert!(v.message.contains("shared_items"));
+}
+
+#[test]
+fn test_function_scope_fixture_mutated_does_not_trigger_fix010() {
+    let dir = tempfile::tempdir().unwrap();
+    let conftest = write_temp_file(
+        dir.path(),
+        "conftest.py",
+        r#"
+import pytest
+
+@pytest.fixture
+def local_items():
+    return [1, 2, 3]
+"#,
+    );
+    let test_path = write_temp_file(
+        dir.path(),
+        "test_mutate_func.py",
+        r#"
+def test_mutates(local_items):
+    local_items.append(4)
+    assert len(local_items) == 4
+"#,
+    );
+    let engine = LintEngine::new(Config::default()).unwrap();
+    let violations = engine.lint_paths(&[conftest, test_path]).unwrap();
+    let v = find_violation(&violations, "PYTEST-FIX-010");
+    assert!(
+        v.is_none(),
+        "Function-scoped fixture mutation should not trigger FIX-010"
+    );
+}
+
+#[test]
+fn test_yield_without_try_finally_triggers_fix011() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_yield_no_cleanup.py",
+        r#"
+import pytest
+
+@pytest.fixture
+def db_conn():
+    conn = create_conn()
+    yield conn
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FIX-011");
+    assert!(v.is_some(), "Expected PYTEST-FIX-011 violation");
+    let v = v.unwrap();
+    assert_eq!(v.rule_name, "YieldWithoutTryFinallyRule");
+    assert!(v.message.contains("yield without try/finally"));
+}
+
+#[test]
+fn test_yield_with_rollback_does_not_trigger_fix011() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_yield_with_cleanup.py",
+        r#"
+import pytest
+
+@pytest.fixture
+def db_conn():
+    conn = create_conn()
+    yield conn
+    conn.rollback()
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FIX-011");
+    assert!(
+        v.is_none(),
+        "Yield fixture with rollback should not trigger FIX-011"
+    );
+}
+
+#[test]
+fn test_fixture_shadows_builtin_triggers_fix012() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_shadow.py",
+        r#"
+import pytest
+
+@pytest.fixture
+def list():
+    return [1, 2, 3]
+
+def test_thing(list):
+    assert len(list) == 3
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FIX-012");
+    assert!(v.is_some(), "Expected PYTEST-FIX-012 violation");
+    let v = v.unwrap();
+    assert_eq!(v.rule_name, "FixtureNameShadowsBuiltinRule");
+    assert!(v.message.contains("shadows"));
+    assert!(v.message.contains("list"));
+}
+
+#[test]
+fn test_fixture_normal_name_does_not_trigger_fix012() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_normal_fix.py",
+        r#"
+import pytest
+
+@pytest.fixture
+def my_items():
+    return [1, 2, 3]
+
+def test_thing(my_items):
+    assert len(my_items) == 3
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FIX-012");
     assert!(v.is_none());
 }

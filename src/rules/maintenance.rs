@@ -556,3 +556,193 @@ impl Rule for ParametrizeExplosionRule {
         violations
     }
 }
+
+pub struct ConditionalLogicInTestRule;
+
+impl Rule for ConditionalLogicInTestRule {
+    fn id(&self) -> &'static str {
+        "PYTEST-MNT-014"
+    }
+    fn name(&self) -> &'static str {
+        "ConditionalLogicInTestRule"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Warning
+    }
+    fn category(&self) -> Category {
+        Category::Maintenance
+    }
+    fn check(
+        &self,
+        module: &ParsedModule,
+        _all_modules: &[ParsedModule],
+        _ctx: &RuleContext,
+    ) -> Vec<Violation> {
+        let mut violations = Vec::new();
+        for test in &module.test_functions {
+            if test.has_conditional_logic && !test.is_parametrized {
+                violations.push(make_violation(
+                    self.id(),
+                    self.name(),
+                    self.severity(),
+                    self.category(),
+                    format!(
+                        "Test '{}' contains conditional logic (if/elif/else/for/while) — tests should have a single code path",
+                        test.name
+                    ),
+                    module.file_path.clone(),
+                    test.line,
+                    Some("Split into separate tests or use pytest.mark.parametrize".to_string()),
+                    Some(test.name.clone()),
+                ));
+            }
+        }
+        violations
+    }
+}
+
+pub struct DuplicateTestBodiesRule;
+
+impl Rule for DuplicateTestBodiesRule {
+    fn id(&self) -> &'static str {
+        "PYTEST-MNT-015"
+    }
+    fn name(&self) -> &'static str {
+        "DuplicateTestBodiesRule"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Info
+    }
+    fn category(&self) -> Category {
+        Category::Maintenance
+    }
+    fn check(
+        &self,
+        module: &ParsedModule,
+        _all_modules: &[ParsedModule],
+        _ctx: &RuleContext,
+    ) -> Vec<Violation> {
+        let mut violations = Vec::new();
+        let tests = &module.test_functions;
+        for i in 0..tests.len() {
+            for j in (i + 1)..tests.len() {
+                let a = &tests[i];
+                let b = &tests[j];
+                if a.assertions.is_empty() || a.assertions.len() != b.assertions.len() {
+                    continue;
+                }
+                let identical = a
+                    .assertions
+                    .iter()
+                    .zip(b.assertions.iter())
+                    .all(|(x, y)| x.expression_text == y.expression_text);
+                if identical {
+                    violations.push(make_violation(
+                        self.id(),
+                        self.name(),
+                        self.severity(),
+                        self.category(),
+                        format!(
+                            "Tests '{}' and '{}' have identical assertion sequences — possible duplicate test body",
+                            a.name, b.name
+                        ),
+                        module.file_path.clone(),
+                        a.line,
+                        Some("Consolidate or differentiate the test bodies".to_string()),
+                        Some(a.name.clone()),
+                    ));
+                }
+            }
+        }
+        violations
+    }
+}
+
+pub struct SleepWithValueRule;
+
+impl Rule for SleepWithValueRule {
+    fn id(&self) -> &'static str {
+        "PYTEST-MNT-016"
+    }
+    fn name(&self) -> &'static str {
+        "SleepWithValueRule"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Warning
+    }
+    fn category(&self) -> Category {
+        Category::Maintenance
+    }
+    fn check(
+        &self,
+        module: &ParsedModule,
+        _all_modules: &[ParsedModule],
+        _ctx: &RuleContext,
+    ) -> Vec<Violation> {
+        let mut violations = Vec::new();
+        for test in &module.test_functions {
+            if test.uses_time_sleep {
+                violations.push(make_violation(
+                    self.id(),
+                    self.name(),
+                    self.severity(),
+                    self.category(),
+                    format!(
+                        "Test '{}' uses time.sleep() with value > 0.1s — slows test suite",
+                        test.name
+                    ),
+                    module.file_path.clone(),
+                    test.line,
+                    Some("Use mocking, async waits, or reduce sleep duration".to_string()),
+                    Some(test.name.clone()),
+                ));
+            }
+        }
+        violations
+    }
+}
+
+pub struct TestNameLengthRule;
+
+impl Rule for TestNameLengthRule {
+    fn id(&self) -> &'static str {
+        "PYTEST-MNT-017"
+    }
+    fn name(&self) -> &'static str {
+        "TestNameLengthRule"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Info
+    }
+    fn category(&self) -> Category {
+        Category::Maintenance
+    }
+    fn check(
+        &self,
+        module: &ParsedModule,
+        _all_modules: &[ParsedModule],
+        _ctx: &RuleContext,
+    ) -> Vec<Violation> {
+        let mut violations = Vec::new();
+        for test in &module.test_functions {
+            if test.name.len() > 80 {
+                violations.push(make_violation(
+                    self.id(),
+                    self.name(),
+                    self.severity(),
+                    self.category(),
+                    format!(
+                        "Test name '{}' exceeds 80 characters ({} chars)",
+                        test.name,
+                        test.name.len()
+                    ),
+                    module.file_path.clone(),
+                    test.line,
+                    Some("Shorten the test name to be more concise".to_string()),
+                    Some(test.name.clone()),
+                ));
+            }
+        }
+        violations
+    }
+}
