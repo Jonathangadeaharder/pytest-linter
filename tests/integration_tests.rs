@@ -4671,3 +4671,78 @@ def test_no_assert():  # noqa:   PYTEST-MNT-004  ,  PYTEST-BDD-001
     assert!(v1.is_none());
     assert!(v2.is_none());
 }
+
+#[test]
+fn test_noqa_suppresses_flk001_in_integration() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_noqa_flk001.py",
+        r#"
+import time
+
+def test_sleep():  # noqa: PYTEST-FLK-001
+    time.sleep(1)
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let flk001 = find_violation(&violations, "PYTEST-FLK-001");
+    assert!(flk001.is_none(), "noqa should suppress PYTEST-FLK-001");
+}
+
+#[test]
+fn test_noqa_bare_suppresses_all() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_noqa_bare.py",
+        r#"
+import os
+
+def test_cwd():  # noqa
+    cwd = os.getcwd()
+    assert cwd
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let flk004 = find_violation(&violations, "PYTEST-FLK-004");
+    assert!(
+        flk004.is_none(),
+        "bare # noqa should suppress all violations on that line"
+    );
+}
+
+#[test]
+fn test_lint_source_with_context_finds_fixture_issues() {
+    let dir = tempfile::tempdir().unwrap();
+    let ctx_path = write_temp_file(
+        dir.path(),
+        "conftest.py",
+        r#"
+import pytest
+
+@pytest.fixture
+def shared_dep():
+    return 42
+"#,
+    );
+    let mut parser = PythonParser::new().unwrap();
+    let ctx_module = parser.parse_file(&ctx_path).unwrap();
+
+    let engine = LintEngine::new(Config::default()).unwrap();
+    let source = r#"
+import pytest
+
+@pytest.fixture(scope="session")
+def session_val():
+    return 1
+"#;
+    let violations = engine
+        .lint_source_with_context(source, Path::new("test_ctx.py"), &[ctx_module])
+        .unwrap();
+    let broad = find_violation(&violations, "PYTEST-FIX-009");
+    assert!(
+        broad.is_some(),
+        "Should detect session-scoped fixture without expensive setup"
+    );
+}

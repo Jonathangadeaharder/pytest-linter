@@ -710,3 +710,301 @@ fn format_sarif(violations: &[Violation], output_path: Option<&Path>) -> Result<
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn test_is_test_file_detects_test_prefix() {
+        assert!(is_test_file(Path::new("test_foo.py")));
+    }
+
+    #[test]
+    fn test_is_test_file_detects_test_suffix() {
+        assert!(is_test_file(Path::new("foo_test.py")));
+    }
+
+    #[test]
+    fn test_is_test_file_detects_conftest() {
+        assert!(is_test_file(Path::new("conftest.py")));
+    }
+
+    #[test]
+    fn test_is_test_file_rejects_helper() {
+        assert!(!is_test_file(Path::new("helper.py")));
+    }
+
+    #[test]
+    #[test]
+    fn test_collect_suppressions_bare_noqa() {
+        let module = crate::parser::PythonParser::new()
+            .unwrap()
+            .parse_source("x = 1  # noqa\n", Path::new("test.py"))
+            .unwrap();
+        let suppressions = collect_suppressions(std::slice::from_ref(&module));
+        assert!(suppressions.contains_key(&(PathBuf::from("test.py"), 1)));
+        let rules = suppressions.get(&(PathBuf::from("test.py"), 1)).unwrap();
+        assert!(rules.contains("*"), "bare noqa should suppress all rules");
+    }
+
+    #[test]
+    fn test_collect_suppressions_specific_rule() {
+        let module = crate::parser::PythonParser::new()
+            .unwrap()
+            .parse_source("x = 1  # noqa: PYTEST-FLK-001\n", Path::new("test.py"))
+            .unwrap();
+        let suppressions = collect_suppressions(std::slice::from_ref(&module));
+        let rules = suppressions.get(&(PathBuf::from("test.py"), 1)).unwrap();
+        assert!(
+            rules.contains(&"PYTEST-FLK-001".to_string()),
+            "should contain specific rule"
+        );
+    }
+
+    #[test]
+    fn test_collect_suppressions_next_line() {
+        let module = crate::parser::PythonParser::new()
+            .unwrap()
+            .parse_source(
+                "x = 1  # noqa: PYTEST-FLK-001\ny = 2\n",
+                Path::new("test.py"),
+            )
+            .unwrap();
+        let suppressions = collect_suppressions(std::slice::from_ref(&module));
+        assert!(
+            suppressions.contains_key(&(PathBuf::from("test.py"), 2)),
+            "noqa should also suppress on next line"
+        );
+    }
+
+    #[test]
+    fn test_is_suppressed_by_rule_id() {
+        use crate::models::Violation;
+        let v = Violation {
+            rule_id: "PYTEST-FLK-001".to_string(),
+            rule_name: "T".to_string(),
+            severity: crate::models::Severity::Warning,
+            category: crate::models::Category::Flakiness,
+            message: "m".to_string(),
+            file_path: PathBuf::from("test.py"),
+            line: 5,
+            col: None,
+            suggestion: None,
+            test_name: None,
+        };
+        let mut suppressions = std::collections::HashMap::new();
+        suppressions.insert(
+            (PathBuf::from("test.py"), 5),
+            std::collections::HashSet::from(["PYTEST-FLK-001".to_string()]),
+        );
+        assert!(is_suppressed(&v, &suppressions));
+    }
+
+    #[test]
+    fn test_is_suppressed_by_star_previous_line() {
+        use crate::models::Violation;
+        let v = Violation {
+            rule_id: "PYTEST-FLK-001".to_string(),
+            rule_name: "T".to_string(),
+            severity: crate::models::Severity::Warning,
+            category: crate::models::Category::Flakiness,
+            message: "m".to_string(),
+            file_path: PathBuf::from("test.py"),
+            line: 5,
+            col: None,
+            suggestion: None,
+            test_name: None,
+        };
+        let mut suppressions = std::collections::HashMap::new();
+        suppressions.insert(
+            (PathBuf::from("test.py"), 4),
+            std::collections::HashSet::from(["*".to_string()]),
+        );
+        assert!(
+            is_suppressed(&v, &suppressions),
+            "star on previous line should suppress"
+        );
+    }
+
+    #[test]
+    fn test_is_suppressed_not_matching() {
+        use crate::models::Violation;
+        let v = Violation {
+            rule_id: "PYTEST-FLK-001".to_string(),
+            rule_name: "T".to_string(),
+            severity: crate::models::Severity::Warning,
+            category: crate::models::Category::Flakiness,
+            message: "m".to_string(),
+            file_path: PathBuf::from("test.py"),
+            line: 5,
+            col: None,
+            suggestion: None,
+            test_name: None,
+        };
+        let suppressions = std::collections::HashMap::new();
+        assert!(!is_suppressed(&v, &suppressions));
+    }
+
+    #[test]
+    fn test_violation_equality_same_key_different_rest() {
+        use crate::models::Violation;
+        let v1 = Violation {
+            rule_id: "PYTEST-FLK-001".to_string(),
+            rule_name: "A".to_string(),
+            severity: crate::models::Severity::Warning,
+            category: crate::models::Category::Flakiness,
+            message: "msg1".to_string(),
+            file_path: PathBuf::from("test.py"),
+            line: 5,
+            col: None,
+            suggestion: None,
+            test_name: None,
+        };
+        let v2 = Violation {
+            rule_id: "PYTEST-FLK-001".to_string(),
+            rule_name: "B".to_string(),
+            severity: crate::models::Severity::Error,
+            category: crate::models::Category::Fixture,
+            message: "msg2".to_string(),
+            file_path: PathBuf::from("test.py"),
+            line: 5,
+            col: Some(10),
+            suggestion: Some("fix".to_string()),
+            test_name: Some("test_x".to_string()),
+        };
+        assert_eq!(v1, v2);
+    }
+
+    #[test]
+    fn test_violation_inequality_different_line() {
+        use crate::models::Violation;
+        let v1 = Violation {
+            rule_id: "PYTEST-FLK-001".to_string(),
+            rule_name: "T".to_string(),
+            severity: crate::models::Severity::Warning,
+            category: crate::models::Category::Flakiness,
+            message: "m".to_string(),
+            file_path: PathBuf::from("test.py"),
+            line: 5,
+            col: None,
+            suggestion: None,
+            test_name: None,
+        };
+        let v2 = Violation {
+            rule_id: "PYTEST-FLK-001".to_string(),
+            rule_name: "T".to_string(),
+            severity: crate::models::Severity::Warning,
+            category: crate::models::Category::Flakiness,
+            message: "m".to_string(),
+            file_path: PathBuf::from("test.py"),
+            line: 6,
+            col: None,
+            suggestion: None,
+            test_name: None,
+        };
+        assert_ne!(v1, v2);
+    }
+
+    #[test]
+    fn test_violation_inequality_different_rule() {
+        use crate::models::Violation;
+        let v1 = Violation {
+            rule_id: "PYTEST-FLK-001".to_string(),
+            rule_name: "T".to_string(),
+            severity: crate::models::Severity::Warning,
+            category: crate::models::Category::Flakiness,
+            message: "m".to_string(),
+            file_path: PathBuf::from("test.py"),
+            line: 5,
+            col: None,
+            suggestion: None,
+            test_name: None,
+        };
+        let v2 = Violation {
+            rule_id: "PYTEST-FLK-002".to_string(),
+            rule_name: "T".to_string(),
+            severity: crate::models::Severity::Warning,
+            category: crate::models::Category::Flakiness,
+            message: "m".to_string(),
+            file_path: PathBuf::from("test.py"),
+            line: 5,
+            col: None,
+            suggestion: None,
+            test_name: None,
+        };
+        assert_ne!(v1, v2);
+    }
+
+    #[test]
+    fn test_format_terminal_counts_severity() {
+        use crate::models::Violation;
+        let violations = vec![
+            Violation {
+                rule_id: "PYTEST-FLK-001".to_string(),
+                rule_name: "T".to_string(),
+                severity: crate::models::Severity::Error,
+                category: crate::models::Category::Flakiness,
+                message: "err1".to_string(),
+                file_path: PathBuf::from("a.py"),
+                line: 1,
+                col: None,
+                suggestion: None,
+                test_name: None,
+            },
+            Violation {
+                rule_id: "PYTEST-FLK-002".to_string(),
+                rule_name: "T".to_string(),
+                severity: crate::models::Severity::Error,
+                category: crate::models::Category::Flakiness,
+                message: "err2".to_string(),
+                file_path: PathBuf::from("a.py"),
+                line: 2,
+                col: None,
+                suggestion: None,
+                test_name: None,
+            },
+            Violation {
+                rule_id: "PYTEST-FLK-003".to_string(),
+                rule_name: "T".to_string(),
+                severity: crate::models::Severity::Warning,
+                category: crate::models::Category::Flakiness,
+                message: "warn".to_string(),
+                file_path: PathBuf::from("a.py"),
+                line: 3,
+                col: None,
+                suggestion: None,
+                test_name: None,
+            },
+        ];
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("out.txt");
+        format_terminal(&violations, Some(&path)).unwrap();
+        let contents = std::fs::read_to_string(&path).unwrap();
+        assert!(contents.contains("2 error"), "should count 2 errors");
+        assert!(contents.contains("1 warning"), "should count 1 warning");
+        assert!(contents.contains("0 info"), "should count 0 info");
+    }
+
+    #[test]
+    fn test_lint_source_returns_violations() {
+        let engine = LintEngine::new(crate::config::Config::default()).unwrap();
+        let source = "import time\ndef test_sleep():\n    time.sleep(1)\n";
+        let violations = engine
+            .lint_source(source, Path::new("test_sleep.py"))
+            .unwrap();
+        assert!(!violations.is_empty(), "lint_source should find violations");
+    }
+
+    #[test]
+    fn test_lint_source_clean_returns_nothing() {
+        let engine = LintEngine::new(crate::config::Config::default()).unwrap();
+        let source = "x = 1\n";
+        let violations = engine.lint_source(source, Path::new("clean.py")).unwrap();
+        assert!(
+            violations.is_empty(),
+            "clean file should have no violations"
+        );
+    }
+}
