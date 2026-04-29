@@ -580,14 +580,14 @@ impl Rule for ConditionalLogicInTestRule {
     ) -> Vec<Violation> {
         let mut violations = Vec::new();
         for test in &module.test_functions {
-            if test.has_conditional_logic && !test.is_parametrized {
+            if test.is_parametrized && test.has_conditional_logic {
                 violations.push(make_violation(
                     self.id(),
                     self.name(),
                     self.severity(),
                     self.category(),
                     format!(
-                        "Test '{}' contains conditional logic (if/elif/else/for/while) — tests should have a single code path",
+                        "Parametrized test '{}' contains conditional logic (if/elif/else/for/while) — use separate parameter cases instead of branching",
                         test.name
                     ),
                     module.file_path.clone(),
@@ -682,20 +682,23 @@ impl Rule for SleepWithValueRule {
         let mut violations = Vec::new();
         for test in &module.test_functions {
             if test.uses_time_sleep {
-                violations.push(make_violation(
-                    self.id(),
-                    self.name(),
-                    self.severity(),
-                    self.category(),
-                    format!(
-                        "Test '{}' uses time.sleep() with value > 0.1s — slows test suite",
-                        test.name
-                    ),
-                    module.file_path.clone(),
-                    test.line,
-                    Some("Use mocking, async waits, or reduce sleep duration".to_string()),
-                    Some(test.name.clone()),
-                ));
+                let exceeds_threshold = test.sleep_value.is_some_and(|v| v > 0.1);
+                if exceeds_threshold {
+                    violations.push(make_violation(
+                        self.id(),
+                        self.name(),
+                        self.severity(),
+                        self.category(),
+                        format!(
+                            "Test '{}' uses time.sleep() with value > 0.1s — slows test suite",
+                            test.name
+                        ),
+                        module.file_path.clone(),
+                        test.line,
+                        Some("Use mocking, async waits, or reduce sleep duration".to_string()),
+                        Some(test.name.clone()),
+                    ));
+                }
             }
         }
         violations
@@ -725,7 +728,7 @@ impl Rule for TestNameLengthRule {
     ) -> Vec<Violation> {
         let mut violations = Vec::new();
         for test in &module.test_functions {
-            if test.name.len() > 80 {
+            if test.name.chars().count() > 80 {
                 violations.push(make_violation(
                     self.id(),
                     self.name(),
@@ -734,7 +737,7 @@ impl Rule for TestNameLengthRule {
                     format!(
                         "Test name '{}' exceeds 80 characters ({} chars)",
                         test.name,
-                        test.name.len()
+                        test.name.chars().count()
                     ),
                     module.file_path.clone(),
                     test.line,

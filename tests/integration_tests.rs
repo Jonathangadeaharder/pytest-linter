@@ -3847,8 +3847,7 @@ fn test_datetime_in_assertion_triggers_flk011() {
 from datetime import datetime
 
 def test_time():
-    now = datetime.now()
-    assert now is not None
+    assert datetime.now() is not None
 "#,
     );
     let violations = lint_single_file(&path);
@@ -3876,14 +3875,16 @@ def test_plain():
 }
 
 #[test]
-fn test_conditional_logic_not_parametrized_triggers_mnt014() {
+fn test_conditional_logic_parametrized_triggers_mnt014() {
     let dir = tempfile::tempdir().unwrap();
     let path = write_temp_file(
         dir.path(),
         "test_conditional.py",
         r#"
-def test_with_if():
-    x = 5
+import pytest
+
+@pytest.mark.parametrize("x", [1, 2, 3])
+def test_with_if(x):
     if x > 3:
         assert True
     else:
@@ -3899,16 +3900,14 @@ def test_with_if():
 }
 
 #[test]
-fn test_conditional_logic_parametrized_does_not_trigger_mnt014() {
+fn test_conditional_logic_not_parametrized_does_not_trigger_mnt014() {
     let dir = tempfile::tempdir().unwrap();
     let path = write_temp_file(
         dir.path(),
         "test_param_cond.py",
         r#"
-import pytest
-
-@pytest.mark.parametrize("x", [1, 2, 3])
-def test_param(x):
+def test_plain():
+    x = 5
     if x > 2:
         assert True
     else:
@@ -3919,7 +3918,7 @@ def test_param(x):
     let v = find_violation(&violations, "PYTEST-MNT-014");
     assert!(
         v.is_none(),
-        "Parametrized test with conditional should not trigger MNT-014"
+        "Non-parametrized test with conditional should not trigger MNT-014 (covered by MNT-001)"
     );
 }
 

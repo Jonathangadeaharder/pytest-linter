@@ -132,7 +132,7 @@ pub fn violations_to_sarif(violations: &[Violation]) -> SarifLog {
                 text: v.rule_name.clone(),
             },
             help_uri: Some(format!(
-                "https://github.com/your-org/pytest-linter/blob/main/docs/rules/{}.md",
+                "https://github.com/Jonathangadeaharder/pytest-linter/blob/main/docs/rules/{}.md",
                 v.rule_id
             )),
             default_configuration: ReportingConfiguration {

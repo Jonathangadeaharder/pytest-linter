@@ -12,6 +12,6 @@ fi
 cd "$repo_root"
 
 echo "Running cargo-mutants..."
-cargo mutants --in-place --exclude lsp-server
+cargo mutants --in-place
 
 echo "Mutation testing complete."

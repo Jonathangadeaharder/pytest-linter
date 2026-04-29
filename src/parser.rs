@@ -23,7 +23,12 @@ impl PythonParser {
     #[allow(clippy::missing_errors_doc)]
     pub fn parse_file(&mut self, path: &Path) -> Result<ParsedModule> {
         let source = std::fs::read_to_string(path)?;
-        let tree = self.parser.parse(&source, None);
+        self.parse_source(&source, path)
+    }
+
+    #[allow(clippy::missing_errors_doc)]
+    pub fn parse_source(&mut self, source: &str, path: &Path) -> Result<ParsedModule> {
+        let tree = self.parser.parse(source, None);
         let file_path = path.to_path_buf();
 
         if let Some(tree) = tree {
@@ -151,6 +156,7 @@ impl PythonParser {
         let has_state_assertions = has_assertions && !has_mock_verifications_only(&body_text);
         let fixture_deps = Self::extract_fixture_deps(func_node, source);
         let uses_time_sleep = Self::detect_time_sleep(body.as_ref(), source);
+        let sleep_value = Self::detect_sleep_value(body.as_ref(), source);
         let uses_file_io = Self::detect_file_io(body.as_ref(), source);
         let uses_network = Self::detect_network_usage(body.as_ref(), source);
         let has_conditional_logic = Self::detect_conditionals(body.as_ref());
@@ -175,6 +181,7 @@ impl PythonParser {
             has_state_assertions,
             fixture_deps,
             uses_time_sleep,
+            sleep_value,
             uses_file_io,
             uses_network,
             has_conditional_logic,
@@ -808,6 +815,7 @@ impl PythonParser {
         let has_yield = Self::detect_yield(body.as_ref());
         let has_db_commit = Self::detect_db_commit(body.as_ref(), source);
         let has_db_rollback = Self::detect_db_rollback(body.as_ref(), source);
+        let has_cleanup = has_db_rollback || Self::detect_cleanup_pattern(body.as_ref(), source);
         let uses_file_io = Self::detect_file_io(body.as_ref(), source);
 
         Fixture {
@@ -821,6 +829,7 @@ impl PythonParser {
             has_yield,
             has_db_commit,
             has_db_rollback,
+            has_cleanup,
             uses_file_io,
             used_by: vec![],
         }
@@ -908,6 +917,84 @@ impl PythonParser {
             }
         }
         false
+    }
+
+    fn detect_sleep_value(body: Option<&tree_sitter::Node>, source: &[u8]) -> Option<f64> {
+        body.and_then(|b| Self::find_sleep_value(*b, source))
+    }
+
+    fn find_sleep_value(node: tree_sitter::Node, source: &[u8]) -> Option<f64> {
+        if node.kind() == "call" {
+            let func = node.child_by_field_name("function");
+            if let Some(f) = func {
+                let text = Self::node_text(f, source);
+                if text == "time.sleep" || text == "sleep" {
+                    if let Some(arg) = node.child_by_field_name("arguments") {
+                        for child in arg.children(&mut arg.walk()) {
+                            if child.kind() == "integer" || child.kind() == "float" {
+                                let val_str = Self::node_text(child, source);
+                                if let Ok(val) = val_str.parse::<f64>() {
+                                    return Some(val);
+                                }
+                            } else if child.kind() == "unary_operator" {
+                                let op = child
+                                    .child_by_field_name("operator")
+                                    .map(|op| Self::node_text(op, source));
+                                if op.as_deref() == Some("-") {
+                                    if let Some(operand) = child.child_by_field_name("operand") {
+                                        let val_str = Self::node_text(operand, source);
+                                        if let Ok(val) = val_str.parse::<f64>() {
+                                            return Some(-val);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                if f.kind() == "attribute" {
+                    let attr = f.child_by_field_name("attribute");
+                    if let Some(a) = attr {
+                        let name = Self::node_text(a, source);
+                        if name == "sleep" {
+                            if let Some(arg) = node.child_by_field_name("arguments") {
+                                for child in arg.children(&mut arg.walk()) {
+                                    if child.kind() == "integer" || child.kind() == "float" {
+                                        let val_str = Self::node_text(child, source);
+                                        if let Ok(val) = val_str.parse::<f64>() {
+                                            return Some(val);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if let Some(val) = Self::find_sleep_value(child, source) {
+                return Some(val);
+            }
+        }
+        None
+    }
+
+    fn detect_cleanup_pattern(body: Option<&tree_sitter::Node>, source: &[u8]) -> bool {
+        let cleanup_patterns = [
+            ".close()",
+            ".teardown_",
+            "env_reset",
+            ".restore()",
+            ".cleanup()",
+            ".remove()",
+            ".unlink()",
+        ];
+        body.is_some_and(|b| {
+            let text = String::from_utf8_lossy(&source[b.start_byte()..b.end_byte()]);
+            cleanup_patterns.iter().any(|p| text.contains(p))
+        })
     }
 
     fn detect_network_usage(body: Option<&tree_sitter::Node>, source: &[u8]) -> bool {

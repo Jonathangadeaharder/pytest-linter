@@ -8,7 +8,7 @@ import sys
 import urllib.request
 from pathlib import Path
 
-REPO = "your-org/pytest-linter"
+REPO = "Jonathangadeaharder/pytest-linter"
 VERSION = "0.1.0"
 BIN_NAME = "pytest-linter"
 
@@ -45,9 +45,8 @@ def _download(url: str, dest: Path) -> None:
 def _verify_checksum(filepath: Path, checksum_url: str) -> None:
     try:
         checksum_data = urllib.request.urlopen(checksum_url).read().decode().strip()
-    except Exception:
-        print("Warning: Could not verify checksum")
-        return
+    except Exception as exc:
+        raise RuntimeError(f"Failed to fetch checksum from {checksum_url}") from exc
 
     expected_hash = checksum_data.split()[0]
     sha256 = hashlib.sha256(filepath.read_bytes()).hexdigest()

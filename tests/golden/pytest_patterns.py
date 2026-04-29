@@ -23,7 +23,7 @@ def test_side_effect_only():
 
 
 # --- MNT-001: conditional logic ---
-def test_conditional_branch():  # expect: PYTEST-MNT-014
+def test_conditional_branch():  # expect: PYTEST-MNT-001
     x = get_value()
     if x > 0:  # expect: PYTEST-MNT-001
         assert x > 0

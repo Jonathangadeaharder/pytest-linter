@@ -9,6 +9,11 @@ if ! command -v pre-commit &>/dev/null; then
     exit 1
 fi
 
+if ! command -v cargo &>/dev/null; then
+    echo "Error: cargo not found. Install Rust from https://rustup.rs" >&2
+    exit 1
+fi
+
 if [ ! -f "$HOOK_CFG" ]; then
     echo "Error: $HOOK_CFG not found" >&2
     exit 1
@@ -24,7 +29,7 @@ echo ""
 echo "To install in your project, add to .pre-commit-config.yaml:"
 echo ""
 echo "  repos:"
-echo "    - repo: https://github.com/your-org/pytest-linter"
+echo "    - repo: https://github.com/Jonathangadeaharder/pytest-linter"
 echo "      rev: ''  # Use a tag or commit"
 echo "      hooks:"
 echo "        - id: pytest-linter"

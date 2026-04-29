@@ -4,7 +4,7 @@
 
 ### Prebuilt Binary
 
-Download the latest release for your platform from [GitHub Releases](https://github.com/your-org/pytest-linter/releases):
+Download the latest release for your platform from [GitHub Releases](https://github.com/Jonathangadeaharder/pytest-linter/releases):
 
 | Platform | File |
 |----------|------|
@@ -25,7 +25,7 @@ pip install pytest-linter
 ### Homebrew
 
 ```bash
-brew install your-org/tap/pytest-linter
+brew install Jonathangadeaharder/tap/pytest-linter
 ```
 
 ### Cargo
@@ -56,17 +56,18 @@ pytest-linter --format sarif --output results.sarif tests/
 
 ## CLI Options
 
-```
-Usage: pytest-linter [OPTIONS] [PATHS]...
+```text
+Usage: pytest-linter [OPTIONS] <PATHS>...
 
 Arguments:
-  [PATHS]...  Files or directories to lint [default: .]
+  <PATHS>...  Files or directories to lint
 
 Options:
-  --format <FORMAT>    Output format: terminal, json, sarif [default: terminal]
-  --output <OUTPUT>    Write output to file instead of stdout
-  --no-color           Disable colored output
-  -h, --help           Print help
+  --format <FORMAT>           Output format: terminal, json, sarif [default: terminal]
+  --output <OUTPUT>           Write output to file instead of stdout
+  --memory-limit <MB>         Soft memory limit in MB [default: 256]
+  --no-color                  Disable colored output
+  -h, --help                  Print help
 ```
 
 ## Configuration
@@ -75,11 +76,18 @@ Create a `[tool.pytest-linter]` section in `pyproject.toml`:
 
 ```toml
 [tool.pytest-linter]
-# Ignore specific rules
-ignore = ["PYTEST-FLK-001", "PYTEST-BDD-001"]
+# Enable or disable specific rules
+rules = ["PYTEST-FLK-001", "PYTEST-BDD-001"]
 
-# Set minimum severity level
-min-severity = "warning"
+# Output format (terminal, json, sarif)
+format = "terminal"
+
+# Write output to a file
+output = ""
+
+# Per-rule overrides
+[tool.pytest-linter.overrides.PYTEST-FLK-001]
+severity = "warning"
 ```
 
 ## Pre-commit Integration
@@ -88,7 +96,7 @@ Add to your `.pre-commit-config.yaml`:
 
 ```yaml
 repos:
-  - repo: https://github.com/your-org/pytest-linter
+  - repo: https://github.com/Jonathangadeaharder/pytest-linter
     rev: v0.1.0
     hooks:
       - id: pytest-linter
@@ -101,7 +109,7 @@ repos:
 ```yaml
 - name: Lint tests
   run: |
-    curl -sL https://github.com/your-org/pytest-linter/releases/latest/download/pytest-linter-x86_64-unknown-linux-gnu.tar.gz | tar xz
+    curl -sL https://github.com/Jonathangadeaharder/pytest-linter/releases/latest/download/pytest-linter-x86_64-unknown-linux-gnu.tar.gz | tar xz
     ./pytest-linter --format sarif --output pytest-linter.sarif tests/
 ```
 

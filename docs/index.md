@@ -5,7 +5,7 @@ Fast, tree-sitter-powered test smell detector for **pytest** (Python), written i
 ## Why pytest-linter?
 
 - **Fast**: Tree-sitter AST parsing — no regex, no Python runtime overhead
-- **Comprehensive**: 28 rules covering flakiness, maintenance, and fixture smells
+- **Comprehensive**: 37 rules covering flakiness, maintenance, and fixture smells
 - **Zero config**: Works out of the box with sensible defaults
 - **Multiple formats**: Terminal (colored), JSON, and SARIF output
 - **CI-friendly**: Exit code 1 on Error-severity violations
@@ -18,7 +18,7 @@ pytest-linter tests/
 
 Output:
 
-```
+```text
 tests/test_api.py:12 PYTEST-FLK-001 [warning] Test 'test_timeout' uses time.sleep which causes flaky tests
   → Use pytest's time mocking or wait for a condition instead
 
@@ -31,7 +31,7 @@ tests/test_models.py:45 PYTEST-MNT-004 [error] Test 'test_create' has no asserti
 | Feature | Description |
 |---------|-------------|
 | AST-based analysis | Tree-sitter parsing, no false positives from string matching |
-| 28 rules | Flakiness, maintenance, fixture, BDD, PBT, and parametrize checks |
+| 37 rules | Flakiness, maintenance, fixture, BDD, PBT, and parametrize checks |
 | JSON output | `--format json` for integration with other tools |
 | SARIF output | `--format sarif` for GitHub Code Scanning |
 | Configurable | `pyproject.toml` configuration support |
@@ -41,7 +41,7 @@ tests/test_models.py:45 PYTEST-MNT-004 [error] Test 'test_create' has no asserti
 
 === "Prebuilt Binary (Recommended)"
 
-    Download from [GitHub Releases](https://github.com/your-org/pytest-linter/releases).
+    Download from [GitHub Releases](https://github.com/Jonathangadeaharder/pytest-linter/releases).
 
 === "pip"
 
@@ -52,7 +52,7 @@ tests/test_models.py:45 PYTEST-MNT-004 [error] Test 'test_create' has no asserti
 === "Homebrew"
 
     ```bash
-    brew install your-org/tap/pytest-linter
+    brew install Jonathangadeaharder/tap/pytest-linter
     ```
 
 === "Cargo"

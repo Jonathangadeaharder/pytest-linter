@@ -355,7 +355,7 @@ impl Rule for AutouseCascadeDepthRule {
         for fixture in &module.fixtures {
             if fixture.is_autouse {
                 let mut visited = HashSet::new();
-                let depth = compute_cascade_depth(&fixture.name, ctx.fixture_map, &mut visited);
+                let depth = compute_cascade_depth(fixture, ctx.fixture_map, &mut visited);
                 if depth > 3 {
                     violations.push(make_violation(
                         self.id(),
@@ -379,29 +379,31 @@ impl Rule for AutouseCascadeDepthRule {
 }
 
 fn compute_cascade_depth(
-    fixture_name: &str,
+    fixture: &Fixture,
     fixture_map: &HashMap<String, Vec<&Fixture>>,
     visited: &mut HashSet<String>,
 ) -> usize {
-    if visited.contains(fixture_name) {
+    if visited.contains(&fixture.name) {
         return 0;
     }
-    visited.insert(fixture_name.to_string());
-    let deps: Vec<String> = fixture_map
-        .get(fixture_name)
-        .and_then(|v| v.first())
-        .map(|f| f.dependencies.clone())
-        .unwrap_or_default();
+    visited.insert(fixture.name.clone());
+    let deps = fixture.dependencies.clone();
     let result = if deps.is_empty() {
         1
     } else {
         deps.iter()
-            .map(|dep| compute_cascade_depth(dep, fixture_map, visited))
+            .map(|dep| {
+                fixture_map
+                    .get(dep)
+                    .and_then(|v| v.first())
+                    .map(|f| compute_cascade_depth(f, fixture_map, visited))
+                    .unwrap_or(1)
+            })
             .max()
             .unwrap_or(0)
             + 1
     };
-    visited.remove(fixture_name);
+    visited.remove(&fixture.name);
     result
 }
 
@@ -480,7 +482,7 @@ impl Rule for YieldWithoutTryFinallyRule {
     ) -> Vec<Violation> {
         let mut violations = Vec::new();
         for fixture in &module.fixtures {
-            if fixture.has_yield && !fixture.has_db_rollback {
+            if fixture.has_yield && !fixture.has_cleanup {
                 violations.push(make_violation(
                     self.id(),
                     self.name(),

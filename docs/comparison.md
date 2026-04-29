@@ -36,7 +36,7 @@ How pytest-linter compares to other Python linting tools with pytest-specific ru
 | Conditional logic in tests | **PYTEST-MNT-001** | — | — | — |
 | Magic assertions | **PYTEST-MNT-002** | — | — | — |
 | Suboptimal assertions | **PYTEST-MNT-003** | — | — | — |
-| No assertions | **PYTEST-MNT-004** | F601 | — | PT019 |
+| No assertions | **PYTEST-MNT-004** | F601 | — | — |
 | Mock-only verification | **PYTEST-MNT-005** | — | — | — |
 | Assertion roulette | **PYTEST-MNT-006** | — | — | — |
 | Raw try/except vs pytest.raises | **PYTEST-MNT-007** | PT011 | W0612 | PT011 |
@@ -50,7 +50,7 @@ How pytest-linter compares to other Python linting tools with pytest-specific ru
 
 | Rule | pytest-linter | ruff | pylint-pytest | flake8-pytest-style |
 |------|:---:|:---:|:---:|:---:|
-| autouse=True fixture | **PYTEST-FIX-001** | PT022 | W0602 | PT022 |
+| autouse=True fixture | **PYTEST-FIX-001** | — | W0602 | — |
 | Invalid fixture scope | **PYTEST-FIX-003** | — | — | — |
 | Shadowed fixture | **PYTEST-FIX-004** | — | — | — |
 | Unused fixture | **PYTEST-FIX-005** | — | — | — |
@@ -82,7 +82,7 @@ How pytest-linter compares to other Python linting tools with pytest-specific ru
 | PT016 | Fail without message |
 | PT017 | Assert in `except` block instead of `pytest.raises()` |
 | PT018 | Composite assertion |
-| PT019 | Fixture without value is returned |
+| PT019 | Fixture without value injected as parameter |
 | PT020 | Deprecated `@pytest.yield_fixture` |
 | PT021 | Fixture `params` without IDs |
 | PT022 | No teardown in `yield` fixture |
@@ -113,15 +113,15 @@ How pytest-linter compares to other Python linting tools with pytest-specific ru
 | PT016 | Fail without message |
 | PT017 | Assert in except block |
 | PT018 | Composite assertion |
-| PT019 | Fixture without value returned |
-| PT020 | Deprecated yield_fixture |
-| PT021 | Fixture params without IDs |
-| PT022 | No teardown in yield fixture |
-| PT023 | Correct mark usage |
-| PT024 | usefixtures without args |
-| PT025 | usefixtures with @pytest.fixture |
-| PT026 | Deprecated parametrize marks |
-| PT027 | pytest.raises without match |
+| PT019 | Fixture without value injected as parameter |
+| PT020 | Deprecated `@pytest.yield_fixture` |
+| PT021 | Fixture `params` without IDs |
+| PT022 | No teardown in `yield` fixture |
+| PT023 | Incorrect `@pytest.mark` usage |
+| PT024 | `pytest.mark.usefixtures` without fixture args |
+| PT025 | `pytest.mark.usefixtures` with `@pytest.fixture` |
+| PT026 | Deprecated `pytest.mark.parametrize` marks |
+| PT027 | `pytest.raises` without `match` |
 
 ## Summary
 

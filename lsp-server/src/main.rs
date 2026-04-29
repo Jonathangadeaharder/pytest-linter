@@ -18,10 +18,8 @@ struct LspState {
 impl LspState {
     fn reload_config(&mut self) {
         if let Some(ref root) = self.workspace_root {
-            if let Ok(Some(cfg)) = Config::from_pyproject(root) {
+            if let Ok(cfg) = Config::discover(root) {
                 self.config = cfg;
-            } else {
-                self.config = Config::default();
             }
         }
     }
@@ -46,7 +44,7 @@ fn main() -> Result<()> {
         });
 
     let config = match workspace_root.as_ref() {
-        Some(root) => Config::from_pyproject(root)?.unwrap_or_default(),
+        Some(root) => Config::discover(root)?,
         None => Config::default(),
     };
 
@@ -59,7 +57,7 @@ fn main() -> Result<()> {
         text_document_sync: Some(TextDocumentSyncCapability::Options(
             TextDocumentSyncOptions {
                 open_close: Some(true),
-                change: Some(TextDocumentSyncKind::INCREMENTAL),
+                change: Some(TextDocumentSyncKind::FULL),
                 will_save: None,
                 will_save_wait_until: None,
                 save: None,
@@ -131,17 +129,11 @@ fn main_loop(connection: Connection, mut state: LspState) -> Result<()> {
 fn lint_document(uri: &Url, text: &str, state: &LspState) -> Option<Vec<Diagnostic>> {
     let file_path = uri.to_file_path().ok()?;
 
-    let tmp_dir = std::env::temp_dir().join(format!("pytest-linter-lsp-{}", std::process::id()));
-    std::fs::create_dir_all(&tmp_dir).ok()?;
-    let tmp_file = tmp_dir.join(file_path.file_name().unwrap_or_default());
-    std::fs::write(&tmp_file, text).ok()?;
-
     let engine = pytest_linter::engine::LintEngine::new(state.config.clone()).ok()?;
-    let violations = engine.lint_paths(&[tmp_file.clone()]).ok()?;
+    let violations = engine.lint_source(text, &file_path).ok()?;
 
     let diagnostics = violations
         .into_iter()
-        .filter(|v| v.file_path == tmp_file)
         .map(|v| Diagnostic {
             range: Range {
                 start: Position {
@@ -165,7 +157,6 @@ fn lint_document(uri: &Url, text: &str, state: &LspState) -> Option<Vec<Diagnost
         })
         .collect();
 
-    let _ = std::fs::remove_dir_all(&tmp_dir);
     Some(diagnostics)
 }
 

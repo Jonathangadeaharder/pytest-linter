@@ -330,6 +330,9 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
 
+    if args.num_files <= 0:
+        parser.error(f"--num-files must be positive, got {args.num_files}")
+
     os.makedirs(args.output_dir, exist_ok=True)
     rng = random.Random(args.seed)
 

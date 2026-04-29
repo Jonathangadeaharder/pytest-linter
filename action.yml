@@ -29,7 +29,7 @@ runs:
       uses: Swatinem/rust-cache@v2
     - name: Build pytest-linter
       shell: bash
-      run: cargo build --release
+      run: cargo build --release --manifest-path "${{ github.action_path }}/../Cargo.toml"
     - name: Run pytest-linter
       shell: bash
       run: |
@@ -40,4 +40,4 @@ runs:
         if [ "${{ inputs.no-color }}" == "true" ]; then
           ARGS="$ARGS --no-color"
         fi
-        ./target/release/pytest-linter $ARGS ${{ inputs.path }}
+        ${{ github.action_path }}/../target/release/pytest-linter $ARGS ${{ inputs.path }}

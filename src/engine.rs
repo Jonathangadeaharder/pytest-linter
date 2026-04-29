@@ -39,7 +39,13 @@ impl RuleDispatcher {
         ctx: &RuleContext,
         config: &Config,
     ) -> Vec<Violation> {
-        let effective = config.effective_rules_for_file(&module.file_path);
+        let effective = match config.effective_rules_for_file(&module.file_path) {
+            Ok(e) => e,
+            Err(err) => {
+                eprintln!("Warning: {}", err);
+                config.rules.clone()
+            }
+        };
         let mut violations = Vec::new();
 
         for rule in &self.all_rules {
@@ -157,6 +163,31 @@ impl LintEngine {
         }
 
         violations.sort();
+        Ok(violations)
+    }
+
+    #[allow(clippy::missing_errors_doc)]
+    pub fn lint_source(&self, source: &str, file_path: &Path) -> Result<Vec<Violation>> {
+        let mut parser = crate::parser::PythonParser::new()?;
+        let module = parser.parse_source(source, file_path)?;
+        let modules = vec![module];
+
+        let fixture_map = collect_all_fixtures(&modules);
+        let used_fixture_names = compute_used_fixture_names(&modules);
+        let fixture_locations = compute_fixture_locations(&modules);
+        let session_mutable_fixtures = compute_session_mutable_fixtures(&modules);
+
+        let ctx = RuleContext {
+            fixture_map: &fixture_map,
+            used_fixture_names: &used_fixture_names,
+            fixture_locations: &fixture_locations,
+            session_mutable_fixtures: &session_mutable_fixtures,
+        };
+
+        let violations = self
+            .dispatcher
+            .check_module(&modules[0], &modules, &ctx, &self.config);
+
         Ok(violations)
     }
 }

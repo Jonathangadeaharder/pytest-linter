@@ -29,7 +29,7 @@ def test_file_read():
 
 
 # --- MNT-001: conditional logic ---
-def test_conditional():  # expect: PYTEST-MNT-014
+def test_conditional():  # expect: PYTEST-MNT-001
     result = call_api()
     if result.ok:  # expect: PYTEST-MNT-001
         assert result.json()

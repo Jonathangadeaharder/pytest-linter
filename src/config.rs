@@ -19,11 +19,10 @@ pub struct RuleConfig {
 /// severity for files matching a glob pattern.
 #[derive(Debug, Deserialize, Clone)]
 pub struct OverrideConfig {
-    /// Glob pattern to match file paths (relative to config directory).
-    /// Examples: "tests/integration/**", "tests/e2e/*.py"
     pub path: String,
-    /// Per-rule overrides for files matching this pattern
     pub rules: HashMap<String, RuleConfig>,
+    #[serde(skip)]
+    pub base_dir: Option<PathBuf>,
 }
 
 /// TOML section [tool.pytest-linter] in a pyproject.toml, or the top-level
@@ -84,7 +83,7 @@ impl Default for Config {
 }
 
 impl Config {
-    // 28 rule IDs to be enabled by default (as per task requirements)
+    // 37 rule IDs enabled by default (matches the full rule registry)
     fn default_rule_ids() -> Vec<&'static str> {
         vec![
             "PYTEST-FLK-001",
@@ -92,6 +91,8 @@ impl Config {
             "PYTEST-FLK-003",
             "PYTEST-FLK-004",
             "PYTEST-FLK-005",
+            "PYTEST-FLK-010",
+            "PYTEST-FLK-011",
             "PYTEST-XDIST-001",
             "PYTEST-XDIST-002",
             "PYTEST-MNT-001",
@@ -101,6 +102,10 @@ impl Config {
             "PYTEST-MNT-005",
             "PYTEST-MNT-006",
             "PYTEST-MNT-007",
+            "PYTEST-MNT-014",
+            "PYTEST-MNT-015",
+            "PYTEST-MNT-016",
+            "PYTEST-MNT-017",
             "PYTEST-BDD-001",
             "PYTEST-PBT-001",
             "PYTEST-PARAM-001",
@@ -115,6 +120,9 @@ impl Config {
             "PYTEST-FIX-007",
             "PYTEST-FIX-008",
             "PYTEST-FIX-009",
+            "PYTEST-FIX-010",
+            "PYTEST-FIX-011",
+            "PYTEST-FIX-012",
         ]
     }
 
@@ -167,6 +175,9 @@ impl Config {
             }
         }
         cfg.overrides = tool_config.overrides.unwrap_or_default();
+        for override_cfg in &mut cfg.overrides {
+            override_cfg.base_dir = Some(config_dir.to_path_buf());
+        }
         cfg.config_dir = Some(config_dir.to_path_buf());
         cfg
     }
@@ -305,7 +316,10 @@ impl Config {
 
     /// Compute the effective rule configuration for a specific file path,
     /// applying any matching override entries on top of the global config.
-    pub fn effective_rules_for_file(&self, file_path: &Path) -> HashMap<String, RuleConfig> {
+    pub fn effective_rules_for_file(
+        &self,
+        file_path: &Path,
+    ) -> Result<HashMap<String, RuleConfig>> {
         let mut effective = self.rules.clone();
 
         let relative_path = self
@@ -315,26 +329,34 @@ impl Config {
             .unwrap_or(file_path);
 
         for override_cfg in &self.overrides {
-            if let Ok(pattern) = glob::Pattern::new(&override_cfg.path) {
-                if pattern.matches_path(relative_path) {
-                    for (rule_id, rule_config) in &override_cfg.rules {
-                        effective
-                            .entry(rule_id.clone())
-                            .and_modify(|existing| {
-                                if rule_config.enabled.is_some() {
-                                    existing.enabled = rule_config.enabled;
-                                }
-                                if rule_config.severity.is_some() {
-                                    existing.severity = rule_config.severity;
-                                }
-                            })
-                            .or_insert((*rule_config).clone());
-                    }
+            let override_base = override_cfg.base_dir.as_ref().or(self.config_dir.as_ref());
+            let relative_path = override_base
+                .and_then(|dir| file_path.strip_prefix(dir).ok())
+                .unwrap_or(relative_path);
+            let pattern = glob::Pattern::new(&override_cfg.path).with_context(|| {
+                format!(
+                    "invalid glob pattern '{}' in override configuration",
+                    override_cfg.path
+                )
+            })?;
+            if pattern.matches_path(relative_path) {
+                for (rule_id, rule_config) in &override_cfg.rules {
+                    effective
+                        .entry(rule_id.clone())
+                        .and_modify(|existing| {
+                            if rule_config.enabled.is_some() {
+                                existing.enabled = rule_config.enabled;
+                            }
+                            if rule_config.severity.is_some() {
+                                existing.severity = rule_config.severity;
+                            }
+                        })
+                        .or_insert((*rule_config).clone());
                 }
             }
         }
 
-        effective
+        Ok(effective)
     }
 
     /// Apply CLI overrides on top of existing config. If value is None, keep current value
@@ -354,9 +376,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_default_has_28_rules_enabled() {
+    fn test_default_has_37_rules_enabled() {
         let cfg = Config::default();
-        assert_eq!(cfg.rules.len(), 28);
+        assert_eq!(cfg.rules.len(), 37);
         for rid in Config::default_rule_ids() {
             assert!(
                 cfg.is_rule_enabled(rid),
@@ -534,7 +556,7 @@ format = "terminal"
         let dir = tempfile::tempdir().unwrap();
         let cfg = Config::discover(dir.path()).unwrap();
         assert_eq!(cfg.format, None);
-        assert_eq!(cfg.rules.len(), 28);
+        assert_eq!(cfg.rules.len(), 37);
     }
 
     #[test]
@@ -598,7 +620,7 @@ rules = { PYTEST-MNT-001 = { severity = "info" } }
     fn test_effective_rules_no_overrides() {
         let cfg = Config::default();
         let file_path = PathBuf::from("tests/test_foo.py");
-        let effective = cfg.effective_rules_for_file(&file_path);
+        let effective = cfg.effective_rules_for_file(&file_path).unwrap();
         assert_eq!(effective.len(), cfg.rules.len());
     }
 
@@ -615,7 +637,7 @@ rules = { PYTEST-FLK-001 = { enabled = false } }
         let cfg = Config::from_standalone(dir.path()).unwrap().unwrap();
 
         let file_path = dir.path().join("tests/integration/test_api.py");
-        let effective = cfg.effective_rules_for_file(&file_path);
+        let effective = cfg.effective_rules_for_file(&file_path).unwrap();
 
         let rc = effective.get("PYTEST-FLK-001").unwrap();
         assert_eq!(rc.enabled, Some(false));
@@ -634,7 +656,7 @@ rules = { PYTEST-FLK-001 = { enabled = false } }
         let cfg = Config::from_standalone(dir.path()).unwrap().unwrap();
 
         let file_path = dir.path().join("tests/unit/test_bar.py");
-        let effective = cfg.effective_rules_for_file(&file_path);
+        let effective = cfg.effective_rules_for_file(&file_path).unwrap();
 
         assert_eq!(effective.get("PYTEST-FLK-001").unwrap().enabled, Some(true));
     }

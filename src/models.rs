@@ -78,6 +78,7 @@ pub struct TestFunction {
     pub has_state_assertions: bool,
     pub fixture_deps: Vec<String>,
     pub uses_time_sleep: bool,
+    pub sleep_value: Option<f64>,
     pub uses_file_io: bool,
     pub uses_network: bool,
     pub has_conditional_logic: bool,
@@ -125,6 +126,7 @@ pub struct Fixture {
     pub has_yield: bool,
     pub has_db_commit: bool,
     pub has_db_rollback: bool,
+    pub has_cleanup: bool,
     pub uses_file_io: bool,
     pub used_by: Vec<String>,
 }
