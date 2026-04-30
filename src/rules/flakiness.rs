@@ -693,32 +693,23 @@ fn call_has_timeout(call_node: Node, source: &[u8]) -> bool {
 
 /// Find the function_definition node at the given 1-indexed line number.
 fn find_function_node<'tree>(root: &'tree Node<'tree>, target_line: usize) -> Option<Node<'tree>> {
-    let mut to_visit = vec![*root];
-    while let Some(node) = to_visit.pop() {
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            match child.kind() {
-                "function_definition" if child.start_position().row + 1 == target_line => {
-                    return Some(child);
-                }
-                "decorated_definition" => {
-                    let mut inner = child.walk();
-                    for c in child.children(&mut inner) {
-                        if c.kind() == "function_definition"
-                            && c.start_position().row + 1 == target_line
-                        {
-                            return Some(c);
-                        }
-                        if c.kind() == "class_definition" {
-                            to_visit.push(c);
-                        }
+    let mut cursor = root.walk();
+    for child in root.children(&mut cursor) {
+        match child.kind() {
+            "function_definition" if child.start_position().row + 1 == target_line => {
+                return Some(child);
+            }
+            "decorated_definition" => {
+                let mut inner = child.walk();
+                for c in child.children(&mut inner) {
+                    if c.kind() == "function_definition"
+                        && c.start_position().row + 1 == target_line
+                    {
+                        return Some(c);
                     }
                 }
-                "class_definition" => {
-                    to_visit.push(child);
-                }
-                _ => {}
             }
+            _ => {}
         }
     }
     None
@@ -803,6 +794,152 @@ def test_subprocess_safe():
         assert!(
             result,
             "call_has_timeout should return true for subprocess.run with timeout=30"
+        );
+    }
+}
+
+#[cfg(test)]
+mod mutation_tests {
+    use super::*;
+
+    fn parse(source: &str) -> tree_sitter::Tree {
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&tree_sitter_python::LANGUAGE.into())
+            .unwrap();
+        parser.parse(source, None).unwrap()
+    }
+
+    #[test]
+    fn test_find_function_node_finds_top_level() {
+        let source = "def test_foo():\n    pass\n";
+        let tree = parse(source);
+        let root = tree.root_node();
+        let node = find_function_node(&root, 1);
+        assert!(node.is_some(), "should find function on line 1");
+    }
+
+    #[test]
+    fn test_find_function_node_finds_in_decorated() {
+        let source = "@decorator\ndef test_bar():\n    pass\n";
+        let tree = parse(source);
+        let root = tree.root_node();
+        let node = find_function_node(&root, 2);
+        assert!(
+            node.is_some(),
+            "should find function on line 2 inside decorated_definition"
+        );
+        assert_eq!(node.unwrap().kind(), "function_definition");
+    }
+
+    #[test]
+    fn test_find_function_node_wrong_line_returns_none() {
+        let source = "def test_foo():\n    pass\n";
+        let tree = parse(source);
+        let root = tree.root_node();
+        let node = find_function_node(&root, 99);
+        assert!(node.is_none(), "should not find function on wrong line");
+    }
+
+    #[test]
+    fn test_collect_random_calls_detects_random_module_attribute() {
+        let source = "import random\nx = random.unknown_func()\n";
+        let tree = parse(source);
+        let mut lines = Vec::new();
+        collect_random_calls(tree.root_node(), source.as_bytes(), &mut lines);
+        assert!(
+            !lines.is_empty(),
+            "random.<unknown> should be detected via attribute object check"
+        );
+    }
+
+    #[test]
+    fn test_collect_random_calls_detects_randint() {
+        let source = "import random\nx = random.randint(1, 10)\n";
+        let tree = parse(source);
+        let mut lines = Vec::new();
+        collect_random_calls(tree.root_node(), source.as_bytes(), &mut lines);
+        assert!(!lines.is_empty(), "random.randint should be detected");
+    }
+
+    #[test]
+    fn test_collect_random_calls_no_false_positive() {
+        let source = "x = deterministic_func()\n";
+        let tree = parse(source);
+        let mut lines = Vec::new();
+        collect_random_calls(tree.root_node(), source.as_bytes(), &mut lines);
+        assert!(lines.is_empty(), "non-random call should not be detected");
+    }
+
+    #[test]
+    fn test_collect_random_calls_no_false_positive_attribute() {
+        let source = "x = math.sqrt(4)\n";
+        let tree = parse(source);
+        let mut lines = Vec::new();
+        collect_random_calls(tree.root_node(), source.as_bytes(), &mut lines);
+        assert!(
+            lines.is_empty(),
+            "math.sqrt (non-random attribute) should not be detected as random"
+        );
+    }
+
+    #[test]
+    fn test_collect_subprocess_calls_detects_subprocess_attribute() {
+        let source = "import subprocess\nr = subprocess.unknown_func()\n";
+        let tree = parse(source);
+        let mut lines = Vec::new();
+        collect_subprocess_calls_without_timeout(tree.root_node(), source.as_bytes(), &mut lines);
+        assert!(
+            !lines.is_empty(),
+            "subprocess.<unknown> should be detected via attribute object check"
+        );
+    }
+
+    #[test]
+    fn test_collect_subprocess_calls_detects_run() {
+        let source = "import subprocess\nr = subprocess.run(['ls'])\n";
+        let tree = parse(source);
+        let mut lines = Vec::new();
+        collect_subprocess_calls_without_timeout(tree.root_node(), source.as_bytes(), &mut lines);
+        assert!(
+            !lines.is_empty(),
+            "subprocess.run without timeout should be detected"
+        );
+    }
+
+    #[test]
+    fn test_find_function_node_decorated_wrong_line_returns_none() {
+        let source = "@decorator\ndef test_bar():\n    pass\n";
+        let tree = parse(source);
+        let root = tree.root_node();
+        let node = find_function_node(&root, 99);
+        assert!(
+            node.is_none(),
+            "decorated function on wrong line should return None"
+        );
+    }
+
+    #[test]
+    fn test_collect_subprocess_calls_no_false_positive_attribute() {
+        let source = "r = os.system('ls')\n";
+        let tree = parse(source);
+        let mut lines = Vec::new();
+        collect_subprocess_calls_without_timeout(tree.root_node(), source.as_bytes(), &mut lines);
+        assert!(
+            lines.is_empty(),
+            "os.system (non-subprocess attribute) should not be detected as subprocess"
+        );
+    }
+
+    #[test]
+    fn test_collect_subprocess_calls_no_false_positive() {
+        let source = "x = other_func()\n";
+        let tree = parse(source);
+        let mut lines = Vec::new();
+        collect_subprocess_calls_without_timeout(tree.root_node(), source.as_bytes(), &mut lines);
+        assert!(
+            lines.is_empty(),
+            "non-subprocess call should not be detected"
         );
     }
 }
