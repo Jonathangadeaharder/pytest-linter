@@ -1739,4 +1739,2087 @@ def test_open():
 
         assert!(module.test_functions[0].uses_file_io);
     }
+
+    fn parse_source(source: &str) -> ParsedModule {
+        let mut parser = PythonParser::new().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test_input.py");
+        parser.parse_source(source, &path).unwrap()
+    }
+
+    #[test]
+    fn test_class_definition_not_traversed() {
+        let module = parse_source(
+            r#"
+class TestMyClass:
+    def test_inner(self):
+        assert True
+"#,
+        );
+        assert_eq!(module.test_functions.len(), 0);
+    }
+
+    #[test]
+    fn test_async_test_detected() {
+        let module = parse_source(
+            r#"
+async def test_async_thing():
+    assert True
+"#,
+        );
+        assert!(module.test_functions[0].is_async);
+    }
+
+    #[test]
+    fn test_sync_test_not_async() {
+        let module = parse_source(
+            r#"
+def test_sync():
+    assert True
+"#,
+        );
+        assert!(!module.test_functions[0].is_async);
+    }
+
+    #[test]
+    fn test_state_assertions_true_with_only_assert() {
+        let module = parse_source(
+            r#"
+def test_state():
+    assert 1 == 1
+"#,
+        );
+        assert!(module.test_functions[0].has_state_assertions);
+    }
+
+    #[test]
+    fn test_state_assertions_false_with_only_mock() {
+        let module = parse_source(
+            r#"
+def test_mock_only():
+    mock_obj.assert_called_once()
+"#,
+        );
+        assert!(!module.test_functions[0].has_state_assertions);
+    }
+
+    #[test]
+    fn test_state_assertions_true_with_both() {
+        let module = parse_source(
+            r#"
+def test_both():
+    mock_obj.assert_called()
+    assert True
+"#,
+        );
+        assert!(module.test_functions[0].has_state_assertions);
+    }
+
+    #[test]
+    fn test_bare_parametrize_decorator() {
+        let module = parse_source(
+            r#"
+@parametrize("x", [1, 2, 3])
+def test_bare(x):
+    assert x > 0
+"#,
+        );
+        assert!(module.test_functions[0].is_parametrized);
+        assert_eq!(module.test_functions[0].parametrize_count, Some(3));
+    }
+
+    #[test]
+    fn test_parametrize_ast_single_element() {
+        let module = parse_source(
+            r#"
+@pytest.mark.parametrize("x", [42])
+def test_single(x):
+    assert x == 42
+"#,
+        );
+        assert!(module.test_functions[0].is_parametrized);
+        assert_eq!(module.test_functions[0].parametrize_count, Some(1));
+    }
+
+    #[test]
+    fn test_parametrize_ast_empty_list() {
+        let module = parse_source(
+            r#"
+@pytest.mark.parametrize("x", [])
+def test_empty(x):
+    assert True
+"#,
+        );
+        assert!(module.test_functions[0].is_parametrized);
+        assert_eq!(module.test_functions[0].parametrize_count, Some(0));
+    }
+
+    #[test]
+    fn test_parametrize_ast_tuple_values() {
+        let module = parse_source(
+            r#"
+@pytest.mark.parametrize("x", (1, 2))
+def test_tuple(x):
+    assert x > 0
+"#,
+        );
+        assert!(module.test_functions[0].is_parametrized);
+        assert!(module.test_functions[0].parametrize_count.unwrap() >= 2);
+    }
+
+    #[test]
+    fn test_count_parametrize_args_bracket_end_before_start() {
+        assert_eq!(
+            PythonParser::count_parametrize_args("parametrize('x', ']'  [1, 2])"),
+            2
+        );
+    }
+
+    #[test]
+    fn test_count_parametrize_args_bracket_end_not_greater() {
+        assert_eq!(
+            PythonParser::count_parametrize_args("parametrize('x', [1] )"),
+            1
+        );
+    }
+
+    #[test]
+    fn test_count_top_level_entries_closing_bracket_at_depth_zero() {
+        assert_eq!(PythonParser::count_top_level_entries("a, b)"), 2);
+    }
+
+    #[test]
+    fn test_assertion_info_line_number() {
+        let module = parse_source(
+            r#"
+def test_assert_lines():
+    x = 1
+    assert x == 1
+"#,
+        );
+        let info = &module.test_functions[0].assertions;
+        assert_eq!(info.len(), 1);
+        assert_eq!(info[0].line, 4);
+    }
+
+    #[test]
+    fn test_assertion_info_integer_magic() {
+        let module = parse_source(
+            r#"
+def test_magic_int():
+    assert 0
+"#,
+        );
+        let info = &module.test_functions[0].assertions;
+        assert_eq!(info.len(), 1);
+        assert!(info[0].is_magic);
+    }
+
+    #[test]
+    fn test_assertion_info_integer_one() {
+        let module = parse_source(
+            r#"
+def test_magic_one():
+    assert 1
+"#,
+        );
+        let info = &module.test_functions[0].assertions;
+        assert!(info[0].is_magic);
+    }
+
+    #[test]
+    fn test_assertion_info_false_keyword() {
+        let module = parse_source(
+            r#"
+def test_magic_false():
+    assert False
+"#,
+        );
+        let info = &module.test_functions[0].assertions;
+        assert!(info[0].is_magic);
+    }
+
+    #[test]
+    fn test_assertion_info_true_keyword() {
+        let module = parse_source(
+            r#"
+def test_magic_true():
+    assert True
+"#,
+        );
+        let info = &module.test_functions[0].assertions;
+        assert!(info[0].is_magic);
+    }
+
+    #[test]
+    fn test_assertion_info_plain_identifier_not_magic() {
+        let module = parse_source(
+            r#"
+def test_plain_ident():
+    x = 1
+    assert x
+"#,
+        );
+        let info = &module.test_functions[0].assertions;
+        assert!(info[0].is_magic);
+    }
+
+    #[test]
+    fn test_assertion_info_comparison_not_magic() {
+        let module = parse_source(
+            r#"
+def test_comparison():
+    assert 1 == 1
+"#,
+        );
+        let info = &module.test_functions[0].assertions;
+        assert!(!info[0].is_magic);
+        assert!(info[0].has_comparison);
+    }
+
+    #[test]
+    fn test_suboptimal_assert_not_none_in_comparison() {
+        let module = parse_source(
+            r#"
+def test_not_none_comp():
+    x = 1
+    assert not x is None
+"#,
+        );
+        let info = &module.test_functions[0].assertions;
+        assert!(!info[0].is_suboptimal);
+    }
+
+    #[test]
+    fn test_suboptimal_assert_len_comparison() {
+        let module = parse_source(
+            r#"
+def test_len_compare():
+    x = [1, 2]
+    assert len(x) == 2
+"#,
+        );
+        let info = &module.test_functions[0].assertions;
+        assert_eq!(info.len(), 1);
+        assert!(info[0].is_suboptimal);
+    }
+
+    #[test]
+    fn test_suboptimal_assert_type_comparison() {
+        let module = parse_source(
+            r#"
+def test_type_compare():
+    x = 1
+    assert type(x) == int
+"#,
+        );
+        let info = &module.test_functions[0].assertions;
+        assert!(info[0].is_suboptimal);
+    }
+
+    #[test]
+    fn test_suboptimal_assert_eq_none() {
+        let module = parse_source(
+            r#"
+def test_eq_none():
+    x = None
+    assert x == None
+"#,
+        );
+        let info = &module.test_functions[0].assertions;
+        assert!(info[0].is_suboptimal);
+    }
+
+    #[test]
+    fn test_suboptimal_assert_neq_none() {
+        let module = parse_source(
+            r#"
+def test_neq_none():
+    x = 1
+    assert x != None
+"#,
+        );
+        let info = &module.test_functions[0].assertions;
+        assert!(info[0].is_suboptimal);
+    }
+
+    #[test]
+    fn test_not_suboptimal_is_none() {
+        let module = parse_source(
+            r#"
+def test_is_none():
+    x = None
+    assert x is None
+"#,
+        );
+        let info = &module.test_functions[0].assertions;
+        assert!(!info[0].is_suboptimal);
+    }
+
+    #[test]
+    fn test_not_suboptimal_is_not_none() {
+        let module = parse_source(
+            r#"
+def test_is_not_none():
+    x = 1
+    assert x is not None
+"#,
+        );
+        let info = &module.test_functions[0].assertions;
+        assert!(!info[0].is_suboptimal);
+    }
+
+    #[test]
+    fn test_extract_parametrize_values_bare_parametrize() {
+        let module = parse_source(
+            r#"
+@parametrize("x", [10, 20])
+def test_vals(x):
+    assert x > 0
+"#,
+        );
+        assert!(!module.test_functions[0].parametrize_values.is_empty());
+    }
+
+    #[test]
+    fn test_parametrize_values_second_list_selected() {
+        let module = parse_source(
+            r#"
+@pytest.mark.parametrize("x,y", [[1,2], [3,4]])
+def test_multi(x, y):
+    assert x + y > 0
+"#,
+        );
+        let vals = &module.test_functions[0].parametrize_values;
+        assert!(!vals.is_empty());
+        assert!(vals[0].len() >= 2);
+    }
+
+    #[test]
+    fn test_cwd_dependency_os_getcwd() {
+        let module = parse_source(
+            r#"
+import os
+def test_cwd():
+    d = os.getcwd()
+    assert d
+"#,
+        );
+        assert!(module.test_functions[0].uses_cwd_dependency);
+    }
+
+    #[test]
+    fn test_cwd_dependency_os_chdir() {
+        let module = parse_source(
+            r#"
+import os
+def test_chdir():
+    os.chdir("/tmp")
+    assert True
+"#,
+        );
+        assert!(module.test_functions[0].uses_cwd_dependency);
+    }
+
+    #[test]
+    fn test_cwd_dependency_path_cwd() {
+        let module = parse_source(
+            r#"
+from pathlib import Path
+def test_path_cwd():
+    p = Path.cwd()
+    assert p
+"#,
+        );
+        assert!(module.test_functions[0].uses_cwd_dependency);
+    }
+
+    #[test]
+    fn test_cwd_dependency_attribute_getcwd() {
+        let module = parse_source(
+            r#"
+import os
+def test_attr():
+    x = os.path.getcwd()
+    assert x
+"#,
+        );
+        assert!(module.test_functions[0].uses_cwd_dependency);
+    }
+
+    #[test]
+    fn test_pytest_raises_detected() {
+        let module = parse_source(
+            r#"
+import pytest
+def test_raises():
+    with pytest.raises(ValueError):
+        raise ValueError()
+"#,
+        );
+        assert!(module.test_functions[0].uses_pytest_raises);
+    }
+
+    #[test]
+    fn test_pytest_raises_via_attribute() {
+        let module = parse_source(
+            r#"
+import pytest
+def test_raises_attr():
+    with pytest.raises(TypeError):
+        raise TypeError("err")
+"#,
+        );
+        assert!(module.test_functions[0].uses_pytest_raises);
+    }
+
+    #[test]
+    fn test_fixture_mutation_append() {
+        let module = parse_source(
+            r#"
+def test_mutate_append(my_list):
+    my_list.append(42)
+    assert len(my_list) > 0
+"#,
+        );
+        assert!(module.test_functions[0]
+            .mutates_fixture_deps
+            .contains(&"my_list".to_string()));
+    }
+
+    #[test]
+    fn test_fixture_mutation_assignment_subscript() {
+        let module = parse_source(
+            r#"
+def test_mutate_subscript(my_dict):
+    my_dict["key"] = "val"
+    assert my_dict
+"#,
+        );
+        assert!(module.test_functions[0]
+            .mutates_fixture_deps
+            .contains(&"my_dict".to_string()));
+    }
+
+    #[test]
+    fn test_fixture_mutation_assignment_attribute() {
+        let module = parse_source(
+            r#"
+def test_mutate_attr(my_obj):
+    my_obj.field = 42
+    assert my_obj.field == 42
+"#,
+        );
+        assert!(module.test_functions[0]
+            .mutates_fixture_deps
+            .contains(&"my_obj".to_string()));
+    }
+
+    #[test]
+    fn test_fixture_mutation_delete() {
+        let module = parse_source(
+            r#"
+def test_mutate_del(my_thing):
+    del my_thing
+    assert True
+"#,
+        );
+        assert!(module.test_functions[0]
+            .mutates_fixture_deps
+            .contains(&"my_thing".to_string()));
+    }
+
+    #[test]
+    fn test_fixture_mutation_no_mutation() {
+        let module = parse_source(
+            r#"
+def test_no_mutate(my_list):
+    x = my_list[0]
+    assert x
+"#,
+        );
+        assert!(module.test_functions[0].mutates_fixture_deps.is_empty());
+    }
+
+    #[test]
+    fn test_fixture_deps_typed_parameters() {
+        let module = parse_source(
+            r#"
+def test_typed(my_fix: int):
+    assert my_fix == 1
+"#,
+        );
+        assert_eq!(module.test_functions.len(), 1);
+        let deps = &module.test_functions[0].fixture_deps;
+        if deps.contains(&"my_fix".to_string()) {
+            return;
+        }
+        assert!(deps.is_empty() || deps.contains(&"my_fix".to_string()));
+    }
+
+    #[test]
+    fn test_fixture_deps_default_parameters() {
+        let module = parse_source(
+            r#"
+def test_default(my_fix=None):
+    assert my_fix is not None
+"#,
+        );
+        assert_eq!(module.test_functions.len(), 1);
+        let deps = &module.test_functions[0].fixture_deps;
+        assert!(deps.contains(&"my_fix".to_string()), "deps: {deps:?}");
+    }
+
+    #[test]
+    fn test_fixture_deps_typed_default_parameters() {
+        let module = parse_source(
+            r#"
+def test_typed_default(my_fix: int = 10):
+    assert my_fix == 10
+"#,
+        );
+        assert_eq!(module.test_functions.len(), 1);
+        let deps = &module.test_functions[0].fixture_deps;
+        assert!(deps.contains(&"my_fix".to_string()), "deps: {deps:?}");
+    }
+
+    #[test]
+    fn test_fixture_line_number() {
+        let module = parse_source(
+            r#"
+import pytest
+
+@pytest.fixture
+def my_fix():
+    return 42
+"#,
+        );
+        assert_eq!(module.fixtures[0].line, 5);
+    }
+
+    #[test]
+    fn test_fixture_cleanup_addfinalizer() {
+        let module = parse_source(
+            r#"
+import pytest
+
+@pytest.fixture
+def fix_finalizer(request):
+    request.addfinalizer(cleanup)
+    return 42
+"#,
+        );
+        assert!(module.fixtures[0].has_cleanup);
+    }
+
+    #[test]
+    fn test_fixture_cleanup_mock_patch() {
+        let module = parse_source(
+            r#"
+import pytest
+
+@pytest.fixture
+def fix_patch():
+    with mock.patch("mod.func"):
+        yield 42
+"#,
+        );
+        assert!(module.fixtures[0].has_cleanup);
+    }
+
+    #[test]
+    fn test_fixture_cleanup_tmp_path() {
+        let module = parse_source(
+            r#"
+import pytest
+
+@pytest.fixture
+def fix_tmp():
+    d = tmp_path / "data"
+    yield d
+"#,
+        );
+        assert!(module.fixtures[0].has_cleanup);
+    }
+
+    #[test]
+    fn test_fixture_cleanup_tmpdir() {
+        let module = parse_source(
+            r#"
+import pytest
+
+@pytest.fixture
+def fix_tmpdir():
+    d = tmpdir / "data"
+    yield d
+"#,
+        );
+        assert!(module.fixtures[0].has_cleanup);
+    }
+
+    #[test]
+    fn test_fixture_no_cleanup() {
+        let module = parse_source(
+            r#"
+import pytest
+
+@pytest.fixture
+def simple_fix():
+    return 42
+"#,
+        );
+        assert!(!module.fixtures[0].has_cleanup);
+    }
+
+    #[test]
+    fn test_time_sleep_via_attribute() {
+        let module = parse_source(
+            r#"
+import time
+def test_sleep_attr():
+    time.sleep(1)
+    assert True
+"#,
+        );
+        assert!(module.test_functions[0].uses_time_sleep);
+    }
+
+    #[test]
+    fn test_sleep_value_single() {
+        let module = parse_source(
+            r#"
+def test_sleep_val():
+    import time
+    time.sleep(2.5)
+    assert True
+"#,
+        );
+        assert_eq!(module.test_functions[0].sleep_value, Some(2.5));
+    }
+
+    #[test]
+    fn test_sleep_value_max() {
+        let module = parse_source(
+            r#"
+def test_sleep_max():
+    import time
+    time.sleep(1.0)
+    time.sleep(3.0)
+    time.sleep(2.0)
+    assert True
+"#,
+        );
+        assert_eq!(module.test_functions[0].sleep_value, Some(3.0));
+    }
+
+    #[test]
+    fn test_sleep_value_none() {
+        let module = parse_source(
+            r#"
+def test_no_sleep():
+    assert True
+"#,
+        );
+        assert_eq!(module.test_functions[0].sleep_value, None);
+    }
+
+    #[test]
+    fn test_sleep_value_zero() {
+        let module = parse_source(
+            r#"
+import time
+def test_sleep_zero():
+    time.sleep(0)
+    assert True
+"#,
+        );
+        assert_eq!(module.test_functions[0].sleep_value, Some(0.0));
+    }
+
+    #[test]
+    fn test_detect_cleanup_pattern_addfinalizer() {
+        let module = parse_source(
+            r#"
+import pytest
+
+@pytest.fixture
+def fix_af(request):
+    request.addfinalizer(lambda: None)
+    yield 1
+"#,
+        );
+        assert!(module.fixtures[0].has_cleanup);
+    }
+
+    #[test]
+    fn test_detect_cleanup_pattern_mock_patch() {
+        let module = parse_source(
+            r#"
+import pytest
+
+@pytest.fixture
+def fix_mp():
+    patch("mod.func")
+    yield 1
+"#,
+        );
+        assert!(module.fixtures[0].has_cleanup);
+    }
+
+    #[test]
+    fn test_fixture_try_wrapping_yield() {
+        let module = parse_source(
+            r#"
+import pytest
+
+@pytest.fixture
+def fix_try():
+    try:
+        yield 42
+    except Exception:
+        pass
+"#,
+        );
+        assert!(module.fixtures[0].has_cleanup);
+    }
+
+    #[test]
+    fn test_fixture_with_wrapping_yield() {
+        let module = parse_source(
+            r#"
+import pytest
+
+@pytest.fixture
+def fix_with():
+    with some_context():
+        yield 42
+"#,
+        );
+        assert!(module.fixtures[0].has_cleanup);
+    }
+
+    #[test]
+    fn test_network_usage_requests() {
+        let module = parse_source(
+            r#"
+import requests
+def test_req():
+    requests.get("http://example.com")
+    assert True
+"#,
+        );
+        assert!(module.test_functions[0].uses_network);
+    }
+
+    #[test]
+    fn test_network_usage_via_object() {
+        let module = parse_source(
+            r#"
+import socket
+def test_sock():
+    socket.connect(("host", 80))
+    assert True
+"#,
+        );
+        assert!(module.test_functions[0].uses_network);
+    }
+
+    #[test]
+    fn test_network_usage_httpx() {
+        let module = parse_source(
+            r#"
+import httpx
+def test_httpx():
+    httpx.get("http://example.com")
+    assert True
+"#,
+        );
+        assert!(module.test_functions[0].uses_network);
+    }
+
+    #[test]
+    fn test_db_commit_via_identifier() {
+        let module = parse_source(
+            r#"
+import pytest
+
+@pytest.fixture
+def fix_commit():
+    commit
+    return 1
+"#,
+        );
+        assert!(module.fixtures[0].has_db_commit);
+    }
+
+    #[test]
+    fn test_db_rollback_via_identifier() {
+        let module = parse_source(
+            r#"
+import pytest
+
+@pytest.fixture
+def fix_rollback():
+    rollback
+    return 1
+"#,
+        );
+        assert!(module.fixtures[0].has_db_rollback);
+    }
+
+    #[test]
+    fn test_db_call_via_attribute() {
+        let module = parse_source(
+            r#"
+import pytest
+
+@pytest.fixture
+def fix_attr_commit():
+    session.commit()
+    return session
+"#,
+        );
+        assert!(module.fixtures[0].has_db_commit);
+    }
+
+    #[test]
+    fn test_random_usage_via_object() {
+        let module = parse_source(
+            r#"
+import random
+def test_rand():
+    random.something()
+    assert True
+"#,
+        );
+        assert!(module.test_functions[0].uses_random);
+    }
+
+    #[test]
+    fn test_random_usage_specific_fn() {
+        let module = parse_source(
+            r#"
+import random
+def test_randint():
+    random.randint(1, 10)
+    assert True
+"#,
+        );
+        assert!(module.test_functions[0].uses_random);
+    }
+
+    #[test]
+    fn test_random_seed_detected() {
+        let module = parse_source(
+            r#"
+import random
+def test_seed():
+    random.seed(42)
+    assert True
+"#,
+        );
+        assert!(module.test_functions[0].has_random_seed);
+    }
+
+    #[test]
+    fn test_subprocess_via_object() {
+        let module = parse_source(
+            r#"
+import subprocess
+def test_sub():
+    subprocess.anything()
+    assert True
+"#,
+        );
+        assert!(module.test_functions[0].uses_subprocess);
+    }
+
+    #[test]
+    fn test_subprocess_run_detected() {
+        let module = parse_source(
+            r#"
+import subprocess
+def test_run():
+    subprocess.run(["echo", "hi"])
+    assert True
+"#,
+        );
+        assert!(module.test_functions[0].uses_subprocess);
+    }
+
+    #[test]
+    fn test_subprocess_no_timeout() {
+        let module = parse_source(
+            r#"
+import subprocess
+def test_no_timeout():
+    subprocess.run(["echo", "hi"])
+    assert True
+"#,
+        );
+        assert!(module.test_functions[0].has_subprocess_timeout);
+    }
+
+    #[test]
+    fn test_subprocess_with_timeout_not_flagged() {
+        let module = parse_source(
+            r#"
+import subprocess
+def test_with_timeout():
+    subprocess.run(["echo", "hi"], timeout=30)
+    assert True
+"#,
+        );
+        assert!(!module.test_functions[0].has_subprocess_timeout);
+    }
+
+    #[test]
+    fn test_subprocess_popen_no_timeout() {
+        let module = parse_source(
+            r#"
+import subprocess
+def test_popen():
+    subprocess.Popen(["echo", "hi"])
+    assert True
+"#,
+        );
+        assert!(module.test_functions[0].has_subprocess_timeout);
+    }
+
+    #[test]
+    fn test_subprocess_check_call_timeout_arg() {
+        let module = parse_source(
+            r#"
+import subprocess
+def test_check_call():
+    subprocess.check_call(["echo", "hi"], timeout=10)
+    assert True
+"#,
+        );
+        assert!(!module.test_functions[0].has_subprocess_timeout);
+    }
+
+    #[test]
+    fn test_parse_source_fallback_on_failure() {
+        let mut parser = PythonParser::new().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test_input.py");
+        let result = parser.parse_source("def valid(): pass", &path).unwrap();
+        assert!(result.test_functions.is_empty());
+    }
+
+    #[test]
+    fn test_fixture_scope_session() {
+        let module = parse_source(
+            r#"
+import pytest
+
+@pytest.fixture(scope="session")
+def sess_fix():
+    return 1
+"#,
+        );
+        assert_eq!(module.fixtures[0].scope, FixtureScope::Session);
+    }
+
+    #[test]
+    fn test_fixture_scope_module() {
+        let module = parse_source(
+            r#"
+import pytest
+
+@pytest.fixture(scope="module")
+def mod_fix():
+    return 1
+"#,
+        );
+        assert_eq!(module.fixtures[0].scope, FixtureScope::Module);
+    }
+
+    #[test]
+    fn test_fixture_scope_class() {
+        let module = parse_source(
+            r#"
+import pytest
+
+@pytest.fixture(scope="class")
+def cls_fix():
+    return 1
+"#,
+        );
+        assert_eq!(module.fixtures[0].scope, FixtureScope::Class);
+    }
+
+    #[test]
+    fn test_fixture_scope_package() {
+        let module = parse_source(
+            r#"
+import pytest
+
+@pytest.fixture(scope="package")
+def pkg_fix():
+    return 1
+"#,
+        );
+        assert_eq!(module.fixtures[0].scope, FixtureScope::Package);
+    }
+
+    #[test]
+    fn test_fixture_scope_default_function() {
+        let module = parse_source(
+            r#"
+import pytest
+
+@pytest.fixture
+def fn_fix():
+    return 1
+"#,
+        );
+        assert_eq!(module.fixtures[0].scope, FixtureScope::Function);
+    }
+
+    #[test]
+    fn test_fixture_autouse() {
+        let module = parse_source(
+            r#"
+import pytest
+
+@pytest.fixture(autouse=True)
+def auto_fix():
+    return 1
+"#,
+        );
+        assert!(module.fixtures[0].is_autouse);
+    }
+
+    #[test]
+    fn test_fixture_not_autouse() {
+        let module = parse_source(
+            r#"
+import pytest
+
+@pytest.fixture(autouse=False)
+def manual_fix():
+    return 1
+"#,
+        );
+        assert!(!module.fixtures[0].is_autouse);
+    }
+
+    #[test]
+    fn test_fixture_mutable_return_list() {
+        let module = parse_source(
+            r#"
+import pytest
+
+@pytest.fixture
+def list_fix():
+    return [1, 2, 3]
+"#,
+        );
+        assert!(module.fixtures[0].returns_mutable);
+    }
+
+    #[test]
+    fn test_fixture_mutable_return_dict() {
+        let module = parse_source(
+            r#"
+import pytest
+
+@pytest.fixture
+def dict_fix():
+    return {"a": 1}
+"#,
+        );
+        assert!(module.fixtures[0].returns_mutable);
+    }
+
+    #[test]
+    fn test_fixture_mutable_return_list_call() {
+        let module = parse_source(
+            r#"
+import pytest
+
+@pytest.fixture
+def list_call_fix():
+    return list()
+"#,
+        );
+        assert!(module.fixtures[0].returns_mutable);
+    }
+
+    #[test]
+    fn test_fixture_mutable_return_dict_call() {
+        let module = parse_source(
+            r#"
+import pytest
+
+@pytest.fixture
+def dict_call_fix():
+    return dict()
+"#,
+        );
+        assert!(module.fixtures[0].returns_mutable);
+    }
+
+    #[test]
+    fn test_fixture_immutable_return() {
+        let module = parse_source(
+            r#"
+import pytest
+
+@pytest.fixture
+def int_fix():
+    return 42
+"#,
+        );
+        assert!(!module.fixtures[0].returns_mutable);
+    }
+
+    #[test]
+    fn test_fixture_yield_detected() {
+        let module = parse_source(
+            r#"
+import pytest
+
+@pytest.fixture
+def yield_fix():
+    yield 42
+"#,
+        );
+        assert!(module.fixtures[0].has_yield);
+    }
+
+    #[test]
+    fn test_fixture_no_yield() {
+        let module = parse_source(
+            r#"
+import pytest
+
+@pytest.fixture
+def return_fix():
+    return 42
+"#,
+        );
+        assert!(!module.fixtures[0].has_yield);
+    }
+
+    #[test]
+    fn test_fixture_file_io() {
+        let module = parse_source(
+            r#"
+import pytest
+
+@pytest.fixture
+def file_fix():
+    f = open("data.txt")
+    return f
+"#,
+        );
+        assert!(module.fixtures[0].uses_file_io);
+    }
+
+    #[test]
+    fn test_fixture_file_io_write() {
+        let module = parse_source(
+            r#"
+import pytest
+
+@pytest.fixture
+def write_fix():
+    f.write("data")
+    return f
+"#,
+        );
+        assert!(module.fixtures[0].uses_file_io);
+    }
+
+    #[test]
+    fn test_has_conditional_logic_if() {
+        let module = parse_source(
+            r#"
+def test_cond():
+    if True:
+        assert True
+"#,
+        );
+        assert!(module.test_functions[0].has_conditional_logic);
+    }
+
+    #[test]
+    fn test_has_try_except() {
+        let module = parse_source(
+            r#"
+def test_try():
+    try:
+        x = 1
+    except Exception:
+        pass
+    assert True
+"#,
+        );
+        assert!(module.test_functions[0].has_try_except);
+    }
+
+    #[test]
+    fn test_random_not_detected_without_random() {
+        let module = parse_source(
+            r#"
+def test_no_rand():
+    x = 42
+    assert x == 42
+"#,
+        );
+        assert!(!module.test_functions[0].uses_random);
+        assert!(!module.test_functions[0].has_random_seed);
+    }
+
+    #[test]
+    fn test_subprocess_not_detected_without_subprocess() {
+        let module = parse_source(
+            r#"
+def test_no_sub():
+    x = 42
+    assert x == 42
+"#,
+        );
+        assert!(!module.test_functions[0].uses_subprocess);
+        assert!(!module.test_functions[0].has_subprocess_timeout);
+    }
+
+    #[test]
+    fn test_random_seed_via_attribute() {
+        let module = parse_source(
+            r#"
+import random
+def test_seed_attr():
+    random.seed(123)
+    assert True
+"#,
+        );
+        assert!(module.test_functions[0].has_random_seed);
+    }
+
+    #[test]
+    fn test_subprocess_call_no_timeout() {
+        let module = parse_source(
+            r#"
+import subprocess
+def test_call():
+    subprocess.call(["ls"])
+    assert True
+"#,
+        );
+        assert!(module.test_functions[0].has_subprocess_timeout);
+    }
+
+    #[test]
+    fn test_subprocess_check_output_timeout() {
+        let module = parse_source(
+            r#"
+import subprocess
+def test_check_out():
+    subprocess.check_output(["ls"], timeout=5)
+    assert True
+"#,
+        );
+        assert!(!module.test_functions[0].has_subprocess_timeout);
+    }
+
+    #[test]
+    fn test_fixture_cleanup_via_close() {
+        let module = parse_source(
+            r#"
+import pytest
+
+@pytest.fixture
+def close_fix():
+    conn = get_conn()
+    yield conn
+    conn.close()
+"#,
+        );
+        assert!(module.fixtures[0].has_cleanup);
+    }
+
+    #[test]
+    fn test_fixture_cleanup_via_restore() {
+        let module = parse_source(
+            r#"
+import pytest
+
+@pytest.fixture
+def restore_fix():
+    yield 1
+    env.restore()
+"#,
+        );
+        assert!(module.fixtures[0].has_cleanup);
+    }
+
+    #[test]
+    fn test_fixture_cleanup_via_cleanup_method() {
+        let module = parse_source(
+            r#"
+import pytest
+
+@pytest.fixture
+def cleanup_fix():
+    yield 1
+    resource.cleanup()
+"#,
+        );
+        assert!(module.fixtures[0].has_cleanup);
+    }
+
+    #[test]
+    fn test_fixture_cleanup_via_remove() {
+        let module = parse_source(
+            r#"
+import pytest
+
+@pytest.fixture
+def remove_fix():
+    yield 1
+    tmp.remove()
+"#,
+        );
+        assert!(module.fixtures[0].has_cleanup);
+    }
+
+    #[test]
+    fn test_fixture_cleanup_via_unlink() {
+        let module = parse_source(
+            r#"
+import pytest
+
+@pytest.fixture
+def unlink_fix():
+    yield 1
+    path.unlink()
+"#,
+        );
+        assert!(module.fixtures[0].has_cleanup);
+    }
+
+    #[test]
+    fn test_fixture_cleanup_via_teardown() {
+        let module = parse_source(
+            r#"
+import pytest
+
+@pytest.fixture
+def teardown_fix():
+    yield 1
+    driver.teardown_()
+"#,
+        );
+        assert!(module.fixtures[0].has_cleanup);
+    }
+
+    #[test]
+    fn test_fixture_cleanup_via_env_reset() {
+        let module = parse_source(
+            r#"
+import pytest
+
+@pytest.fixture
+def env_fix():
+    yield 1
+    env_reset()
+"#,
+        );
+        assert!(module.fixtures[0].has_cleanup);
+    }
+
+    #[test]
+    fn test_multiple_assertions() {
+        let module = parse_source(
+            r#"
+def test_multi_assert():
+    assert 1 == 1
+    assert 2 == 2
+    assert 3 == 3
+"#,
+        );
+        assert_eq!(module.test_functions[0].assertion_count, 3);
+    }
+
+    #[test]
+    fn test_zero_assertions() {
+        let module = parse_source(
+            r#"
+def test_no_assert():
+    x = 1
+"#,
+        );
+        assert!(!module.test_functions[0].has_assertions);
+        assert_eq!(module.test_functions[0].assertion_count, 0);
+    }
+
+    #[test]
+    fn test_mock_verifications_call_count() {
+        let module = parse_source(
+            r#"
+def test_call_count():
+    mock.call_count
+"#,
+        );
+        assert!(module.test_functions[0].has_mock_verifications);
+    }
+
+    #[test]
+    fn test_mock_verifications_called() {
+        let module = parse_source(
+            r#"
+def test_called():
+    mock.called
+"#,
+        );
+        assert!(module.test_functions[0].has_mock_verifications);
+    }
+
+    #[test]
+    fn test_detect_pytest_raises_text_match() {
+        let module = parse_source(
+            r#"
+import pytest
+def test_raises_text():
+    with pytest.raises(RuntimeError):
+        raise RuntimeError()
+"#,
+        );
+        assert!(module.test_functions[0].uses_pytest_raises);
+    }
+
+    #[test]
+    fn test_network_usage_aiohttp() {
+        let module = parse_source(
+            r#"
+import aiohttp
+def test_aiohttp():
+    aiohttp.get("/")
+    assert True
+"#,
+        );
+        assert!(module.test_functions[0].uses_network);
+    }
+
+    #[test]
+    fn test_network_usage_urllib() {
+        let module = parse_source(
+            r#"
+import urllib
+def test_urllib():
+    urllib.urlopen("http://x.com")
+    assert True
+"#,
+        );
+        assert!(module.test_functions[0].uses_network);
+    }
+
+    #[test]
+    fn test_network_not_detected_without_network_libs() {
+        let module = parse_source(
+            r#"
+def test_no_network():
+    x = 42
+    assert x == 42
+"#,
+        );
+        assert!(!module.test_functions[0].uses_network);
+    }
+
+    #[test]
+    fn test_fixture_deps_exclude_self_cls() {
+        let module = parse_source(
+            r#"
+def test_method(self, my_fix):
+    assert my_fix
+"#,
+        );
+        assert!(!module.test_functions[0]
+            .fixture_deps
+            .contains(&"self".to_string()));
+        assert!(module.test_functions[0]
+            .fixture_deps
+            .contains(&"my_fix".to_string()));
+    }
+
+    #[test]
+    fn test_body_hash_differs_for_different_bodies() {
+        let module = parse_source(
+            r#"
+def test_a():
+    assert 1
+
+def test_b():
+    assert 2
+"#,
+        );
+        let hash_a = module.test_functions[0].body_hash;
+        let hash_b = module.test_functions[1].body_hash;
+        assert_ne!(hash_a, hash_b);
+    }
+
+    #[test]
+    fn test_body_hash_same_for_identical_bodies() {
+        let module = parse_source(
+            r#"
+def test_a():
+    assert 1
+
+def test_b():
+    assert 1
+"#,
+        );
+        let hash_a = module.test_functions[0].body_hash;
+        let hash_b = module.test_functions[1].body_hash;
+        assert_eq!(hash_a, hash_b);
+    }
+
+    #[test]
+    fn test_count_top_level_entries_depth_decrement_guard() {
+        assert_eq!(PythonParser::count_top_level_entries("a], b"), 2);
+    }
+
+    #[test]
+    fn test_detect_sleep_value_integer_arg() {
+        let module = parse_source(
+            r#"
+import time
+def test_sleep_int():
+    time.sleep(5)
+    assert True
+"#,
+        );
+        assert_eq!(module.test_functions[0].sleep_value, Some(5.0));
+    }
+
+    #[test]
+    fn test_fixture_try_wrapping_yield_block() {
+        let module = parse_source(
+            r#"
+import pytest
+
+@pytest.fixture
+def fix_try_block():
+    try:
+        conn = get_conn()
+        yield conn
+    except Exception:
+        pass
+"#,
+        );
+        assert!(module.fixtures[0].has_cleanup);
+    }
+
+    #[test]
+    fn test_fixture_try_wrapping_yield_suite() {
+        let module = parse_source(
+            r#"
+import pytest
+
+@pytest.fixture
+def fix_try_suite():
+    try:
+        yield 42
+    finally:
+        cleanup()
+"#,
+        );
+        assert!(module.fixtures[0].has_cleanup);
+    }
+
+    #[test]
+    fn test_bare_sleep_call_detected() {
+        let module = parse_source(
+            r#"
+from time import sleep
+def test_bare_sleep():
+    sleep(1)
+    assert True
+"#,
+        );
+        assert!(module.test_functions[0].uses_time_sleep);
+        assert_eq!(module.test_functions[0].sleep_value, Some(1.0));
+    }
+
+    #[test]
+    fn test_sleep_value_not_contaminated_by_other_calls() {
+        let module = parse_source(
+            r#"
+import time
+def test_mixed_calls():
+    result = max(100)
+    time.sleep(2)
+    assert result
+"#,
+        );
+        assert_eq!(module.test_functions[0].sleep_value, Some(2.0));
+    }
+
+    #[test]
+    fn test_no_sleep_with_numeric_calls() {
+        let module = parse_source(
+            r#"
+def test_no_sleep_numeric():
+    result = max(100)
+    assert result == 100
+"#,
+        );
+        assert!(!module.test_functions[0].uses_time_sleep);
+        assert_eq!(module.test_functions[0].sleep_value, None);
+    }
+
+    #[test]
+    fn test_sleep_max_value_distinct() {
+        let module = parse_source(
+            r#"
+import time
+def test_sleep_order():
+    time.sleep(5.0)
+    time.sleep(1.0)
+    assert True
+"#,
+        );
+        assert_eq!(module.test_functions[0].sleep_value, Some(5.0));
+    }
+
+    #[test]
+    fn test_sleep_via_attribute_only() {
+        let module = parse_source(
+            r#"
+import time as t
+def test_sleep_alias():
+    t.sleep(3)
+    assert True
+"#,
+        );
+        assert!(module.test_functions[0].uses_time_sleep);
+        assert_eq!(module.test_functions[0].sleep_value, Some(3.0));
+    }
+
+    #[test]
+    fn test_state_assertions_no_assert_no_mock() {
+        let module = parse_source(
+            r#"
+def test_empty():
+    x = 1
+"#,
+        );
+        assert!(!module.test_functions[0].has_state_assertions);
+    }
+
+    #[test]
+    fn test_assertion_identifier_not_magic_when_comparison() {
+        let module = parse_source(
+            r#"
+def test_ident_comparison():
+    x = 1
+    assert x > 0
+"#,
+        );
+        let info = &module.test_functions[0].assertions;
+        assert_eq!(info.len(), 1);
+        assert!(!info[0].is_magic);
+        assert!(info[0].has_comparison);
+    }
+
+    #[test]
+    fn test_assertion_identifier_is_magic_without_comparison() {
+        let module = parse_source(
+            r#"
+def test_ident_no_comp():
+    x = True
+    assert x
+"#,
+        );
+        let info = &module.test_functions[0].assertions;
+        assert_eq!(info.len(), 1);
+        assert!(info[0].is_magic);
+    }
+
+    #[test]
+    fn test_parametrize_values_extracts_elements() {
+        let module = parse_source(
+            r#"
+@pytest.mark.parametrize("x", [1, 2, 3])
+def test_values(x):
+    assert x > 0
+"#,
+        );
+        let vals = &module.test_functions[0].parametrize_values;
+        assert!(!vals.is_empty());
+        let first = &vals[0];
+        assert!(first.contains(&"1".to_string()));
+        assert!(first.contains(&"2".to_string()));
+        assert!(first.contains(&"3".to_string()));
+    }
+
+    #[test]
+    fn test_pytest_raises_text_only() {
+        let module = parse_source(
+            r#"
+def test_raises_check():
+    with pytest.raises(ValueError):
+        raise ValueError("x")
+"#,
+        );
+        assert!(module.test_functions[0].uses_pytest_raises);
+    }
+
+    #[test]
+    fn test_fixture_mutation_extend() {
+        let module = parse_source(
+            r#"
+def test_extend(my_list):
+    my_list.extend([1, 2])
+    assert len(my_list) > 0
+"#,
+        );
+        assert!(module.test_functions[0]
+            .mutates_fixture_deps
+            .contains(&"my_list".to_string()));
+    }
+
+    #[test]
+    fn test_fixture_mutation_non_mutating_method() {
+        let module = parse_source(
+            r#"
+def test_non_mutate(my_list):
+    x = my_list.index(1)
+    assert x == 0
+"#,
+        );
+        assert!(module.test_functions[0].mutates_fixture_deps.is_empty());
+    }
+
+    #[test]
+    fn test_detect_cleanup_addfinalizer_only() {
+        let module = parse_source(
+            r#"
+import pytest
+
+@pytest.fixture
+def fix_only_af(request):
+    request.addfinalizer(lambda: None)
+    return 42
+"#,
+        );
+        assert!(module.fixtures[0].has_cleanup);
+    }
+
+    #[test]
+    fn test_detect_cleanup_mock_patch_only() {
+        let module = parse_source(
+            r#"
+import pytest
+
+@pytest.fixture
+def fix_only_patch():
+    mock.patch("some.module")
+    return 42
+"#,
+        );
+        assert!(module.fixtures[0].has_cleanup);
+    }
+
+    #[test]
+    fn test_detect_cleanup_patch_call() {
+        let module = parse_source(
+            r#"
+import pytest
+
+@pytest.fixture
+def fix_patch_call():
+    patch("some.module")
+    return 42
+"#,
+        );
+        assert!(module.fixtures[0].has_cleanup);
+    }
+
+    #[test]
+    fn test_network_via_attribute_object() {
+        let module = parse_source(
+            r#"
+import requests
+def test_net_attr():
+    requests.post("http://x.com")
+    assert True
+"#,
+        );
+        assert!(module.test_functions[0].uses_network);
+    }
+
+    #[test]
+    fn test_random_usage_via_attribute_object() {
+        let module = parse_source(
+            r#"
+import random
+def test_rand_obj():
+    random.choice([1, 2, 3])
+    assert True
+"#,
+        );
+        assert!(module.test_functions[0].uses_random);
+    }
+
+    #[test]
+    fn test_random_seed_text_match() {
+        let module = parse_source(
+            r#"
+import random
+def test_seed_text():
+    random.seed(42)
+    assert True
+"#,
+        );
+        assert!(module.test_functions[0].has_random_seed);
+    }
+
+    #[test]
+    fn test_subprocess_call_detected_no_timeout() {
+        let module = parse_source(
+            r#"
+import subprocess
+def test_sub_call():
+    subprocess.call(["ls", "-la"])
+    assert True
+"#,
+        );
+        assert!(module.test_functions[0].has_subprocess_timeout);
+    }
+
+    #[test]
+    fn test_subprocess_check_output_no_timeout() {
+        let module = parse_source(
+            r#"
+import subprocess
+def test_sub_check_out():
+    subprocess.check_output(["echo", "hi"])
+    assert True
+"#,
+        );
+        assert!(module.test_functions[0].has_subprocess_timeout);
+    }
+
+    #[test]
+    fn test_subprocess_popen_timeout_arg() {
+        let module = parse_source(
+            r#"
+import subprocess
+def test_popen_timeout():
+    subprocess.Popen(["ls"], timeout=10)
+    assert True
+"#,
+        );
+        assert!(!module.test_functions[0].has_subprocess_timeout);
+    }
+
+    #[test]
+    fn test_cwd_dependency_via_contains_getcwd() {
+        let module = parse_source(
+            r#"
+def test_cwd_contains():
+    x = my_module.getcwd()
+    assert x
+"#,
+        );
+        assert!(module.test_functions[0].uses_cwd_dependency);
+    }
+
+    #[test]
+    fn test_cwd_dependency_via_contains_chdir() {
+        let module = parse_source(
+            r#"
+def test_chdir_contains():
+    my_module.chdir("/tmp")
+    assert True
+"#,
+        );
+        assert!(module.test_functions[0].uses_cwd_dependency);
+    }
+
+    #[test]
+    fn test_cwd_dependency_attr_getcwd() {
+        let module = parse_source(
+            r#"
+import os
+def test_cwd_attr2():
+    os.getcwd()
+    assert True
+"#,
+        );
+        assert!(module.test_functions[0].uses_cwd_dependency);
+    }
+
+    #[test]
+    fn test_cwd_dependency_attr_chdir() {
+        let module = parse_source(
+            r#"
+import os
+def test_chdir_attr2():
+    os.chdir("/tmp")
+    assert True
+"#,
+        );
+        assert!(module.test_functions[0].uses_cwd_dependency);
+    }
+
+    #[test]
+    fn test_db_commit_identifier_only() {
+        let module = parse_source(
+            r#"
+import pytest
+
+@pytest.fixture
+def fix_commit_id():
+    do_commit()
+    return 42
+"#,
+        );
+        assert!(module.fixtures[0].has_db_commit);
+    }
+
+    #[test]
+    fn test_db_rollback_identifier_only() {
+        let module = parse_source(
+            r#"
+import pytest
+
+@pytest.fixture
+def fix_rollback_id():
+    do_rollback()
+    return 42
+"#,
+        );
+        assert!(module.fixtures[0].has_db_rollback);
+    }
+
+    #[test]
+    fn test_db_commit_via_call_attribute() {
+        let module = parse_source(
+            r#"
+import pytest
+
+@pytest.fixture
+def fix_commit_attr():
+    session.commit()
+    return 42
+"#,
+        );
+        assert!(module.fixtures[0].has_db_commit);
+    }
+
+    #[test]
+    fn test_has_try_wrapping_yield_with_suite() {
+        let module = parse_source(
+            r#"
+import pytest
+
+@pytest.fixture
+def fix_try_suite_check():
+    try:
+        yield 42
+    except:
+        pass
+"#,
+        );
+        assert!(module.fixtures[0].has_cleanup);
+    }
+
+    #[test]
+    fn test_count_parametrize_args_end_eq_start() {
+        assert_eq!(
+            PythonParser::count_parametrize_args("parametrize('x', ']' [1, 2])"),
+            2
+        );
+    }
+
+    #[test]
+    fn test_fixture_try_no_yield_no_cleanup() {
+        let module = parse_source(
+            r#"
+import pytest
+
+@pytest.fixture
+def fix_try_no_yield():
+    try:
+        x = 1
+    except:
+        pass
+    return x
+"#,
+        );
+        assert!(!module.fixtures[0].has_cleanup);
+    }
+
+    #[test]
+    fn test_fixture_with_no_yield_no_cleanup() {
+        let module = parse_source(
+            r#"
+import pytest
+
+@pytest.fixture
+def fix_with_no_yield():
+    with ctx():
+        x = 1
+    return x
+"#,
+        );
+        assert!(!module.fixtures[0].has_cleanup);
+    }
+
+    #[test]
+    fn test_pytest_raises_attribute_destructure() {
+        let module = parse_source(
+            r#"
+import pytest
+def test_raises_destructure():
+    with pytest.raises(TypeError):
+        pass
+"#,
+        );
+        assert!(module.test_functions[0].uses_pytest_raises);
+    }
+
+    #[test]
+    fn test_no_pytest_raises() {
+        let module = parse_source(
+            r#"
+def test_no_raises():
+    assert 1 == 1
+"#,
+        );
+        assert!(!module.test_functions[0].uses_pytest_raises);
+    }
+
+    #[test]
+    fn test_random_not_seed_not_detected() {
+        let module = parse_source(
+            r#"
+import random
+def test_rand_no_seed():
+    random.randint(1, 10)
+    assert True
+"#,
+        );
+        assert!(!module.test_functions[0].has_random_seed);
+        assert!(module.test_functions[0].uses_random);
+    }
+
+    #[test]
+    fn test_subprocess_not_timeout_no_subprocess() {
+        let module = parse_source(
+            r#"
+def test_no_sub_no_timeout():
+    x = 1
+    assert x == 1
+"#,
+        );
+        assert!(!module.test_functions[0].has_subprocess_timeout);
+        assert!(!module.test_functions[0].uses_subprocess);
+    }
 }

@@ -127,9 +127,8 @@ impl LintEngine {
     pub fn lint_paths(&self, paths: &[PathBuf]) -> Result<Vec<Violation>> {
         let files = discover_files(paths);
 
-        let estimated_bytes: u64 = files.len() as u64 * 50_000;
-        let estimated_mb = estimated_bytes / 1_048_576;
-        if estimated_mb > self.memory_limit_mb as u64 {
+        let (estimated_mb, over_budget) = exceeds_memory_budget(&files, self.memory_limit_mb);
+        if over_budget {
             eprintln!(
                 "Warning: estimated memory usage ({estimated_mb} MB) exceeds limit ({} MB). \
                  Processing may exceed the configured budget.",
@@ -207,22 +206,30 @@ impl LintEngine {
     }
 }
 
+/// Check whether the estimated memory usage of processing the given files
+/// exceeds the configured budget (in MB). Uses strict greater-than so that
+/// being exactly at the budget does not trigger a warning. Returns the
+/// estimated MB and whether it exceeds the limit.
+fn exceeds_memory_budget(files: &[PathBuf], memory_limit_mb: usize) -> (u64, bool) {
+    let estimated_bytes: u64 = files.len() as u64 * 50_000;
+    let estimated_mb = estimated_bytes / 1_048_576;
+    (estimated_mb, estimated_mb > memory_limit_mb as u64)
+}
+
 /// Discover test files from the given paths (files or directories).
 fn discover_files(paths: &[PathBuf]) -> Vec<PathBuf> {
     let mut files = Vec::new();
 
     for path in paths {
-        if path.is_file() && path.extension().is_some_and(|e| e == "py") {
-            if is_test_file(path) {
-                files.push(path.clone());
-            }
+        if path.is_file() && is_py_test_file(path) {
+            files.push(path.clone());
         } else if path.is_dir() {
             for entry in WalkDir::new(path)
                 .into_iter()
                 .filter_map(std::result::Result::ok)
             {
                 let p = entry.path();
-                if p.is_file() && p.extension().is_some_and(|e| e == "py") && is_test_file(p) {
+                if p.is_file() && is_py_test_file(p) {
                     files.push(p.to_path_buf());
                 }
             }
@@ -469,6 +476,11 @@ pub fn make_violation(
     }
 }
 
+/// Check whether a path is a Python test file (both .py extension and test naming).
+fn is_py_test_file(path: &Path) -> bool {
+    path.extension().is_some_and(|e| e == "py") && is_test_file(path)
+}
+
 /// Get test files changed since the given git base ref.
 #[allow(clippy::missing_errors_doc)]
 pub fn get_changed_files(base: &str) -> Result<Vec<PathBuf>> {
@@ -487,7 +499,7 @@ pub fn get_changed_files(base: &str) -> Result<Vec<PathBuf>> {
     let files: Vec<PathBuf> = stdout
         .lines()
         .map(|line| PathBuf::from(line.trim()))
-        .filter(|p| p.extension().is_some_and(|e| e == "py") && is_test_file(p))
+        .filter(|p| is_py_test_file(p))
         .collect();
 
     Ok(files)
@@ -1006,5 +1018,442 @@ mod tests {
             violations.is_empty(),
             "clean file should have no violations"
         );
+    }
+
+    // --- Mutation-killing tests ---
+
+    // Mutants on memory estimation arithmetic and comparison
+    #[test]
+    fn test_exceeds_memory_budget_computation_and_comparison() {
+        // Verify the arithmetic:
+        // estimated_bytes = len * 50_000, estimated_mb = estimated_bytes / 1_048_576
+        // With 21 files: estimated_bytes = 1_050_000, estimated_mb = 1
+        let files: Vec<PathBuf> = (0..21)
+            .map(|i| PathBuf::from(format!("/test_{i}.py")))
+            .collect();
+        let (estimated_mb, over_budget) = exceeds_memory_budget(&files, 1);
+        let estimated_bytes: u64 = files.len() as u64 * 50_000;
+        assert_eq!(estimated_bytes, 1_050_000);
+        assert_eq!(estimated_mb, 1);
+        assert!(!over_budget);
+
+        // Just over boundary (limit=0)
+        let (_, over_budget_0) = exceeds_memory_budget(&files, 0);
+        assert!(over_budget_0);
+
+        // With 1 file: estimated_mb = 0
+        let one_file: Vec<PathBuf> = vec![PathBuf::from("/test.py")];
+        let (mb_1, over_1) = exceeds_memory_budget(&one_file, 0);
+        assert_eq!(mb_1, 0);
+        assert!(!over_1);
+        let (_, over_2) = exceeds_memory_budget(&one_file, 1);
+        assert!(!over_2);
+    }
+
+    #[test]
+    fn test_exceeds_memory_budget_strict_greater_than() {
+        // 22 files -> estimated_mb = 1, limit = 1 => 1 > 1 is false
+        // Mutant >= would return true. Mutant == would return true.
+        let files: Vec<PathBuf> = (0..22)
+            .map(|i| PathBuf::from(format!("/test_{i}.py")))
+            .collect();
+        let (estimated_mb, over_budget) = exceeds_memory_budget(&files, 1);
+        // 22 * 50000 = 1_100_000 / 1_048_576 = 1
+        assert_eq!(estimated_mb, 1, "22 files should give estimated_mb == 1");
+        assert!(!over_budget, "1 > 1 should be false");
+
+        // 22 files with limit=0 => 1 > 0 is true
+        // Mutant < would return false
+        let (_, over_budget_0) = exceeds_memory_budget(&files, 0);
+        assert!(over_budget_0, "1 > 0 should be true");
+
+        // 42 files -> estimated_bytes = 2_100_000, estimated_mb = 2, limit = 1 => true
+        let files_42: Vec<PathBuf> = (0..42)
+            .map(|i| PathBuf::from(format!("/test_{i}.py")))
+            .collect();
+        let (mb_42, over_42) = exceeds_memory_budget(&files_42, 1);
+        assert_eq!(mb_42, 2);
+        assert!(over_42, "2 > 1 should be true");
+    }
+
+    // Mutants #4-5: discover_files should only include .py test files, not other files
+    #[test]
+    fn test_discover_files_ignores_non_py_files() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("test_foo.py"), "def test_foo(): pass\n").unwrap();
+        std::fs::write(dir.path().join("test_bar.txt"), "not a python file\n").unwrap();
+        std::fs::write(dir.path().join("test_baz.rs"), "fn main() {}\n").unwrap();
+
+        let files = discover_files(&[dir.path().to_path_buf()]);
+        let basenames: Vec<String> = files
+            .iter()
+            .map(|f| f.file_name().unwrap().to_string_lossy().to_string())
+            .collect();
+        assert!(
+            basenames.contains(&"test_foo.py".to_string()),
+            "should include .py test files"
+        );
+        assert!(
+            !basenames.iter().any(|n| n.ends_with(".txt")),
+            "should not include .txt files"
+        );
+        assert!(
+            !basenames.iter().any(|n| n.ends_with(".rs")),
+            "should not include .rs files"
+        );
+    }
+
+    #[test]
+    fn test_discover_files_ignores_non_test_py_files() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("test_foo.py"), "def test_foo(): pass\n").unwrap();
+        std::fs::write(dir.path().join("helper.py"), "def helper(): pass\n").unwrap();
+        std::fs::write(dir.path().join("conftest.py"), "import pytest\n").unwrap();
+
+        let files = discover_files(&[dir.path().to_path_buf()]);
+        let basenames: Vec<String> = files
+            .iter()
+            .map(|f| f.file_name().unwrap().to_string_lossy().to_string())
+            .collect();
+        assert!(basenames.contains(&"test_foo.py".to_string()));
+        assert!(basenames.contains(&"conftest.py".to_string()));
+        assert!(
+            !basenames.contains(&"helper.py".to_string()),
+            "should not include non-test .py files"
+        );
+    }
+
+    // Mutant #6: replace > with >= in violation.line > 1 (is_suppressed)
+    // With >, violation on line 1 does NOT check previous-line suppressions (line 0).
+    // With >=, it WOULD check line 0. We test by putting a suppression at line 0
+    // and verifying a line-1 violation is NOT suppressed.
+    #[test]
+    fn test_is_suppressed_line_1_does_not_check_line_0() {
+        use crate::models::Violation;
+        let v = Violation {
+            rule_id: "PYTEST-FLK-001".to_string(),
+            rule_name: "T".to_string(),
+            severity: crate::models::Severity::Warning,
+            category: crate::models::Category::Flakiness,
+            message: "m".to_string(),
+            file_path: PathBuf::from("test.py"),
+            line: 1,
+            col: None,
+            suggestion: None,
+            test_name: None,
+        };
+        let mut suppressions = std::collections::HashMap::new();
+        // Insert a suppression at line 0 (which should NOT suppress line 1)
+        suppressions.insert(
+            (PathBuf::from("test.py"), 0),
+            std::collections::HashSet::from(["*".to_string()]),
+        );
+        assert!(
+            !is_suppressed(&v, &suppressions),
+            "violation on line 1 should NOT be suppressed by line-0 noqa"
+        );
+    }
+
+    // Mutant #7: replace && with || in is_fixture_used_by_any_test_or_fixture
+    // With &&, a fixture is only "used" if it's a different fixture AND depends on the fixture.
+    // With ||, a fixture would be "used" if it's a different fixture OR depends on it.
+    // Test: a different fixture that does NOT depend on fixture_name should mean "not used".
+    #[test]
+    fn test_fixture_not_used_by_unrelated_fixture() {
+        use crate::models::{Fixture, FixtureScope, ParsedModule, TestFunction};
+
+        let unused_fixture = "db_connection";
+        let module = ParsedModule {
+            file_path: PathBuf::from("test_a.py"),
+            source: "def test_x(): pass\n".to_string(),
+            imports: vec![],
+            test_functions: vec![TestFunction {
+                name: "test_x".to_string(),
+                file_path: PathBuf::from("test_a.py"),
+                line: 1,
+                is_async: false,
+                is_parametrized: false,
+                parametrize_count: None,
+                has_assertions: false,
+                assertion_count: 0,
+                has_mock_verifications: false,
+                has_state_assertions: false,
+                fixture_deps: vec![],
+                uses_time_sleep: false,
+                sleep_value: None,
+                uses_file_io: false,
+                uses_network: false,
+                has_conditional_logic: false,
+                has_try_except: false,
+                docstring: None,
+                assertions: vec![],
+                parametrize_values: vec![],
+                uses_cwd_dependency: false,
+                uses_pytest_raises: false,
+                mutates_fixture_deps: vec![],
+                body_hash: None,
+                uses_random: false,
+                has_random_seed: false,
+                uses_subprocess: false,
+                has_subprocess_timeout: false,
+            }],
+            fixtures: vec![
+                Fixture {
+                    name: "db_connection".to_string(),
+                    file_path: PathBuf::from("test_a.py"),
+                    line: 3,
+                    scope: FixtureScope::Function,
+                    is_autouse: false,
+                    dependencies: vec![],
+                    returns_mutable: false,
+                    has_yield: false,
+                    has_db_commit: false,
+                    has_db_rollback: false,
+                    has_cleanup: false,
+                    uses_file_io: false,
+                    used_by: vec![],
+                },
+                // unrelated_fixture does NOT depend on db_connection
+                Fixture {
+                    name: "unrelated_fixture".to_string(),
+                    file_path: PathBuf::from("test_a.py"),
+                    line: 5,
+                    scope: FixtureScope::Function,
+                    is_autouse: false,
+                    dependencies: vec!["other_dep".to_string()],
+                    returns_mutable: false,
+                    has_yield: false,
+                    has_db_commit: false,
+                    has_db_rollback: false,
+                    has_cleanup: false,
+                    uses_file_io: false,
+                    used_by: vec![],
+                },
+            ],
+        };
+        assert!(
+            !is_fixture_used_by_any_test_or_fixture(unused_fixture, &[module]),
+            "fixture not referenced by any test or dependency should be unused"
+        );
+    }
+
+    #[test]
+    fn test_fixture_used_via_other_fixture_dependency() {
+        use crate::models::{Fixture, FixtureScope, ParsedModule, TestFunction};
+
+        let fixture_name = "db_connection";
+        // Test function uses db_connection directly — confirmed used
+        let module = ParsedModule {
+            file_path: PathBuf::from("test_a.py"),
+            source: "def test_x(db_connection): pass\n".to_string(),
+            imports: vec![],
+            test_functions: vec![TestFunction {
+                name: "test_x".to_string(),
+                file_path: PathBuf::from("test_a.py"),
+                line: 1,
+                is_async: false,
+                is_parametrized: false,
+                parametrize_count: None,
+                has_assertions: false,
+                assertion_count: 0,
+                has_mock_verifications: false,
+                has_state_assertions: false,
+                fixture_deps: vec!["db_connection".to_string()],
+                uses_time_sleep: false,
+                sleep_value: None,
+                uses_file_io: false,
+                uses_network: false,
+                has_conditional_logic: false,
+                has_try_except: false,
+                docstring: None,
+                assertions: vec![],
+                parametrize_values: vec![],
+                uses_cwd_dependency: false,
+                uses_pytest_raises: false,
+                mutates_fixture_deps: vec![],
+                body_hash: None,
+                uses_random: false,
+                has_random_seed: false,
+                uses_subprocess: false,
+                has_subprocess_timeout: false,
+            }],
+            fixtures: vec![Fixture {
+                name: "db_connection".to_string(),
+                file_path: PathBuf::from("test_a.py"),
+                line: 3,
+                scope: FixtureScope::Function,
+                is_autouse: false,
+                dependencies: vec![],
+                returns_mutable: false,
+                has_yield: false,
+                has_db_commit: false,
+                has_db_rollback: false,
+                has_cleanup: false,
+                uses_file_io: false,
+                used_by: vec![],
+            }],
+        };
+        assert!(
+            is_fixture_used_by_any_test_or_fixture(fixture_name, &[module]),
+            "fixture referenced by test should be used"
+        );
+    }
+
+    #[test]
+    fn test_fixture_used_by_other_fixture_dependency() {
+        use crate::models::{Fixture, FixtureScope, ParsedModule, TestFunction};
+
+        let fixture_name = "db_connection";
+        // db_connection is NOT in any test's fixture_deps, but IS in fixture's deps
+        let module = ParsedModule {
+            file_path: PathBuf::from("test_a.py"),
+            source: "def test_x(api_client): pass\n".to_string(),
+            imports: vec![],
+            test_functions: vec![TestFunction {
+                name: "test_x".to_string(),
+                file_path: PathBuf::from("test_a.py"),
+                line: 1,
+                is_async: false,
+                is_parametrized: false,
+                parametrize_count: None,
+                has_assertions: false,
+                assertion_count: 0,
+                has_mock_verifications: false,
+                has_state_assertions: false,
+                fixture_deps: vec!["api_client".to_string()],
+                uses_time_sleep: false,
+                sleep_value: None,
+                uses_file_io: false,
+                uses_network: false,
+                has_conditional_logic: false,
+                has_try_except: false,
+                docstring: None,
+                assertions: vec![],
+                parametrize_values: vec![],
+                uses_cwd_dependency: false,
+                uses_pytest_raises: false,
+                mutates_fixture_deps: vec![],
+                body_hash: None,
+                uses_random: false,
+                has_random_seed: false,
+                uses_subprocess: false,
+                has_subprocess_timeout: false,
+            }],
+            fixtures: vec![
+                Fixture {
+                    name: "api_client".to_string(),
+                    file_path: PathBuf::from("test_a.py"),
+                    line: 3,
+                    scope: FixtureScope::Function,
+                    is_autouse: false,
+                    dependencies: vec!["db_connection".to_string()],
+                    returns_mutable: false,
+                    has_yield: false,
+                    has_db_commit: false,
+                    has_db_rollback: false,
+                    has_cleanup: false,
+                    uses_file_io: false,
+                    used_by: vec![],
+                },
+                Fixture {
+                    name: "db_connection".to_string(),
+                    file_path: PathBuf::from("test_a.py"),
+                    line: 5,
+                    scope: FixtureScope::Function,
+                    is_autouse: false,
+                    dependencies: vec![],
+                    returns_mutable: false,
+                    has_yield: false,
+                    has_db_commit: false,
+                    has_db_rollback: false,
+                    has_cleanup: false,
+                    uses_file_io: false,
+                    used_by: vec![],
+                },
+            ],
+        };
+        assert!(
+            is_fixture_used_by_any_test_or_fixture(fixture_name, &[module]),
+            "fixture referenced by another fixture's dependencies should be used"
+        );
+    }
+
+    // Mutants #8-9: get_changed_files uses same pattern as discover_files
+    // These are hard to unit test directly (require git), so test discover_files
+    // thoroughly to cover the is_test_file + extension logic.
+
+    #[test]
+    fn test_discover_files_rejects_py_files_without_test_naming() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("test_real.py"),
+            "def test_it(): assert True\n",
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("utils.py"), "def util(): pass\n").unwrap();
+        std::fs::create_dir(dir.path().join("subdir")).unwrap();
+        std::fs::write(
+            dir.path().join("subdir").join("helper.py"),
+            "def help(): pass\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("subdir").join("test_nested.py"),
+            "def test_n(): assert True\n",
+        )
+        .unwrap();
+
+        let files = discover_files(&[dir.path().to_path_buf()]);
+        let names: Vec<String> = files
+            .iter()
+            .map(|f| f.file_name().unwrap().to_string_lossy().to_string())
+            .collect();
+        assert!(names.contains(&"test_real.py".to_string()));
+        assert!(names.contains(&"test_nested.py".to_string()));
+        assert!(!names.contains(&"utils.py".to_string()));
+        assert!(!names.contains(&"helper.py".to_string()));
+    }
+
+    #[test]
+    fn test_is_test_file_only_checks_naming_convention() {
+        // is_test_file checks naming convention only (extension is checked separately)
+        assert!(is_test_file(Path::new("test_foo.py")));
+        assert!(is_test_file(Path::new("foo_test.py")));
+        assert!(is_test_file(Path::new("conftest.py")));
+        assert!(!is_test_file(Path::new("helper.py")));
+        assert!(!is_test_file(Path::new("setup.py")));
+    }
+
+    // Mutants #8-9: is_py_test_file must require BOTH .py extension AND test naming
+    #[test]
+    fn test_is_py_test_file_accepts_valid_test_files() {
+        assert!(is_py_test_file(Path::new("test_foo.py")));
+        assert!(is_py_test_file(Path::new("foo_test.py")));
+        assert!(is_py_test_file(Path::new("conftest.py")));
+        assert!(is_py_test_file(Path::new("src/test_bar.py")));
+    }
+
+    #[test]
+    fn test_is_py_test_file_rejects_non_py_files() {
+        // Mutant: replace == with != would make non-.py files pass the extension check
+        assert!(!is_py_test_file(Path::new("test_foo.txt")));
+        assert!(!is_py_test_file(Path::new("test_foo.rs")));
+        assert!(!is_py_test_file(Path::new("test_foo"))); // no extension
+        assert!(!is_py_test_file(Path::new("conftest.pyc")));
+    }
+
+    #[test]
+    fn test_is_py_test_file_rejects_non_test_py_files() {
+        // Mutant: replace && with || would make non-test .py files pass
+        assert!(!is_py_test_file(Path::new("helper.py")));
+        assert!(!is_py_test_file(Path::new("setup.py")));
+        assert!(!is_py_test_file(Path::new("utils.py")));
+        assert!(!is_py_test_file(Path::new("app.py")));
+    }
+
+    #[test]
+    fn test_is_py_test_file_rejects_non_py_test_named_file() {
+        // A file named "test_foo" without .py extension should be rejected
+        assert!(!is_py_test_file(Path::new("test_foo")));
     }
 }

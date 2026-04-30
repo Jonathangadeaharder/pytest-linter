@@ -141,3 +141,6 @@ test_file.txt
 Cargo[_ ][0-9]*.lock
 mutants.out/
 mutants.out.old/
+mutants.out/
+mutants*.out/
+mutants *.out/

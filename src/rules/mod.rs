@@ -58,6 +58,7 @@ pub fn all_rules() -> Vec<Box<dyn Rule>> {
         Box::new(maintenance::ParametrizeEmptyRule),
         Box::new(maintenance::ParametrizeDuplicateRule),
         Box::new(maintenance::ParametrizeExplosionRule),
+        Box::new(maintenance::ConditionalLogicInTestRule),
         Box::new(fixtures::AutouseFixtureRule),
         Box::new(fixtures::InvalidScopeRule),
         Box::new(fixtures::ShadowedFixtureRule),
@@ -86,7 +87,7 @@ mod tests {
     #[test]
     fn test_all_rules_returns_39() {
         let rules = all_rules();
-        assert_eq!(rules.len(), 39);
+        assert_eq!(rules.len(), 40);
     }
 
     #[test]

@@ -723,3 +723,86 @@ fn find_function_node<'tree>(root: &'tree Node<'tree>, target_line: usize) -> Op
     }
     None
 }
+
+#[cfg(test)]
+mod debug_timeout {
+    use super::*;
+
+    #[test]
+    fn debug_call_has_timeout() {
+        let source = r#"import subprocess
+
+def test_subprocess_safe():
+    result = subprocess.run(["echo", "hello"], timeout=30)
+    assert result.returncode == 0
+"#;
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&tree_sitter_python::LANGUAGE.into())
+            .unwrap();
+        let tree = parser.parse(source, None).unwrap();
+        let root = tree.root_node();
+        let bytes = source.as_bytes();
+
+        // Find the call node
+        fn find_call<'a>(
+            node: &tree_sitter::Node<'a>,
+            source: &'a [u8],
+        ) -> Option<tree_sitter::Node<'a>> {
+            if node.kind() == "call" {
+                if let Some(f) = node.child_by_field_name("function") {
+                    let text = f.utf8_text(source).unwrap_or_default();
+                    if text.contains("subprocess") {
+                        return Some(*node);
+                    }
+                }
+            }
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                if let Some(c) = find_call(&child, source) {
+                    return Some(c);
+                }
+            }
+            None
+        }
+
+        let call = find_call(&root, bytes).expect("should find subprocess call");
+        let func_text = call
+            .child_by_field_name("function")
+            .unwrap()
+            .utf8_text(bytes)
+            .unwrap();
+        eprintln!("call kind: {}", call.kind());
+        eprintln!("call text: {}", call.utf8_text(bytes).unwrap());
+        eprintln!("function: {}", func_text);
+
+        let args = call.child_by_field_name("arguments");
+        eprintln!("arguments node: {:?}", args.as_ref().map(|a| a.kind()));
+
+        if let Some(a) = args {
+            let mut cursor = a.walk();
+            for (i, child) in a.children(&mut cursor).enumerate() {
+                eprintln!(
+                    "  arg[{}] kind={} text={}",
+                    i,
+                    child.kind(),
+                    child.utf8_text(bytes).unwrap()
+                );
+                if child.kind() == "keyword_argument" {
+                    let name_field = child.child_by_field_name("name");
+                    eprintln!(
+                        "    name_field: {:?}",
+                        name_field.as_ref().map(|n| n.utf8_text(bytes).unwrap())
+                    );
+                }
+            }
+        }
+
+        let result = call_has_timeout(call, bytes);
+        eprintln!("call_has_timeout result: {}", result);
+        assert!(
+            result,
+            "call_has_timeout should return true for subprocess.run with timeout=30"
+        );
+    }
+}
