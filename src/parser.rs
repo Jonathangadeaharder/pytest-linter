@@ -3822,4 +3822,70 @@ def test_no_sub_no_timeout():
         assert!(!module.test_functions[0].has_subprocess_timeout);
         assert!(!module.test_functions[0].uses_subprocess);
     }
+
+    #[test]
+    fn test_detect_cleanup_pattern_bare_addfinalizer() {
+        let module = parse_source(
+            r#"
+import pytest
+
+@pytest.fixture
+def fix_bare_af():
+    addfinalizer(teardown)
+    yield 1
+"#,
+        );
+        assert!(
+            module.fixtures[0].has_cleanup,
+            "bare addfinalizer should be detected"
+        );
+    }
+
+    #[test]
+    fn test_sleep_integer_arg() {
+        let module = parse_source(
+            r#"
+def test_sleep_int():
+    time.sleep(5)
+    assert True
+"#,
+        );
+        let tf = &module.test_functions[0];
+        assert_eq!(tf.sleep_value, Some(5.0));
+    }
+
+    #[test]
+    fn test_sleep_takes_max_of_equal() {
+        let module = parse_source(
+            r#"
+def test_sleep_multi():
+    time.sleep(0.3)
+    time.sleep(0.3)
+    assert True
+"#,
+        );
+        let tf = &module.test_functions[0];
+        assert_eq!(tf.sleep_value, Some(0.3));
+    }
+
+    #[test]
+    fn test_try_without_yield_no_cleanup() {
+        let module = parse_source(
+            r#"
+import pytest
+
+@pytest.fixture
+def fix_try_no_yield():
+    try:
+        x = 1
+    except:
+        pass
+    yield x
+"#,
+        );
+        assert!(
+            !module.fixtures[0].has_cleanup,
+            "try without yield should not be cleanup"
+        );
+    }
 }

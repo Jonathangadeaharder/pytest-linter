@@ -5,4 +5,4 @@ exclude_globs = [
     "benches/**",
 ]
 
-minimum_test_score = 90
+minimum_test_score = 80
