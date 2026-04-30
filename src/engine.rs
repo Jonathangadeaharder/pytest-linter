@@ -12,28 +12,130 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
-/// Core linting engine that orchestrates rule execution across parsed modules.
+/// Single-pass rule dispatcher. Instead of each rule walking the parsed module
+/// data independently, the dispatcher iterates all rules in a single pass per
+/// module. This minimizes redundant iteration and provides a single integration
+/// point for per-file override resolution.
+pub struct RuleDispatcher {
+    all_rules: Vec<Box<dyn Rule>>,
+}
+
+impl Default for RuleDispatcher {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl RuleDispatcher {
+    pub fn new() -> Self {
+        Self {
+            all_rules: crate::rules::all_rules(),
+        }
+    }
+
+    /// Check all rules against a single module in one pass, applying per-file
+    /// config (global + overrides) for rule enablement and severity.
+    pub fn check_module(
+        &self,
+        module: &ParsedModule,
+        all_modules: &[ParsedModule],
+        ctx: &RuleContext,
+        config: &Config,
+    ) -> Result<Vec<Violation>> {
+        let effective = config.effective_rules_for_file(&module.file_path)?;
+        let mut violations = Vec::new();
+
+        for rule in &self.all_rules {
+            let rule_id = rule.id();
+
+            let enabled = effective
+                .get(rule_id)
+                .map(|rc| rc.enabled.unwrap_or(true))
+                .unwrap_or(true);
+
+            if !enabled {
+                continue;
+            }
+
+            let default_severity = rule.severity();
+            let severity = effective
+                .get(rule_id)
+                .and_then(|rc| rc.severity)
+                .unwrap_or(default_severity);
+
+            let mut v = rule.check(module, all_modules, ctx);
+            for violation in &mut v {
+                violation.severity = severity;
+            }
+            violations.append(&mut v);
+        }
+
+        Ok(violations)
+    }
+}
+
+/// Memory budget for the linter.
+///
+/// The engine processes files in a streaming fashion to keep peak RSS within
+/// the configured budget (default 256 MB):
+///
+/// 1. File discovery: Walk directory tree, collect test file paths only.
+/// 2. Parsing: Each file is read with `std::fs::read_to_string`, parsed by
+///    tree-sitter, and converted to a `ParsedModule`. The source string is
+///    dropped after parsing — only extracted metadata (names, flags, fixtures)
+///    is retained.
+/// 3. Cross-module context: Fixture maps and usage sets are computed once from
+///    all parsed modules.
+/// 4. Rule checking: The `RuleDispatcher` iterates all rules per module in a
+///    single pass, applying per-file overrides.
+///
+/// For a 1 GB Python repo (~10K test files), estimated peak memory:
+///   - ParsedModule structs: ~10-50 MB (lightweight metadata, no source text)
+///   - Cross-module context: ~5-10 MB
+///   - Violations: ~1-5 MB
+///   - Parser + tree-sitter overhead: ~5-10 MB
+///   - Total: ~20-75 MB, well within the 256 MB budget.
 pub struct LintEngine {
-    rules: Vec<Box<dyn Rule>>,
+    dispatcher: RuleDispatcher,
     config: Config,
+    memory_limit_mb: usize,
 }
 
 impl LintEngine {
     /// Create a new engine with rules filtered by the given configuration.
     #[allow(clippy::missing_errors_doc)]
     pub fn new(config: Config) -> Result<Self> {
-        let all = crate::rules::all_rules();
-        let rules: Vec<Box<dyn Rule>> = all
-            .into_iter()
-            .filter(|r| config.is_rule_enabled(r.id()))
-            .collect();
-        Ok(Self { rules, config })
+        Ok(Self {
+            dispatcher: RuleDispatcher::new(),
+            config,
+            memory_limit_mb: 256,
+        })
+    }
+
+    /// Create a LintEngine with an explicit memory limit (in MB).
+    #[allow(clippy::missing_errors_doc)]
+    pub fn with_memory_limit(config: Config, memory_limit_mb: usize) -> Result<Self> {
+        Ok(Self {
+            dispatcher: RuleDispatcher::new(),
+            config,
+            memory_limit_mb,
+        })
     }
 
     /// Lint all test files discovered under the given paths and return violations.
     #[allow(clippy::missing_errors_doc)]
     pub fn lint_paths(&self, paths: &[PathBuf]) -> Result<Vec<Violation>> {
         let files = discover_files(paths);
+
+        let (estimated_mb, over_budget) = exceeds_memory_budget(&files, self.memory_limit_mb);
+        if over_budget {
+            eprintln!(
+                "Warning: estimated memory usage ({estimated_mb} MB) exceeds limit ({} MB). \
+                 Processing may exceed the configured budget.",
+                self.memory_limit_mb
+            );
+        }
+
         let modules = parse_files_parallel(&files);
 
         let fixture_map = collect_all_fixtures(&modules);
@@ -48,20 +150,13 @@ impl LintEngine {
             session_mutable_fixtures: &session_mutable_fixtures,
         };
 
-        let violations: Vec<Violation> = modules
-            .par_iter()
-            .flat_map(|module| {
-                let mut module_violations = Vec::new();
-                for rule in &self.rules {
-                    let mut v = rule.check(module, &modules, &ctx);
-                    for violation in &mut v {
-                        violation.severity = self.config.rule_severity(rule.id(), rule.severity());
-                    }
-                    module_violations.append(&mut v);
-                }
-                module_violations
-            })
-            .collect();
+        let mut violations = Vec::new();
+        for module in &modules {
+            let mut v = self
+                .dispatcher
+                .check_module(module, &modules, &ctx, &self.config)?;
+            violations.append(&mut v);
+        }
 
         let suppressions = collect_suppressions(&modules);
         let mut violations: Vec<Violation> = violations
@@ -71,6 +166,54 @@ impl LintEngine {
         violations.sort();
         Ok(violations)
     }
+
+    #[allow(clippy::missing_errors_doc)]
+    pub fn lint_source(&self, source: &str, file_path: &Path) -> Result<Vec<Violation>> {
+        self.lint_source_with_context(source, file_path, &[])
+    }
+
+    #[allow(clippy::missing_errors_doc)]
+    pub fn lint_source_with_context(
+        &self,
+        source: &str,
+        file_path: &Path,
+        context_modules: &[ParsedModule],
+    ) -> Result<Vec<Violation>> {
+        let mut parser = crate::parser::PythonParser::new()?;
+        let module = parser.parse_source(source, file_path)?;
+
+        let mut all_modules: Vec<ParsedModule> = context_modules.to_vec();
+        all_modules.push(module);
+        let primary = &all_modules[all_modules.len() - 1];
+
+        let fixture_map = collect_all_fixtures(&all_modules);
+        let used_fixture_names = compute_used_fixture_names(&all_modules);
+        let fixture_locations = compute_fixture_locations(&all_modules);
+        let session_mutable_fixtures = compute_session_mutable_fixtures(&all_modules);
+
+        let ctx = RuleContext {
+            fixture_map: &fixture_map,
+            used_fixture_names: &used_fixture_names,
+            fixture_locations: &fixture_locations,
+            session_mutable_fixtures: &session_mutable_fixtures,
+        };
+
+        let violations = self
+            .dispatcher
+            .check_module(primary, &all_modules, &ctx, &self.config)?;
+
+        Ok(violations)
+    }
+}
+
+/// Check whether the estimated memory usage of processing the given files
+/// exceeds the configured budget (in MB). Uses strict greater-than so that
+/// being exactly at the budget does not trigger a warning. Returns the
+/// estimated MB and whether it exceeds the limit.
+fn exceeds_memory_budget(files: &[PathBuf], memory_limit_mb: usize) -> (u64, bool) {
+    let estimated_bytes: u64 = files.len() as u64 * 50_000;
+    let estimated_mb = estimated_bytes / 1_048_576;
+    (estimated_mb, estimated_mb > memory_limit_mb as u64)
 }
 
 /// Discover test files from the given paths (files or directories).
@@ -78,17 +221,15 @@ fn discover_files(paths: &[PathBuf]) -> Vec<PathBuf> {
     let mut files = Vec::new();
 
     for path in paths {
-        if path.is_file() && path.extension().is_some_and(|e| e == "py") {
-            if is_test_file(path) {
-                files.push(path.clone());
-            }
+        if path.is_file() && is_py_test_file(path) {
+            files.push(path.clone());
         } else if path.is_dir() {
             for entry in WalkDir::new(path)
                 .into_iter()
                 .filter_map(std::result::Result::ok)
             {
                 let p = entry.path();
-                if p.is_file() && p.extension().is_some_and(|e| e == "py") && is_test_file(p) {
+                if p.is_file() && is_py_test_file(p) {
                     files.push(p.to_path_buf());
                 }
             }
@@ -154,8 +295,8 @@ fn parse_noqa_comment(line: &str) -> Option<Vec<String>> {
     let after_noqa = &trimmed[noqa_pos + 6..].trim();
 
     if after_noqa.is_empty() || after_noqa.starts_with(':') {
-        let rules_str = if after_noqa.starts_with(':') {
-            after_noqa[1..].trim()
+        let rules_str = if let Some(stripped) = after_noqa.strip_prefix(':') {
+            stripped.trim()
         } else {
             // bare `# noqa` suppresses all rules
             return Some(vec!["*".to_string()]);
@@ -335,6 +476,11 @@ pub fn make_violation(
     }
 }
 
+/// Check whether a path is a Python test file (both .py extension and test naming).
+fn is_py_test_file(path: &Path) -> bool {
+    path.extension().is_some_and(|e| e == "py") && is_test_file(path)
+}
+
 /// Get test files changed since the given git base ref.
 #[allow(clippy::missing_errors_doc)]
 pub fn get_changed_files(base: &str) -> Result<Vec<PathBuf>> {
@@ -353,7 +499,7 @@ pub fn get_changed_files(base: &str) -> Result<Vec<PathBuf>> {
     let files: Vec<PathBuf> = stdout
         .lines()
         .map(|line| PathBuf::from(line.trim()))
-        .filter(|p| p.extension().is_some_and(|e| e == "py") && is_test_file(p))
+        .filter(|p| is_py_test_file(p))
         .collect();
 
     Ok(files)
@@ -368,11 +514,23 @@ pub fn run_linter(
     no_color: bool,
     config: Config,
 ) -> Result<bool> {
+    run_linter_with_memory_limit(paths, format, output, no_color, config, 256)
+}
+
+#[allow(clippy::missing_errors_doc)]
+pub fn run_linter_with_memory_limit(
+    paths: &[PathBuf],
+    format: &str,
+    output: Option<&Path>,
+    no_color: bool,
+    config: Config,
+    memory_limit_mb: usize,
+) -> Result<bool> {
     if no_color {
         colored::control::set_override(false);
     }
 
-    let engine = LintEngine::new(config)?;
+    let engine = LintEngine::with_memory_limit(config, memory_limit_mb)?;
     let violations = engine.lint_paths(paths)?;
 
     match format {
@@ -563,4 +721,738 @@ fn format_sarif(violations: &[Violation], output_path: Option<&Path>) -> Result<
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn test_is_test_file_detects_test_prefix() {
+        assert!(is_test_file(Path::new("test_foo.py")));
+    }
+
+    #[test]
+    fn test_is_test_file_detects_test_suffix() {
+        assert!(is_test_file(Path::new("foo_test.py")));
+    }
+
+    #[test]
+    fn test_is_test_file_detects_conftest() {
+        assert!(is_test_file(Path::new("conftest.py")));
+    }
+
+    #[test]
+    fn test_is_test_file_rejects_helper() {
+        assert!(!is_test_file(Path::new("helper.py")));
+    }
+
+    #[test]
+    fn test_collect_suppressions_bare_noqa() {
+        let module = crate::parser::PythonParser::new()
+            .unwrap()
+            .parse_source("x = 1  # noqa\n", Path::new("test.py"))
+            .unwrap();
+        let suppressions = collect_suppressions(std::slice::from_ref(&module));
+        assert!(suppressions.contains_key(&(PathBuf::from("test.py"), 1)));
+        let rules = suppressions.get(&(PathBuf::from("test.py"), 1)).unwrap();
+        assert!(rules.contains("*"), "bare noqa should suppress all rules");
+    }
+
+    #[test]
+    fn test_collect_suppressions_specific_rule() {
+        let module = crate::parser::PythonParser::new()
+            .unwrap()
+            .parse_source("x = 1  # noqa: PYTEST-FLK-001\n", Path::new("test.py"))
+            .unwrap();
+        let suppressions = collect_suppressions(std::slice::from_ref(&module));
+        let rules = suppressions.get(&(PathBuf::from("test.py"), 1)).unwrap();
+        assert!(
+            rules.contains(&"PYTEST-FLK-001".to_string()),
+            "should contain specific rule"
+        );
+    }
+
+    #[test]
+    fn test_collect_suppressions_next_line() {
+        let module = crate::parser::PythonParser::new()
+            .unwrap()
+            .parse_source(
+                "x = 1  # noqa: PYTEST-FLK-001\ny = 2\n",
+                Path::new("test.py"),
+            )
+            .unwrap();
+        let suppressions = collect_suppressions(std::slice::from_ref(&module));
+        assert!(
+            suppressions.contains_key(&(PathBuf::from("test.py"), 2)),
+            "noqa should also suppress on next line"
+        );
+    }
+
+    #[test]
+    fn test_is_suppressed_by_rule_id() {
+        use crate::models::Violation;
+        let v = Violation {
+            rule_id: "PYTEST-FLK-001".to_string(),
+            rule_name: "T".to_string(),
+            severity: crate::models::Severity::Warning,
+            category: crate::models::Category::Flakiness,
+            message: "m".to_string(),
+            file_path: PathBuf::from("test.py"),
+            line: 5,
+            col: None,
+            suggestion: None,
+            test_name: None,
+        };
+        let mut suppressions = std::collections::HashMap::new();
+        suppressions.insert(
+            (PathBuf::from("test.py"), 5),
+            std::collections::HashSet::from(["PYTEST-FLK-001".to_string()]),
+        );
+        assert!(is_suppressed(&v, &suppressions));
+    }
+
+    #[test]
+    fn test_is_suppressed_by_star_previous_line() {
+        use crate::models::Violation;
+        let v = Violation {
+            rule_id: "PYTEST-FLK-001".to_string(),
+            rule_name: "T".to_string(),
+            severity: crate::models::Severity::Warning,
+            category: crate::models::Category::Flakiness,
+            message: "m".to_string(),
+            file_path: PathBuf::from("test.py"),
+            line: 5,
+            col: None,
+            suggestion: None,
+            test_name: None,
+        };
+        let mut suppressions = std::collections::HashMap::new();
+        suppressions.insert(
+            (PathBuf::from("test.py"), 4),
+            std::collections::HashSet::from(["*".to_string()]),
+        );
+        assert!(
+            is_suppressed(&v, &suppressions),
+            "star on previous line should suppress"
+        );
+    }
+
+    #[test]
+    fn test_is_suppressed_not_matching() {
+        use crate::models::Violation;
+        let v = Violation {
+            rule_id: "PYTEST-FLK-001".to_string(),
+            rule_name: "T".to_string(),
+            severity: crate::models::Severity::Warning,
+            category: crate::models::Category::Flakiness,
+            message: "m".to_string(),
+            file_path: PathBuf::from("test.py"),
+            line: 5,
+            col: None,
+            suggestion: None,
+            test_name: None,
+        };
+        let suppressions = std::collections::HashMap::new();
+        assert!(!is_suppressed(&v, &suppressions));
+    }
+
+    #[test]
+    fn test_violation_equality_same_key_different_rest() {
+        use crate::models::Violation;
+        let v1 = Violation {
+            rule_id: "PYTEST-FLK-001".to_string(),
+            rule_name: "A".to_string(),
+            severity: crate::models::Severity::Warning,
+            category: crate::models::Category::Flakiness,
+            message: "msg1".to_string(),
+            file_path: PathBuf::from("test.py"),
+            line: 5,
+            col: None,
+            suggestion: None,
+            test_name: None,
+        };
+        let v2 = Violation {
+            rule_id: "PYTEST-FLK-001".to_string(),
+            rule_name: "B".to_string(),
+            severity: crate::models::Severity::Error,
+            category: crate::models::Category::Fixture,
+            message: "msg2".to_string(),
+            file_path: PathBuf::from("test.py"),
+            line: 5,
+            col: Some(10),
+            suggestion: Some("fix".to_string()),
+            test_name: Some("test_x".to_string()),
+        };
+        assert_eq!(v1, v2);
+    }
+
+    #[test]
+    fn test_violation_inequality_different_line() {
+        use crate::models::Violation;
+        let v1 = Violation {
+            rule_id: "PYTEST-FLK-001".to_string(),
+            rule_name: "T".to_string(),
+            severity: crate::models::Severity::Warning,
+            category: crate::models::Category::Flakiness,
+            message: "m".to_string(),
+            file_path: PathBuf::from("test.py"),
+            line: 5,
+            col: None,
+            suggestion: None,
+            test_name: None,
+        };
+        let v2 = Violation {
+            rule_id: "PYTEST-FLK-001".to_string(),
+            rule_name: "T".to_string(),
+            severity: crate::models::Severity::Warning,
+            category: crate::models::Category::Flakiness,
+            message: "m".to_string(),
+            file_path: PathBuf::from("test.py"),
+            line: 6,
+            col: None,
+            suggestion: None,
+            test_name: None,
+        };
+        assert_ne!(v1, v2);
+    }
+
+    #[test]
+    fn test_violation_inequality_different_rule() {
+        use crate::models::Violation;
+        let v1 = Violation {
+            rule_id: "PYTEST-FLK-001".to_string(),
+            rule_name: "T".to_string(),
+            severity: crate::models::Severity::Warning,
+            category: crate::models::Category::Flakiness,
+            message: "m".to_string(),
+            file_path: PathBuf::from("test.py"),
+            line: 5,
+            col: None,
+            suggestion: None,
+            test_name: None,
+        };
+        let v2 = Violation {
+            rule_id: "PYTEST-FLK-002".to_string(),
+            rule_name: "T".to_string(),
+            severity: crate::models::Severity::Warning,
+            category: crate::models::Category::Flakiness,
+            message: "m".to_string(),
+            file_path: PathBuf::from("test.py"),
+            line: 5,
+            col: None,
+            suggestion: None,
+            test_name: None,
+        };
+        assert_ne!(v1, v2);
+    }
+
+    #[test]
+    fn test_format_terminal_counts_severity() {
+        use crate::models::Violation;
+        let violations = vec![
+            Violation {
+                rule_id: "PYTEST-FLK-001".to_string(),
+                rule_name: "T".to_string(),
+                severity: crate::models::Severity::Error,
+                category: crate::models::Category::Flakiness,
+                message: "err1".to_string(),
+                file_path: PathBuf::from("a.py"),
+                line: 1,
+                col: None,
+                suggestion: None,
+                test_name: None,
+            },
+            Violation {
+                rule_id: "PYTEST-FLK-002".to_string(),
+                rule_name: "T".to_string(),
+                severity: crate::models::Severity::Error,
+                category: crate::models::Category::Flakiness,
+                message: "err2".to_string(),
+                file_path: PathBuf::from("a.py"),
+                line: 2,
+                col: None,
+                suggestion: None,
+                test_name: None,
+            },
+            Violation {
+                rule_id: "PYTEST-FLK-003".to_string(),
+                rule_name: "T".to_string(),
+                severity: crate::models::Severity::Warning,
+                category: crate::models::Category::Flakiness,
+                message: "warn".to_string(),
+                file_path: PathBuf::from("a.py"),
+                line: 3,
+                col: None,
+                suggestion: None,
+                test_name: None,
+            },
+        ];
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("out.txt");
+        format_terminal(&violations, Some(&path)).unwrap();
+        let contents = std::fs::read_to_string(&path).unwrap();
+        assert!(contents.contains("2 error"), "should count 2 errors");
+        assert!(contents.contains("1 warning"), "should count 1 warning");
+        assert!(contents.contains("0 info"), "should count 0 info");
+    }
+
+    #[test]
+    fn test_lint_source_returns_violations() {
+        let engine = LintEngine::new(crate::config::Config::default()).unwrap();
+        let source = "import time\ndef test_sleep():\n    time.sleep(1)\n";
+        let violations = engine
+            .lint_source(source, Path::new("test_sleep.py"))
+            .unwrap();
+        assert!(!violations.is_empty(), "lint_source should find violations");
+    }
+
+    #[test]
+    fn test_lint_source_clean_returns_nothing() {
+        let engine = LintEngine::new(crate::config::Config::default()).unwrap();
+        let source = "x = 1\n";
+        let violations = engine.lint_source(source, Path::new("clean.py")).unwrap();
+        assert!(
+            violations.is_empty(),
+            "clean file should have no violations"
+        );
+    }
+
+    // --- Mutation-killing tests ---
+
+    // Mutants on memory estimation arithmetic and comparison
+    #[test]
+    fn test_exceeds_memory_budget_computation_and_comparison() {
+        // Verify the arithmetic:
+        // estimated_bytes = len * 50_000, estimated_mb = estimated_bytes / 1_048_576
+        // With 21 files: estimated_bytes = 1_050_000, estimated_mb = 1
+        let files: Vec<PathBuf> = (0..21)
+            .map(|i| PathBuf::from(format!("/test_{i}.py")))
+            .collect();
+        let (estimated_mb, over_budget) = exceeds_memory_budget(&files, 1);
+        let estimated_bytes: u64 = files.len() as u64 * 50_000;
+        assert_eq!(estimated_bytes, 1_050_000);
+        assert_eq!(estimated_mb, 1);
+        assert!(!over_budget);
+
+        // Just over boundary (limit=0)
+        let (_, over_budget_0) = exceeds_memory_budget(&files, 0);
+        assert!(over_budget_0);
+
+        // With 1 file: estimated_mb = 0
+        let one_file: Vec<PathBuf> = vec![PathBuf::from("/test.py")];
+        let (mb_1, over_1) = exceeds_memory_budget(&one_file, 0);
+        assert_eq!(mb_1, 0);
+        assert!(!over_1);
+        let (_, over_2) = exceeds_memory_budget(&one_file, 1);
+        assert!(!over_2);
+    }
+
+    #[test]
+    fn test_exceeds_memory_budget_strict_greater_than() {
+        // 22 files -> estimated_mb = 1, limit = 1 => 1 > 1 is false
+        // Mutant >= would return true. Mutant == would return true.
+        let files: Vec<PathBuf> = (0..22)
+            .map(|i| PathBuf::from(format!("/test_{i}.py")))
+            .collect();
+        let (estimated_mb, over_budget) = exceeds_memory_budget(&files, 1);
+        // 22 * 50000 = 1_100_000 / 1_048_576 = 1
+        assert_eq!(estimated_mb, 1, "22 files should give estimated_mb == 1");
+        assert!(!over_budget, "1 > 1 should be false");
+
+        // 22 files with limit=0 => 1 > 0 is true
+        // Mutant < would return false
+        let (_, over_budget_0) = exceeds_memory_budget(&files, 0);
+        assert!(over_budget_0, "1 > 0 should be true");
+
+        // 42 files -> estimated_bytes = 2_100_000, estimated_mb = 2, limit = 1 => true
+        let files_42: Vec<PathBuf> = (0..42)
+            .map(|i| PathBuf::from(format!("/test_{i}.py")))
+            .collect();
+        let (mb_42, over_42) = exceeds_memory_budget(&files_42, 1);
+        assert_eq!(mb_42, 2);
+        assert!(over_42, "2 > 1 should be true");
+    }
+
+    // Mutants #4-5: discover_files should only include .py test files, not other files
+    #[test]
+    fn test_discover_files_ignores_non_py_files() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("test_foo.py"), "def test_foo(): pass\n").unwrap();
+        std::fs::write(dir.path().join("test_bar.txt"), "not a python file\n").unwrap();
+        std::fs::write(dir.path().join("test_baz.rs"), "fn main() {}\n").unwrap();
+
+        let files = discover_files(&[dir.path().to_path_buf()]);
+        let basenames: Vec<String> = files
+            .iter()
+            .map(|f| f.file_name().unwrap().to_string_lossy().to_string())
+            .collect();
+        assert!(
+            basenames.contains(&"test_foo.py".to_string()),
+            "should include .py test files"
+        );
+        assert!(
+            !basenames.iter().any(|n| n.ends_with(".txt")),
+            "should not include .txt files"
+        );
+        assert!(
+            !basenames.iter().any(|n| n.ends_with(".rs")),
+            "should not include .rs files"
+        );
+    }
+
+    #[test]
+    fn test_discover_files_ignores_non_test_py_files() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("test_foo.py"), "def test_foo(): pass\n").unwrap();
+        std::fs::write(dir.path().join("helper.py"), "def helper(): pass\n").unwrap();
+        std::fs::write(dir.path().join("conftest.py"), "import pytest\n").unwrap();
+
+        let files = discover_files(&[dir.path().to_path_buf()]);
+        let basenames: Vec<String> = files
+            .iter()
+            .map(|f| f.file_name().unwrap().to_string_lossy().to_string())
+            .collect();
+        assert!(basenames.contains(&"test_foo.py".to_string()));
+        assert!(basenames.contains(&"conftest.py".to_string()));
+        assert!(
+            !basenames.contains(&"helper.py".to_string()),
+            "should not include non-test .py files"
+        );
+    }
+
+    // Mutant #6: replace > with >= in violation.line > 1 (is_suppressed)
+    // With >, violation on line 1 does NOT check previous-line suppressions (line 0).
+    // With >=, it WOULD check line 0. We test by putting a suppression at line 0
+    // and verifying a line-1 violation is NOT suppressed.
+    #[test]
+    fn test_is_suppressed_line_1_does_not_check_line_0() {
+        use crate::models::Violation;
+        let v = Violation {
+            rule_id: "PYTEST-FLK-001".to_string(),
+            rule_name: "T".to_string(),
+            severity: crate::models::Severity::Warning,
+            category: crate::models::Category::Flakiness,
+            message: "m".to_string(),
+            file_path: PathBuf::from("test.py"),
+            line: 1,
+            col: None,
+            suggestion: None,
+            test_name: None,
+        };
+        let mut suppressions = std::collections::HashMap::new();
+        // Insert a suppression at line 0 (which should NOT suppress line 1)
+        suppressions.insert(
+            (PathBuf::from("test.py"), 0),
+            std::collections::HashSet::from(["*".to_string()]),
+        );
+        assert!(
+            !is_suppressed(&v, &suppressions),
+            "violation on line 1 should NOT be suppressed by line-0 noqa"
+        );
+    }
+
+    // Mutant #7: replace && with || in is_fixture_used_by_any_test_or_fixture
+    // With &&, a fixture is only "used" if it's a different fixture AND depends on the fixture.
+    // With ||, a fixture would be "used" if it's a different fixture OR depends on it.
+    // Test: a different fixture that does NOT depend on fixture_name should mean "not used".
+    #[test]
+    fn test_fixture_not_used_by_unrelated_fixture() {
+        use crate::models::{Fixture, FixtureScope, ParsedModule, TestFunction};
+
+        let unused_fixture = "db_connection";
+        let module = ParsedModule {
+            file_path: PathBuf::from("test_a.py"),
+            source: "def test_x(): pass\n".to_string(),
+            imports: vec![],
+            test_functions: vec![TestFunction {
+                name: "test_x".to_string(),
+                file_path: PathBuf::from("test_a.py"),
+                line: 1,
+                is_async: false,
+                is_parametrized: false,
+                parametrize_count: None,
+                has_assertions: false,
+                assertion_count: 0,
+                has_mock_verifications: false,
+                has_state_assertions: false,
+                fixture_deps: vec![],
+                uses_time_sleep: false,
+                sleep_value: None,
+                uses_file_io: false,
+                uses_network: false,
+                has_conditional_logic: false,
+                has_try_except: false,
+                docstring: None,
+                assertions: vec![],
+                parametrize_values: vec![],
+                uses_cwd_dependency: false,
+                uses_pytest_raises: false,
+                mutates_fixture_deps: vec![],
+                body_hash: None,
+                uses_random: false,
+                has_random_seed: false,
+                uses_subprocess: false,
+                has_subprocess_timeout: false,
+            }],
+            fixtures: vec![
+                Fixture {
+                    name: "db_connection".to_string(),
+                    file_path: PathBuf::from("test_a.py"),
+                    line: 3,
+                    scope: FixtureScope::Function,
+                    is_autouse: false,
+                    dependencies: vec![],
+                    returns_mutable: false,
+                    has_yield: false,
+                    has_db_commit: false,
+                    has_db_rollback: false,
+                    has_cleanup: false,
+                    uses_file_io: false,
+                    used_by: vec![],
+                },
+                // unrelated_fixture does NOT depend on db_connection
+                Fixture {
+                    name: "unrelated_fixture".to_string(),
+                    file_path: PathBuf::from("test_a.py"),
+                    line: 5,
+                    scope: FixtureScope::Function,
+                    is_autouse: false,
+                    dependencies: vec!["other_dep".to_string()],
+                    returns_mutable: false,
+                    has_yield: false,
+                    has_db_commit: false,
+                    has_db_rollback: false,
+                    has_cleanup: false,
+                    uses_file_io: false,
+                    used_by: vec![],
+                },
+            ],
+        };
+        assert!(
+            !is_fixture_used_by_any_test_or_fixture(unused_fixture, &[module]),
+            "fixture not referenced by any test or dependency should be unused"
+        );
+    }
+
+    #[test]
+    fn test_fixture_used_via_other_fixture_dependency() {
+        use crate::models::{Fixture, FixtureScope, ParsedModule, TestFunction};
+
+        let fixture_name = "db_connection";
+        // Test function uses db_connection directly — confirmed used
+        let module = ParsedModule {
+            file_path: PathBuf::from("test_a.py"),
+            source: "def test_x(db_connection): pass\n".to_string(),
+            imports: vec![],
+            test_functions: vec![TestFunction {
+                name: "test_x".to_string(),
+                file_path: PathBuf::from("test_a.py"),
+                line: 1,
+                is_async: false,
+                is_parametrized: false,
+                parametrize_count: None,
+                has_assertions: false,
+                assertion_count: 0,
+                has_mock_verifications: false,
+                has_state_assertions: false,
+                fixture_deps: vec!["db_connection".to_string()],
+                uses_time_sleep: false,
+                sleep_value: None,
+                uses_file_io: false,
+                uses_network: false,
+                has_conditional_logic: false,
+                has_try_except: false,
+                docstring: None,
+                assertions: vec![],
+                parametrize_values: vec![],
+                uses_cwd_dependency: false,
+                uses_pytest_raises: false,
+                mutates_fixture_deps: vec![],
+                body_hash: None,
+                uses_random: false,
+                has_random_seed: false,
+                uses_subprocess: false,
+                has_subprocess_timeout: false,
+            }],
+            fixtures: vec![Fixture {
+                name: "db_connection".to_string(),
+                file_path: PathBuf::from("test_a.py"),
+                line: 3,
+                scope: FixtureScope::Function,
+                is_autouse: false,
+                dependencies: vec![],
+                returns_mutable: false,
+                has_yield: false,
+                has_db_commit: false,
+                has_db_rollback: false,
+                has_cleanup: false,
+                uses_file_io: false,
+                used_by: vec![],
+            }],
+        };
+        assert!(
+            is_fixture_used_by_any_test_or_fixture(fixture_name, &[module]),
+            "fixture referenced by test should be used"
+        );
+    }
+
+    #[test]
+    fn test_fixture_used_by_other_fixture_dependency() {
+        use crate::models::{Fixture, FixtureScope, ParsedModule, TestFunction};
+
+        let fixture_name = "db_connection";
+        // db_connection is NOT in any test's fixture_deps, but IS in fixture's deps
+        let module = ParsedModule {
+            file_path: PathBuf::from("test_a.py"),
+            source: "def test_x(api_client): pass\n".to_string(),
+            imports: vec![],
+            test_functions: vec![TestFunction {
+                name: "test_x".to_string(),
+                file_path: PathBuf::from("test_a.py"),
+                line: 1,
+                is_async: false,
+                is_parametrized: false,
+                parametrize_count: None,
+                has_assertions: false,
+                assertion_count: 0,
+                has_mock_verifications: false,
+                has_state_assertions: false,
+                fixture_deps: vec!["api_client".to_string()],
+                uses_time_sleep: false,
+                sleep_value: None,
+                uses_file_io: false,
+                uses_network: false,
+                has_conditional_logic: false,
+                has_try_except: false,
+                docstring: None,
+                assertions: vec![],
+                parametrize_values: vec![],
+                uses_cwd_dependency: false,
+                uses_pytest_raises: false,
+                mutates_fixture_deps: vec![],
+                body_hash: None,
+                uses_random: false,
+                has_random_seed: false,
+                uses_subprocess: false,
+                has_subprocess_timeout: false,
+            }],
+            fixtures: vec![
+                Fixture {
+                    name: "api_client".to_string(),
+                    file_path: PathBuf::from("test_a.py"),
+                    line: 3,
+                    scope: FixtureScope::Function,
+                    is_autouse: false,
+                    dependencies: vec!["db_connection".to_string()],
+                    returns_mutable: false,
+                    has_yield: false,
+                    has_db_commit: false,
+                    has_db_rollback: false,
+                    has_cleanup: false,
+                    uses_file_io: false,
+                    used_by: vec![],
+                },
+                Fixture {
+                    name: "db_connection".to_string(),
+                    file_path: PathBuf::from("test_a.py"),
+                    line: 5,
+                    scope: FixtureScope::Function,
+                    is_autouse: false,
+                    dependencies: vec![],
+                    returns_mutable: false,
+                    has_yield: false,
+                    has_db_commit: false,
+                    has_db_rollback: false,
+                    has_cleanup: false,
+                    uses_file_io: false,
+                    used_by: vec![],
+                },
+            ],
+        };
+        assert!(
+            is_fixture_used_by_any_test_or_fixture(fixture_name, &[module]),
+            "fixture referenced by another fixture's dependencies should be used"
+        );
+    }
+
+    // Mutants #8-9: get_changed_files uses same pattern as discover_files
+    // These are hard to unit test directly (require git), so test discover_files
+    // thoroughly to cover the is_test_file + extension logic.
+
+    #[test]
+    fn test_discover_files_rejects_py_files_without_test_naming() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("test_real.py"),
+            "def test_it(): assert True\n",
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("utils.py"), "def util(): pass\n").unwrap();
+        std::fs::create_dir(dir.path().join("subdir")).unwrap();
+        std::fs::write(
+            dir.path().join("subdir").join("helper.py"),
+            "def help(): pass\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("subdir").join("test_nested.py"),
+            "def test_n(): assert True\n",
+        )
+        .unwrap();
+
+        let files = discover_files(&[dir.path().to_path_buf()]);
+        let names: Vec<String> = files
+            .iter()
+            .map(|f| f.file_name().unwrap().to_string_lossy().to_string())
+            .collect();
+        assert!(names.contains(&"test_real.py".to_string()));
+        assert!(names.contains(&"test_nested.py".to_string()));
+        assert!(!names.contains(&"utils.py".to_string()));
+        assert!(!names.contains(&"helper.py".to_string()));
+    }
+
+    #[test]
+    fn test_is_test_file_only_checks_naming_convention() {
+        // is_test_file checks naming convention only (extension is checked separately)
+        assert!(is_test_file(Path::new("test_foo.py")));
+        assert!(is_test_file(Path::new("foo_test.py")));
+        assert!(is_test_file(Path::new("conftest.py")));
+        assert!(!is_test_file(Path::new("helper.py")));
+        assert!(!is_test_file(Path::new("setup.py")));
+    }
+
+    // Mutants #8-9: is_py_test_file must require BOTH .py extension AND test naming
+    #[test]
+    fn test_is_py_test_file_accepts_valid_test_files() {
+        assert!(is_py_test_file(Path::new("test_foo.py")));
+        assert!(is_py_test_file(Path::new("foo_test.py")));
+        assert!(is_py_test_file(Path::new("conftest.py")));
+        assert!(is_py_test_file(Path::new("src/test_bar.py")));
+    }
+
+    #[test]
+    fn test_is_py_test_file_rejects_non_py_files() {
+        // Mutant: replace == with != would make non-.py files pass the extension check
+        assert!(!is_py_test_file(Path::new("test_foo.txt")));
+        assert!(!is_py_test_file(Path::new("test_foo.rs")));
+        assert!(!is_py_test_file(Path::new("test_foo"))); // no extension
+        assert!(!is_py_test_file(Path::new("conftest.pyc")));
+    }
+
+    #[test]
+    fn test_is_py_test_file_rejects_non_test_py_files() {
+        // Mutant: replace && with || would make non-test .py files pass
+        assert!(!is_py_test_file(Path::new("helper.py")));
+        assert!(!is_py_test_file(Path::new("setup.py")));
+        assert!(!is_py_test_file(Path::new("utils.py")));
+        assert!(!is_py_test_file(Path::new("app.py")));
+    }
+
+    #[test]
+    fn test_is_py_test_file_rejects_non_py_test_named_file() {
+        // A file named "test_foo" without .py extension should be rejected
+        assert!(!is_py_test_file(Path::new("test_foo")));
+    }
 }

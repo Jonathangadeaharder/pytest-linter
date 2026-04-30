@@ -1,3 +1,6 @@
+[workspace]
+members = [".", "lsp-server"]
+
 [package]
 name = "pytest-linter"
 version = "0.1.0"
@@ -13,6 +16,7 @@ anyhow = "1"
 colored = "2"
 walkdir = "2"
 toml = "0.8"
+glob = "0.3"
 rayon = "1"
 url = "2"
 

@@ -1,0 +1,29 @@
+name: Feature Request
+description: Suggest a new rule or improvement
+labels: ["enhancement", "triage"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What problem would this feature solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposed-solution
+    attributes:
+      label: Proposed solution
+      description: Describe the rule or feature you'd like
+    validations:
+      required: true
+  - type: textarea
+    id: examples
+    attributes:
+      label: Examples
+      description: Code examples showing what should be flagged (or not flagged)
+      render: python
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional context
+      description: Any other information

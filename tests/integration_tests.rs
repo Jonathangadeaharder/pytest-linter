@@ -3609,7 +3609,9 @@ def test_magic():
     let violations = lint_single_file(&path);
     let v = find_violation(&violations, "PYTEST-MNT-002");
     assert!(v.is_some(), "Expected PYTEST-MNT-002 violation");
-    assert!(v.unwrap().message.contains("Magic assertion"));
+    let v = v.unwrap();
+    assert_eq!(v.rule_name, "MagicAssertRule");
+    assert!(v.message.contains("Magic assertion"));
 }
 
 #[test]
@@ -3642,7 +3644,9 @@ def test_subopt():
     let violations = lint_single_file(&path);
     let v = find_violation(&violations, "PYTEST-MNT-003");
     assert!(v.is_some(), "Expected PYTEST-MNT-003 violation");
-    assert!(v.unwrap().message.contains("Suboptimal"));
+    let v = v.unwrap();
+    assert_eq!(v.rule_name, "SuboptimalAssertRule");
+    assert!(v.message.contains("Suboptimal"));
 }
 
 #[test]
@@ -4670,4 +4674,1547 @@ def test_no_assert():  # noqa:   PYTEST-MNT-004  ,  PYTEST-BDD-001
     let v2 = find_violation(&violations, "PYTEST-BDD-001");
     assert!(v1.is_none());
     assert!(v2.is_none());
+}
+
+#[test]
+fn test_noqa_suppresses_flk001_in_integration() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_noqa_flk001.py",
+        r#"
+import time
+
+def test_sleep():  # noqa: PYTEST-FLK-001
+    time.sleep(1)
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let flk001 = find_violation(&violations, "PYTEST-FLK-001");
+    assert!(flk001.is_none(), "noqa should suppress PYTEST-FLK-001");
+}
+
+#[test]
+fn test_noqa_bare_suppresses_all() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_noqa_bare.py",
+        r#"
+import os
+
+def test_cwd():  # noqa
+    cwd = os.getcwd()
+    assert cwd
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let flk004 = find_violation(&violations, "PYTEST-FLK-004");
+    assert!(
+        flk004.is_none(),
+        "bare # noqa should suppress all violations on that line"
+    );
+}
+
+#[test]
+fn test_lint_source_with_context_finds_fixture_issues() {
+    let dir = tempfile::tempdir().unwrap();
+    let ctx_path = write_temp_file(
+        dir.path(),
+        "conftest.py",
+        r#"
+import pytest
+
+@pytest.fixture
+def shared_dep():
+    return 42
+"#,
+    );
+    let mut parser = PythonParser::new().unwrap();
+    let ctx_module = parser.parse_file(&ctx_path).unwrap();
+
+    let engine = LintEngine::new(Config::default()).unwrap();
+    let source = r#"
+import pytest
+
+@pytest.fixture(scope="session")
+def session_val():
+    return 1
+"#;
+    let violations = engine
+        .lint_source_with_context(source, Path::new("test_ctx.py"), &[ctx_module])
+        .unwrap();
+    let broad = find_violation(&violations, "PYTEST-FIX-009");
+    assert!(
+        broad.is_some(),
+        "Should detect session-scoped fixture without expensive setup"
+    );
+}
+
+#[test]
+fn test_fixture_mutation_rule_name_fix007() {
+    let dir = tempfile::tempdir().unwrap();
+    let conftest = write_temp_file(
+        dir.path(),
+        "conftest.py",
+        r#"
+import pytest
+
+@pytest.fixture
+def items():
+    return [1, 2, 3]
+"#,
+    );
+    let test_path = write_temp_file(
+        dir.path(),
+        "test_mutate_fix007.py",
+        r#"
+def test_mutates(items):
+    items.append(4)
+    assert len(items) == 4
+"#,
+    );
+    let engine = LintEngine::new(Config::default()).unwrap();
+    let violations = engine.lint_paths(&[conftest, test_path]).unwrap();
+    let v = find_violation(&violations, "PYTEST-FIX-007");
+    assert!(v.is_some(), "Expected PYTEST-FIX-007 violation");
+    assert_eq!(v.unwrap().rule_name, "FixtureMutationRule");
+}
+
+#[test]
+fn test_overly_broad_scope_rule_name_fix009() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "conftest.py",
+        r#"
+import pytest
+
+@pytest.fixture(scope="session")
+def simple_value():
+    return 42
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FIX-009");
+    assert!(v.is_some(), "Expected PYTEST-FIX-009 violation");
+    assert_eq!(v.unwrap().rule_name, "FixtureOverlyBroadScopeRule");
+}
+
+#[test]
+fn test_module_scope_fixture_mutated_triggers_fix010() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_fix010.py",
+        r#"
+import pytest
+
+@pytest.fixture(scope="module")
+def mod_list():
+    return []
+
+def test_mutates(mod_list):
+    mod_list.append(1)
+    assert len(mod_list) == 1
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FIX-010");
+    assert!(v.is_some(), "Expected PYTEST-FIX-010 violation");
+    let v = v.unwrap();
+    assert_eq!(v.rule_id, "PYTEST-FIX-010");
+    assert_eq!(v.rule_name, "ModuleScopeFixtureMutatedRule");
+    assert!(v.message.contains("module/session-scoped fixture"));
+}
+
+#[test]
+fn test_function_scope_same_name_no_fix010() {
+    let dir = tempfile::tempdir().unwrap();
+    let conftest = write_temp_file(
+        dir.path(),
+        "conftest.py",
+        r#"
+import pytest
+
+@pytest.fixture(scope="module")
+def mod_list():
+    return []
+"#,
+    );
+    let test_path = write_temp_file(
+        dir.path(),
+        "test_same_name_fix010.py",
+        r#"
+import pytest
+
+@pytest.fixture
+def mod_list():
+    return []
+
+def test_mutates(mod_list):
+    mod_list.append(1)
+    assert len(mod_list) == 1
+"#,
+    );
+    let engine = LintEngine::new(Config::default()).unwrap();
+    let violations = engine.lint_paths(&[conftest, test_path]).unwrap();
+    let v = find_violation(&violations, "PYTEST-FIX-010");
+    assert!(
+        v.is_none(),
+        "Function-scoped same-file fixture should not trigger FIX-010"
+    );
+}
+
+#[test]
+fn test_yield_without_try_finally_triggers_fix011() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_fix011.py",
+        r#"
+import pytest
+
+@pytest.fixture
+def bare_yield():
+    yield 42
+
+def test_uses(bare_yield):
+    assert bare_yield == 42
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FIX-011");
+    assert!(v.is_some(), "Expected PYTEST-FIX-011 violation");
+    let v = v.unwrap();
+    assert_eq!(v.rule_id, "PYTEST-FIX-011");
+    assert_eq!(v.rule_name, "YieldWithoutTryFinallyRule");
+    assert!(v.message.contains("yield without try/finally"));
+}
+
+#[test]
+fn test_fixture_shadows_builtin_list_triggers_fix012() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_fix012.py",
+        r#"
+import pytest
+
+@pytest.fixture
+def list():
+    return [1, 2, 3]
+
+def test_uses(list):
+    assert len(list) == 3
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FIX-012");
+    assert!(v.is_some(), "Expected PYTEST-FIX-012 violation");
+    let v = v.unwrap();
+    assert_eq!(v.rule_id, "PYTEST-FIX-012");
+    assert_eq!(v.rule_name, "FixtureNameShadowsBuiltinRule");
+    assert!(v.message.contains("shadows a Python builtin"));
+}
+
+#[test]
+fn test_no_contract_hint_rule_name_dbc001() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_dbc001_name.py",
+        r#"
+def test_happy():
+    result = 1 + 2
+    assert result == 3
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-DBC-001");
+    assert!(v.is_some(), "Expected PYTEST-DBC-001 violation");
+    assert_eq!(v.unwrap().rule_name, "NoContractHintRule");
+}
+
+#[test]
+fn test_cascade_depth_deep_triggers_fix013() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_fix013_deep.py",
+        r#"
+import pytest
+
+@pytest.fixture
+def dep_a():
+    return 1
+
+@pytest.fixture
+def dep_b(dep_a):
+    return dep_a + 1
+
+@pytest.fixture
+def dep_c(dep_b):
+    return dep_b + 1
+
+@pytest.fixture(autouse=True)
+def deep_auto(dep_c):
+    return dep_c + 1
+
+def test_something():
+    assert True
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FIX-013");
+    assert!(v.is_some(), "Expected PYTEST-FIX-013 for cascade depth > 3");
+    let v = v.unwrap();
+    assert_eq!(v.rule_id, "PYTEST-FIX-013");
+    assert_eq!(v.rule_name, "AutouseCascadeDepthRule");
+    assert!(
+        v.message.contains("cascade depth of 4"),
+        "Expected depth 4, got: {}",
+        v.message
+    );
+}
+
+#[test]
+fn test_cascade_depth_three_no_trigger_fix013() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_fix013_ok.py",
+        r#"
+import pytest
+
+@pytest.fixture
+def dep_a():
+    return 1
+
+@pytest.fixture
+def dep_b(dep_a):
+    return dep_a + 1
+
+@pytest.fixture(autouse=True)
+def three_auto(dep_b):
+    return dep_b + 1
+
+def test_something():
+    assert True
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FIX-013");
+    assert!(v.is_none(), "Cascade depth of 3 should not trigger FIX-013");
+}
+
+#[test]
+fn test_cascade_depth_cross_file_fix013() {
+    let dir = tempfile::tempdir().unwrap();
+    let conftest = write_temp_file(
+        dir.path(),
+        "conftest.py",
+        r#"
+import pytest
+
+@pytest.fixture
+def shared():
+    return 1
+"#,
+    );
+    let test_path = write_temp_file(
+        dir.path(),
+        "test_cross_cascade.py",
+        r#"
+import pytest
+
+@pytest.fixture
+def dep_a():
+    return 1
+
+@pytest.fixture
+def dep_b(dep_a):
+    return dep_b + 1
+
+@pytest.fixture
+def dep_c(dep_b):
+    return dep_b + 1
+
+@pytest.fixture
+def shared(dep_c):
+    return dep_c + 1
+
+@pytest.fixture(autouse=True)
+def auto_cross(shared):
+    return shared + 1
+
+def test_something():
+    assert True
+"#,
+    );
+    let engine = LintEngine::new(Config::default()).unwrap();
+    let violations = engine.lint_paths(&[conftest, test_path]).unwrap();
+    let v = find_violation(&violations, "PYTEST-FIX-013");
+    assert!(
+        v.is_some(),
+        "Expected PYTEST-FIX-013 for cross-file cascade"
+    );
+    let v = v.unwrap();
+    assert_eq!(v.rule_name, "AutouseCascadeDepthRule");
+    assert!(
+        v.message.contains("cascade depth of 5"),
+        "Expected depth 5, got: {}",
+        v.message
+    );
+}
+
+#[test]
+fn test_socket_without_timeout_triggers_flk010() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_socket_flk010.py",
+        r#"
+import socket
+
+def test_socket_no_timeout():
+    s = socket.socket()
+    assert s
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FLK-010");
+    assert!(v.is_some(), "Expected PYTEST-FLK-010 violation");
+    let v = v.unwrap();
+    assert_eq!(v.rule_name, "SocketWithoutBindTimeoutRule");
+    assert_eq!(v.severity, Severity::Warning);
+    assert_eq!(v.category, Category::Flakiness);
+    assert!(v.message.contains("socket"));
+    assert!(v.message.contains("timeout"));
+    assert!(v.suggestion.is_some());
+    assert_eq!(v.test_name.as_ref().unwrap(), "test_socket_no_timeout");
+}
+
+#[test]
+fn test_no_socket_import_does_not_trigger_flk010() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_no_socket.py",
+        r#"
+def test_no_network():
+    assert 1 + 1 == 2
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FLK-010");
+    assert!(
+        v.is_none(),
+        "Should not trigger FLK-010 without socket import"
+    );
+}
+
+#[test]
+fn test_socket_import_no_network_usage_does_not_trigger_flk010() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_socket_not_used.py",
+        r#"
+import socket
+
+def test_no_socket_usage():
+    assert True
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FLK-010");
+    assert!(
+        v.is_none(),
+        "Should not trigger FLK-010 when socket imported but not used in test"
+    );
+}
+
+#[test]
+fn test_datetime_in_assertion_triggers_flk011() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_datetime_flk011.py",
+        r#"
+import datetime
+
+def test_datetime_now():
+    now = datetime.now()
+    assert now is not None
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FLK-011");
+    assert!(v.is_some(), "Expected PYTEST-FLK-011 violation");
+    let v = v.unwrap();
+    assert_eq!(v.rule_name, "DatetimeInAssertionRule");
+    assert_eq!(v.severity, Severity::Warning);
+    assert_eq!(v.category, Category::Flakiness);
+    assert!(v.message.contains("datetime"));
+    assert!(v.message.contains("assertion"));
+    assert!(v.suggestion.is_some());
+    assert_eq!(v.test_name.as_ref().unwrap(), "test_datetime_now");
+}
+
+#[test]
+fn test_no_datetime_import_does_not_trigger_flk011() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_no_datetime.py",
+        r#"
+def test_no_datetime():
+    assert True
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FLK-011");
+    assert!(
+        v.is_none(),
+        "Should not trigger FLK-011 without datetime import"
+    );
+}
+
+#[test]
+fn test_datetime_no_assertions_does_not_trigger_flk011() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_datetime_no_assert.py",
+        r#"
+import datetime
+
+def test_datetime_no_assert():
+    now = datetime.now()
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FLK-011");
+    assert!(v.is_none(), "Should not trigger FLK-011 when no assertions");
+}
+
+#[test]
+fn test_xdist_shared_state_verifies_details_xdist001() {
+    let dir = tempfile::tempdir().unwrap();
+    let conftest = write_temp_file(
+        dir.path(),
+        "conftest.py",
+        r#"
+import pytest
+
+@pytest.fixture(scope="session")
+def shared_list():
+    return []
+"#,
+    );
+    let test_path = write_temp_file(
+        dir.path(),
+        "test_xdist_details.py",
+        r#"
+def test_mutates_shared(shared_list):
+    shared_list.append(1)
+    assert len(shared_list) == 1
+"#,
+    );
+    let engine = LintEngine::new(Config::default()).unwrap();
+    let violations = engine.lint_paths(&[conftest, test_path]).unwrap();
+    let v = find_violation(&violations, "PYTEST-XDIST-001").unwrap();
+    assert_eq!(v.rule_name, "XdistSharedStateRule");
+    assert_eq!(v.severity, Severity::Warning);
+    assert_eq!(v.category, Category::Flakiness);
+    assert!(v.message.contains("shared_list"));
+    assert!(v.message.contains("mutable state"));
+    assert!(v.message.contains("xdist"));
+    assert!(v.suggestion.is_some());
+    assert_eq!(v.test_name.as_ref().unwrap(), "test_mutates_shared");
+}
+
+#[test]
+fn test_random_line_number_exact_flk008() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_random_line.py",
+        r#"
+import random
+
+def test_random_line():
+    val = random.randint(1, 100)
+    assert val > 0
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FLK-008").unwrap();
+    assert_eq!(
+        v.line, 5,
+        "Violation should be at random call line 5, not function def line 4"
+    );
+}
+
+#[test]
+fn test_subprocess_line_number_exact_flk009() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_subprocess_line.py",
+        r#"
+import subprocess
+
+def test_subprocess_line():
+    result = subprocess.run(["echo", "hello"])
+    assert result.returncode == 0
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FLK-009").unwrap();
+    assert_eq!(
+        v.line, 5,
+        "Violation should be at subprocess call line 5, not function def line 4"
+    );
+}
+
+#[test]
+fn test_random_randrange_triggers_flk008() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_randrange.py",
+        r#"
+import random
+
+def test_randrange():
+    val = random.randrange(10)
+    assert val >= 0
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FLK-008");
+    assert!(v.is_some(), "Expected PYTEST-FLK-008 for random.randrange");
+}
+
+#[test]
+fn test_random_gauss_triggers_flk008() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_gauss.py",
+        r#"
+import random
+
+def test_gauss():
+    val = random.gauss(0, 1)
+    assert isinstance(val, float)
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FLK-008");
+    assert!(v.is_some(), "Expected PYTEST-FLK-008 for random.gauss");
+}
+
+#[test]
+fn test_random_normalvariate_triggers_flk008() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_normalvariate.py",
+        r#"
+import random
+
+def test_normalvariate():
+    val = random.normalvariate(0, 1)
+    assert isinstance(val, float)
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FLK-008");
+    assert!(
+        v.is_some(),
+        "Expected PYTEST-FLK-008 for random.normalvariate"
+    );
+}
+
+#[test]
+fn test_multiple_random_calls_multiple_violations_flk008() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_multi_random.py",
+        r#"
+import random
+
+def test_multi_random():
+    a = random.randint(1, 10)
+    b = random.choice([1, 2, 3])
+    assert a != b
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let flk008: Vec<_> = violations
+        .iter()
+        .filter(|v| v.rule_id == "PYTEST-FLK-008")
+        .collect();
+    assert_eq!(
+        flk008.len(),
+        2,
+        "Expected 2 FLK-008 violations for 2 random calls"
+    );
+    let lines: Vec<usize> = flk008.iter().map(|v| v.line).collect();
+    assert!(lines.contains(&5), "First random call at line 5");
+    assert!(lines.contains(&6), "Second random call at line 6");
+}
+
+#[test]
+fn test_multiple_subprocess_calls_multiple_violations_flk009() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_multi_subprocess.py",
+        r#"
+import subprocess
+
+def test_multi_subprocess():
+    subprocess.run(["echo", "a"])
+    subprocess.call(["echo", "b"])
+    assert True
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let flk009: Vec<_> = violations
+        .iter()
+        .filter(|v| v.rule_id == "PYTEST-FLK-009")
+        .collect();
+    assert_eq!(
+        flk009.len(),
+        2,
+        "Expected 2 FLK-009 violations for 2 subprocess calls"
+    );
+    let lines: Vec<usize> = flk009.iter().map(|v| v.line).collect();
+    assert!(lines.contains(&5), "First subprocess call at line 5");
+    assert!(lines.contains(&6), "Second subprocess call at line 6");
+}
+
+#[test]
+fn test_random_parametrized_line_number_flk008() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_param_random_line.py",
+        r#"
+import random
+import pytest
+
+@pytest.mark.parametrize("x", [1, 2])
+def test_param_random(x):
+    val = random.randint(1, 100)
+    assert val > x
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FLK-008").unwrap();
+    assert_eq!(
+        v.line, 7,
+        "Violation should be at random call line 7 for parametrized test"
+    );
+}
+
+#[test]
+fn test_subprocess_parametrized_line_number_flk009() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_param_subprocess_line.py",
+        r#"
+import subprocess
+import pytest
+
+@pytest.mark.parametrize("cmd", [["echo", "a"], ["echo", "b"]])
+def test_param_subprocess(cmd):
+    subprocess.run(cmd)
+    assert True
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FLK-009").unwrap();
+    assert_eq!(
+        v.line, 7,
+        "Violation should be at subprocess call line 7 for parametrized test"
+    );
+}
+
+#[test]
+fn test_socket_multiple_tests_multiple_violations_flk010() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_multi_socket.py",
+        r#"
+import socket
+
+def test_socket_a():
+    s = socket.socket()
+    assert s
+
+def test_socket_b():
+    s2 = socket.socket()
+    assert s2
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let flk010: Vec<_> = violations
+        .iter()
+        .filter(|v| v.rule_id == "PYTEST-FLK-010")
+        .collect();
+    assert_eq!(
+        flk010.len(),
+        2,
+        "Expected 2 FLK-010 violations for 2 tests with network"
+    );
+}
+
+#[test]
+fn test_datetime_multiple_tests_multiple_violations_flk011() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_multi_datetime.py",
+        r#"
+import datetime
+
+def test_dt_a():
+    now = datetime.now()
+    assert now
+
+def test_dt_b():
+    later = datetime.now()
+    assert later
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let flk011: Vec<_> = violations
+        .iter()
+        .filter(|v| v.rule_id == "PYTEST-FLK-011")
+        .collect();
+    assert_eq!(
+        flk011.len(),
+        2,
+        "Expected 2 FLK-011 violations for 2 tests with datetime+assertions"
+    );
+}
+
+#[test]
+fn test_xdist_no_mutable_fixtures_no_trigger_xdist001() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_no_xdist.py",
+        r#"
+def test_plain():
+    assert True
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-XDIST-001");
+    assert!(
+        v.is_none(),
+        "Should not trigger XDIST-001 without mutable fixtures"
+    );
+}
+
+#[test]
+fn test_xdist_fixture_io_non_session_does_not_trigger_xdist002() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_xdist_module.py",
+        r#"
+import pytest
+
+@pytest.fixture(scope="module")
+def module_data():
+    f = open("data.txt")
+    data = f.read()
+    f.close()
+    return data
+
+def test_data(module_data):
+    assert module_data
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-XDIST-002");
+    assert!(
+        v.is_none(),
+        "Should not trigger XDIST-002 for module-scoped fixture"
+    );
+}
+
+#[test]
+fn test_xdist_fixture_io_no_file_io_does_not_trigger_xdist002() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_xdist_no_io.py",
+        r#"
+import pytest
+
+@pytest.fixture(scope="session")
+def session_val():
+    return 42
+
+def test_val(session_val):
+    assert session_val == 42
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-XDIST-002");
+    assert!(
+        v.is_none(),
+        "Should not trigger XDIST-002 for session fixture without file I/O"
+    );
+}
+
+#[test]
+fn test_random_all_functions_line_numbers_flk008() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_all_random.py",
+        r#"
+import random
+
+def test_all_random():
+    a = random.random()
+    b = random.randint(1, 10)
+    c = random.choice([1])
+    d = random.shuffle([1, 2])
+    e = random.uniform(0, 1)
+    f = random.randrange(5)
+    g = random.sample([1, 2], 1)
+    h = random.gauss(0, 1)
+    i = random.normalvariate(0, 1)
+    assert True
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let flk008: Vec<_> = violations
+        .iter()
+        .filter(|v| v.rule_id == "PYTEST-FLK-008")
+        .collect();
+    assert_eq!(
+        flk008.len(),
+        9,
+        "Expected 9 FLK-008 violations for all random functions"
+    );
+    let lines: Vec<usize> = flk008.iter().map(|v| v.line).collect();
+    for expected_line in 5..=13 {
+        assert!(
+            lines.contains(&expected_line),
+            "Expected violation at line {expected_line}, got lines {lines:?}"
+        );
+    }
+}
+
+#[test]
+fn test_mystery_guest_with_tmpdir_does_not_trigger_flk005() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_mystery_tmpdir.py",
+        r#"
+def test_reads_file(tmpdir):
+    f = open(str(tmpdir / "data.txt"))
+    content = f.read()
+    f.close()
+    assert content
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FLK-005");
+    assert!(
+        v.is_none(),
+        "Should not trigger FLK-005 when tmpdir is used"
+    );
+}
+
+#[test]
+fn test_mystery_guest_with_tmp_path_factory_does_not_trigger_flk005() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_mystery_factory.py",
+        r#"
+def test_reads_file(tmp_path_factory):
+    f = open(str(tmp_path_factory / "data.txt"))
+    content = f.read()
+    f.close()
+    assert content
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FLK-005");
+    assert!(
+        v.is_none(),
+        "Should not trigger FLK-005 when tmp_path_factory is used"
+    );
+}
+
+#[test]
+fn test_random_betavariate_line_number_flk008() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_beta.py",
+        r#"
+import random
+
+def test_beta():
+    val = random.betavariate(1, 2)
+    assert val > 0
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FLK-008").unwrap();
+    assert_eq!(
+        v.line, 5,
+        "Violation should be at betavariate call line 5, not function def line 4"
+    );
+}
+
+#[test]
+fn test_subprocess_getoutput_line_number_flk009() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_getoutput.py",
+        r#"
+import subprocess
+
+def test_getoutput():
+    output = subprocess.getoutput("echo hi")
+    assert output
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FLK-009").unwrap();
+    assert_eq!(
+        v.line, 5,
+        "Violation should be at getoutput call line 5, not function def line 4"
+    );
+}
+
+#[test]
+fn test_random_multi_function_line_number_flk008() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_multi_fn_random.py",
+        r#"
+import random
+
+def test_first():
+    assert True
+
+def test_second():
+    val = random.randint(1, 100)
+    assert val > 0
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FLK-008").unwrap();
+    assert_eq!(
+        v.line, 8,
+        "Violation should be at random call line 8 in second function, not line 7"
+    );
+}
+
+#[test]
+fn test_subprocess_mixed_calls_count_flk009() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_mixed_subprocess.py",
+        r#"
+import subprocess
+
+def test_mixed():
+    print("starting")
+    result = subprocess.run(["echo", "hi"])
+    assert result.returncode == 0
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let flk009: Vec<_> = violations
+        .iter()
+        .filter(|v| v.rule_id == "PYTEST-FLK-009")
+        .collect();
+    assert_eq!(
+        flk009.len(),
+        1,
+        "Expected exactly 1 FLK-009 violation for subprocess call only, got {}",
+        flk009.len()
+    );
+}
+
+#[test]
+fn test_file_io_with_tmpdir_does_not_trigger_flk005() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_flk005_tmpdir.py",
+        r#"
+def test_reads_file(tmpdir):
+    f = open(str(tmpdir / "data.txt"))
+    content = f.read()
+    f.close()
+    assert content
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FLK-002");
+    assert!(
+        v.is_none(),
+        "Should not trigger FLK-002 when tmpdir is used"
+    );
+}
+
+#[test]
+fn test_long_test_name_triggers_mnt017() {
+    let dir = tempfile::tempdir().unwrap();
+    let long_name = format!("test_{}", "a".repeat(76));
+    assert!(
+        long_name.chars().count() > 80,
+        "name is {} chars",
+        long_name.chars().count()
+    );
+    let content = format!(
+        r#"
+def {}():
+    assert True
+"#,
+        long_name
+    );
+    let path = write_temp_file(dir.path(), "test_long_name.py", &content);
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-MNT-017");
+    assert!(v.is_some(), "Expected PYTEST-MNT-017 for long test name");
+    let v = v.unwrap();
+    assert_eq!(v.rule_id, "PYTEST-MNT-017");
+    assert_eq!(v.rule_name, "TestNameLengthRule");
+    assert_eq!(v.severity, Severity::Info);
+    assert!(v.message.contains("exceeds 80 characters"));
+    assert!(v.suggestion.is_some());
+}
+
+#[test]
+fn test_short_test_name_no_mnt017() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_short_name.py",
+        r#"
+def test_short():
+    assert True
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-MNT-017");
+    assert!(
+        v.is_none(),
+        "Should not trigger MNT-017 for short test name"
+    );
+}
+
+#[test]
+fn test_name_exactly_80_chars_no_mnt017() {
+    let dir = tempfile::tempdir().unwrap();
+    let name_80 = format!("test_{}", "b".repeat(75));
+    assert_eq!(name_80.chars().count(), 80);
+    let content = format!(
+        r#"
+def {}():
+    assert True
+"#,
+        name_80
+    );
+    let path = write_temp_file(dir.path(), "test_80_chars.py", &content);
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-MNT-017");
+    assert!(v.is_none(), "Exactly 80 chars should not trigger MNT-017");
+}
+
+#[test]
+fn test_name_81_chars_triggers_mnt017() {
+    let dir = tempfile::tempdir().unwrap();
+    let name_81 = format!("test_{}", "c".repeat(76));
+    assert_eq!(name_81.chars().count(), 81);
+    let content = format!(
+        r#"
+def {}():
+    assert True
+"#,
+        name_81
+    );
+    let path = write_temp_file(dir.path(), "test_81_chars.py", &content);
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-MNT-017");
+    assert!(v.is_some(), "81 chars should trigger MNT-017");
+}
+
+#[test]
+fn test_duplicate_test_bodies_triggers_mnt015() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_dup_bodies.py",
+        r#"
+def test_first():
+    x = 1
+    assert x == 1
+
+def test_second():
+    x = 1
+    assert x == 1
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-MNT-015");
+    assert!(
+        v.is_some(),
+        "Expected PYTEST-MNT-015 for duplicate test bodies"
+    );
+    let v = v.unwrap();
+    assert_eq!(v.rule_id, "PYTEST-MNT-015");
+    assert_eq!(v.rule_name, "DuplicateTestBodiesRule");
+    assert_eq!(v.severity, Severity::Info);
+    assert!(v.message.contains("identical body"));
+    assert!(v.message.contains("test_first"));
+    assert!(v.message.contains("test_second"));
+}
+
+#[test]
+fn test_duplicate_test_bodies_different_no_mnt015() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_diff_bodies.py",
+        r#"
+def test_alpha():
+    x = 1
+    assert x == 1
+
+def test_beta():
+    y = 2
+    assert y == 2
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-MNT-015");
+    assert!(v.is_none(), "Different bodies should not trigger MNT-015");
+}
+
+#[test]
+fn test_sleep_above_threshold_triggers_mnt016() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_sleep_high.py",
+        r#"
+import time
+
+def test_slow():
+    time.sleep(2)
+    assert True
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-MNT-016");
+    assert!(v.is_some(), "Expected PYTEST-MNT-016 for sleep > 0.1s");
+    let v = v.unwrap();
+    assert_eq!(v.rule_id, "PYTEST-MNT-016");
+    assert_eq!(v.rule_name, "SleepWithValueRule");
+    assert_eq!(v.severity, Severity::Warning);
+    assert!(v.message.contains("> 0.1s"));
+}
+
+#[test]
+fn test_sleep_exactly_0_1_no_mnt016() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_sleep_0_1.py",
+        r#"
+import time
+
+def test_exact():
+    time.sleep(0.1)
+    assert True
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-MNT-016");
+    assert!(
+        v.is_none(),
+        "sleep == 0.1 should not trigger MNT-016 (threshold is > not >=)"
+    );
+}
+
+#[test]
+fn test_conditional_logic_in_parametrized_triggers_mnt014() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_cond_param.py",
+        r#"
+import pytest
+
+@pytest.mark.parametrize("val", [1, 2])
+def test_branching(val):
+    x = val
+    if x > 0:
+        assert x > 0
+    else:
+        assert x <= 0
+"#,
+    );
+    let module = parse_file(&path);
+    assert_eq!(module.test_functions.len(), 1);
+    assert!(
+        module.test_functions[0].is_parametrized,
+        "should be parametrized"
+    );
+    assert!(
+        module.test_functions[0].has_conditional_logic,
+        "should have conditional logic"
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-MNT-014");
+    assert!(
+        v.is_some(),
+        "Expected PYTEST-MNT-014 for parametrized test with conditional"
+    );
+    let v = v.unwrap();
+    assert_eq!(v.rule_id, "PYTEST-MNT-014");
+    assert_eq!(v.rule_name, "ConditionalLogicInTestRule");
+    assert!(v.message.contains("conditional logic"));
+    assert!(v.suggestion.is_some());
+}
+
+#[test]
+fn test_conditional_logic_non_parametrized_no_mnt014() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_cond_no_param.py",
+        r#"
+def test_plain_condition():
+    if True:
+        assert True
+    else:
+        assert False
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-MNT-014");
+    assert!(
+        v.is_none(),
+        "Non-parametrized test with condition should not trigger MNT-014"
+    );
+}
+
+#[test]
+fn test_parametrize_duplicate_values_triggers_param002() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_dup_param.py",
+        r#"
+import pytest
+
+@pytest.mark.parametrize("val", [1, 2, 1])
+def test_dup(val):
+    assert val > 0
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-PARAM-002");
+    assert!(
+        v.is_some(),
+        "Expected PYTEST-PARAM-002 for duplicate parametrize values"
+    );
+    let v = v.unwrap();
+    assert_eq!(v.rule_id, "PYTEST-PARAM-002");
+    assert_eq!(v.rule_name, "ParametrizeDuplicateRule");
+    assert!(v.message.contains("duplicate values"));
+}
+
+#[test]
+fn test_parametrize_explosion_exactly_21_triggers_param003() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut content = r#"
+import pytest
+
+@pytest.mark.parametrize("val", ["#
+        .to_string();
+    for i in 0..21 {
+        if i > 0 {
+            content.push_str(", ");
+        }
+        content.push_str(&i.to_string());
+    }
+    content.push_str(
+        r#"])
+def test_many(val):
+    assert val >= 0
+"#,
+    );
+    let path = write_temp_file(dir.path(), "test_21_cases.py", &content);
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-PARAM-003");
+    assert!(
+        v.is_some(),
+        "Expected PYTEST-PARAM-003 for exactly 21 cases (> 20)"
+    );
+    let v = v.unwrap();
+    assert_eq!(v.rule_name, "ParametrizeExplosionRule");
+}
+
+#[test]
+fn test_parametrize_explosion_exactly_20_no_trigger() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut content = r#"
+import pytest
+
+@pytest.mark.parametrize("val", ["#
+        .to_string();
+    for i in 0..20 {
+        if i > 0 {
+            content.push_str(", ");
+        }
+        content.push_str(&i.to_string());
+    }
+    content.push_str(
+        r#"])
+def test_exactly_20(val):
+    assert val >= 0
+"#,
+    );
+    let path = write_temp_file(dir.path(), "test_20_cases.py", &content);
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-PARAM-003");
+    assert!(v.is_none(), "Exactly 20 cases should not trigger PARAM-003");
+}
+
+#[test]
+fn test_subprocess_run_triggers_flk009() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_subprocess_timeout_lint.py",
+        r#"
+import subprocess
+
+def test_subprocess_call():
+    result = subprocess.run(["echo", "hello"], timeout=30)
+    assert result.returncode == 0
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FLK-009");
+    assert!(
+        v.is_some(),
+        "subprocess.run should trigger FLK-009 (keyword timeout detection not supported)"
+    );
+}
+
+#[test]
+fn test_random_module_call_triggers_flk008_via_object() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_random_obj.py",
+        r#"
+import random
+
+def test_random_custom():
+    x = random.custom_func()
+    assert x
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FLK-008");
+    assert!(
+        v.is_some(),
+        "random.<anything> should trigger FLK-008 via object check"
+    );
+}
+
+#[test]
+fn test_subprocess_module_call_triggers_flk009_via_object() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_subprocess_obj.py",
+        r#"
+import subprocess
+
+def test_subprocess_custom():
+    result = subprocess.custom_func()
+    assert result
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FLK-009");
+    assert!(
+        v.is_some(),
+        "subprocess.<anything> should trigger FLK-009 via object check"
+    );
+}
+
+#[test]
+fn test_decorated_test_still_detected() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_decorated.py",
+        r#"
+import time
+import pytest
+
+@pytest.mark.slow
+def test_decorated():
+    time.sleep(1)
+    assert True
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FLK-001");
+    assert!(
+        v.is_some(),
+        "time.sleep in decorated test should trigger FLK-001"
+    );
+}
+
+#[test]
+fn test_random_randint_triggers_flk008() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_randint.py",
+        r#"
+import random
+
+def test_rand():
+    x = random.randint(1, 10)
+    assert x > 0
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FLK-008");
+    assert!(v.is_some(), "random.randint should trigger FLK-008");
 }

@@ -1,106 +1,73 @@
 # pytest-linter
 
-Fast, tree-sitter-powered test smell detector for **pytest** (Python).
+Fast, tree-sitter-powered test smell detector for **pytest** (Python), written in Rust.
 
-## Quick Start
+## Why pytest-linter?
+
+- **Fast**: Tree-sitter AST parsing — no regex, no Python runtime overhead
+- **Comprehensive**: 39 rules covering flakiness, maintenance, and fixture smells
+- **Zero config**: Works out of the box with sensible defaults
+- **Multiple formats**: Terminal (colored), JSON, and SARIF output
+- **CI-friendly**: Exit code 1 on Error-severity violations
+
+## Quick Example
 
 ```bash
-# Install
-cargo install --path .
-
-# Run
-pytest-linter /path/to/tests
-
-# JSON output
-pytest-linter --format json /path/to/tests
-
-# Incremental mode (only changed files)
-pytest-linter --incremental /path/to/tests
-
-# Baseline mode
-pytest-linter --baseline violations.json /path/to/tests
-pytest-linter --check-baseline violations.json /path/to/tests
+pytest-linter tests/
 ```
 
-## Rules
+Output:
 
-pytest-linter includes **30 rules** across three categories:
+```text
+tests/test_api.py:12 PYTEST-FLK-001 [warning] Test 'test_timeout' uses time.sleep which causes flaky tests
+  → Use pytest's time mocking or wait for a condition instead
 
-### Flakiness (9 rules)
-| Rule | Description | Severity |
-|------|-------------|----------|
-| PYTEST-FLK-001 | time.sleep in test | Warning |
-| PYTEST-FLK-002 | File I/O without tmp_path | Warning |
-| PYTEST-FLK-003 | Network library imports | Warning |
-| PYTEST-FLK-004 | CWD dependency | Warning |
-| PYTEST-FLK-005 | Mystery guest (file I/O) | Warning |
-| PYTEST-FLK-008 | Random without fixed seed | Warning |
-| PYTEST-FLK-009 | Subprocess without timeout | Warning |
-| PYTEST-XDIST-001 | Session fixture mutable state | Warning |
-| PYTEST-XDIST-002 | Session fixture file I/O | Warning |
-
-### Maintenance (12 rules)
-| Rule | Description | Severity |
-|------|-------------|----------|
-| PYTEST-MNT-001 | Conditional logic in test | Warning |
-| PYTEST-MNT-002 | Magic assertion | Warning |
-| PYTEST-MNT-003 | Suboptimal assertion | Info |
-| PYTEST-MNT-004 | No assertions | Error |
-| PYTEST-MNT-005 | Mock-only verification | Warning |
-| PYTEST-MNT-006 | Assertion roulette | Warning |
-| PYTEST-MNT-007 | Raw exception handling | Warning |
-| PYTEST-BDD-001 | Missing BDD scenario | Info |
-| PYTEST-PBT-001 | Property test hint | Info |
-| PYTEST-PARAM-001 | Empty parametrize | Warning |
-| PYTEST-PARAM-002 | Duplicate parametrize | Warning |
-| PYTEST-PARAM-003 | Parametrize explosion | Warning |
-
-### Fixtures (9 rules)
-| Rule | Description | Severity |
-|------|-------------|----------|
-| PYTEST-FIX-001 | Autouse fixture | Warning |
-| PYTEST-FIX-003 | Invalid scope | Error |
-| PYTEST-FIX-004 | Shadowed fixture | Warning |
-| PYTEST-FIX-005 | Unused fixture | Warning |
-| PYTEST-FIX-006 | Stateful session fixture | Warning |
-| PYTEST-FIX-007 | Fixture mutation | Warning |
-| PYTEST-FIX-008 | DB commit without cleanup | Warning |
-| PYTEST-FIX-009 | Overly broad scope | Warning |
-| PYTEST-DBC-001 | Happy-path only hint | Info |
-
-## Configuration
-
-Add to your `pyproject.toml`:
-
-```toml
-[tool.pytest-linter]
-format = "json"
-
-[tool.pytest-linter.rules.PYTEST-FLK-001]
-enabled = false
-
-[tool.pytest-linter.rules.PYTEST-MNT-004]
-severity = "warning"
+tests/test_models.py:45 PYTEST-MNT-004 [error] Test 'test_create' has no assertions
+  → Add assertions to verify expected behavior
 ```
 
-## Suppression
+## Features
 
-Suppress specific rules inline:
+| Feature | Description |
+|---------|-------------|
+| AST-based analysis | Tree-sitter parsing, no false positives from string matching |
+| 39 rules | Flakiness, maintenance, fixture, BDD, PBT, and parametrize checks |
+| JSON output | `--format json` for integration with other tools |
+| SARIF output | `--format sarif` for GitHub Code Scanning |
+| Configurable | `pyproject.toml` configuration support |
+| Pre-commit hook | Ready-to-use pre-commit integration |
 
-```python
-def test_something():  # noqa: PYTEST-FLK-001
-    time.sleep(1)
-    assert True
-```
+## Installation
 
-Suppress all rules:
-```python
-def test_something():  # noqa
-    pass
-```
+<!-- markdownlint-disable MD046 -->
 
-## Output Formats
+=== "Prebuilt Binary (Recommended)"
 
-- `terminal` - Colored terminal output (default)
-- `json` - JSON array of violations
-- `sarif` - SARIF 2.1.0 format for GitHub code scanning
+    Download from [GitHub Releases](https://github.com/Jonathangadeaharder/pytest-linter/releases).
+
+=== "pip"
+
+    ```bash
+    pip install pytest-linter
+    ```
+
+=== "Homebrew"
+
+    ```bash
+    brew install Jonathangadeaharder/tap/pytest-linter
+    ```
+
+=== "Cargo"
+
+    ```bash
+    cargo install pytest-linter
+    ```
+
+<!-- markdownlint-enable MD046 -->
+
+## Next Steps
+
+- [Getting Started Guide](getting-started.md)
+- [All Rules](rules/index.md)
+- [Comparison with other tools](comparison.md)
+- [Migration Guide](migration.md)

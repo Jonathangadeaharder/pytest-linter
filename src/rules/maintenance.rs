@@ -1,5 +1,7 @@
 //! Rules that detect test maintenance issues: magic asserts, missing assertions, conditional logic.
 
+use std::collections::HashMap;
+
 use crate::engine::make_violation;
 use crate::models::{Category, ParsedModule, Severity, Violation};
 use crate::rules::{Rule, RuleContext};
@@ -565,6 +567,208 @@ impl Rule for ParametrizeExplosionRule {
                         Some(test.name.clone()),
                     ));
                 }
+            }
+        }
+        violations
+    }
+}
+
+pub struct ConditionalLogicInTestRule;
+
+impl Rule for ConditionalLogicInTestRule {
+    fn id(&self) -> &'static str {
+        "PYTEST-MNT-014"
+    }
+    fn name(&self) -> &'static str {
+        "ConditionalLogicInTestRule"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Warning
+    }
+    fn category(&self) -> Category {
+        Category::Maintenance
+    }
+    fn check(
+        &self,
+        module: &ParsedModule,
+        _all_modules: &[ParsedModule],
+        _ctx: &RuleContext,
+    ) -> Vec<Violation> {
+        let mut violations = Vec::new();
+        for test in &module.test_functions {
+            if test.is_parametrized && test.has_conditional_logic {
+                violations.push(make_violation(
+                    self.id(),
+                    self.name(),
+                    self.severity(),
+                    self.category(),
+                    format!(
+                        "Parametrized test '{}' contains conditional logic (if/elif/else/for/while) — use separate parameter cases instead of branching",
+                        test.name
+                    ),
+                    module.file_path.clone(),
+                    test.line,
+                    Some("Split into separate tests or use pytest.mark.parametrize".to_string()),
+                    Some(test.name.clone()),
+                ));
+            }
+        }
+        violations
+    }
+}
+
+pub struct DuplicateTestBodiesRule;
+
+impl Rule for DuplicateTestBodiesRule {
+    fn id(&self) -> &'static str {
+        "PYTEST-MNT-015"
+    }
+    fn name(&self) -> &'static str {
+        "DuplicateTestBodiesRule"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Info
+    }
+    fn category(&self) -> Category {
+        Category::Maintenance
+    }
+    fn check(
+        &self,
+        module: &ParsedModule,
+        _all_modules: &[ParsedModule],
+        _ctx: &RuleContext,
+    ) -> Vec<Violation> {
+        let mut violations = Vec::new();
+        let tests = &module.test_functions;
+
+        let mut hash_map: HashMap<u64, Vec<usize>> = HashMap::new();
+        for (i, test) in tests.iter().enumerate() {
+            if let Some(hash) = test.body_hash {
+                hash_map.entry(hash).or_default().push(i);
+            }
+        }
+
+        let mut reported = std::collections::HashSet::new();
+        for indices in hash_map.values() {
+            if indices.len() < 2 {
+                continue;
+            }
+            let names: Vec<&str> = indices.iter().map(|i| tests[*i].name.as_str()).collect();
+            for &i in indices {
+                let test = &tests[i];
+                if reported.contains(&test.name) {
+                    continue;
+                }
+                let peers: Vec<&str> = names.iter().filter(|n| **n != test.name).copied().collect();
+                violations.push(make_violation(
+                    self.id(),
+                    self.name(),
+                    self.severity(),
+                    self.category(),
+                    format!(
+                        "Test '{}' has identical body to {} other test(s): {} (shared body hash)",
+                        test.name,
+                        peers.len(),
+                        peers.join(", ")
+                    ),
+                    module.file_path.clone(),
+                    test.line,
+                    Some("Consolidate or differentiate the test bodies".to_string()),
+                    Some(test.name.clone()),
+                ));
+                reported.insert(test.name.clone());
+            }
+        }
+        violations
+    }
+}
+
+pub struct SleepWithValueRule;
+
+impl Rule for SleepWithValueRule {
+    fn id(&self) -> &'static str {
+        "PYTEST-MNT-016"
+    }
+    fn name(&self) -> &'static str {
+        "SleepWithValueRule"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Warning
+    }
+    fn category(&self) -> Category {
+        Category::Maintenance
+    }
+    fn check(
+        &self,
+        module: &ParsedModule,
+        _all_modules: &[ParsedModule],
+        _ctx: &RuleContext,
+    ) -> Vec<Violation> {
+        let mut violations = Vec::new();
+        for test in &module.test_functions {
+            if test.uses_time_sleep {
+                let exceeds_threshold = test.sleep_value.is_some_and(|v| v > 0.1);
+                if exceeds_threshold {
+                    violations.push(make_violation(
+                        self.id(),
+                        self.name(),
+                        self.severity(),
+                        self.category(),
+                        format!(
+                            "Test '{}' uses time.sleep() with value > 0.1s — slows test suite",
+                            test.name
+                        ),
+                        module.file_path.clone(),
+                        test.line,
+                        Some("Use mocking, async waits, or reduce sleep duration".to_string()),
+                        Some(test.name.clone()),
+                    ));
+                }
+            }
+        }
+        violations
+    }
+}
+
+pub struct TestNameLengthRule;
+
+impl Rule for TestNameLengthRule {
+    fn id(&self) -> &'static str {
+        "PYTEST-MNT-017"
+    }
+    fn name(&self) -> &'static str {
+        "TestNameLengthRule"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Info
+    }
+    fn category(&self) -> Category {
+        Category::Maintenance
+    }
+    fn check(
+        &self,
+        module: &ParsedModule,
+        _all_modules: &[ParsedModule],
+        _ctx: &RuleContext,
+    ) -> Vec<Violation> {
+        let mut violations = Vec::new();
+        for test in &module.test_functions {
+            if test.name.chars().count() > 80 {
+                violations.push(make_violation(
+                    self.id(),
+                    self.name(),
+                    self.severity(),
+                    self.category(),
+                    format!(
+                        "Test name '{}' exceeds 80 characters ({} chars)",
+                        test.name,
+                        test.name.chars().count()
+                    ),
+                    module.file_path.clone(),
+                    test.line,
+                    Some("Shorten the test name to be more concise".to_string()),
+                    Some(test.name.clone()),
+                ));
             }
         }
         violations

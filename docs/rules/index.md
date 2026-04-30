@@ -1,38 +1,51 @@
-# Rule Reference
+# Rules Overview
 
-## Flakiness Rules
+pytest-linter includes **28 rules** across three categories.
 
-Rules that detect patterns likely to cause flaky, non-deterministic tests.
+## Flakiness
 
-- [PYTEST-FLK-001](FLK-001.md) - time.sleep in test
-- [PYTEST-FLK-002](FLK-002.md) - File I/O without tmp_path
-- [PYTEST-FLK-003](FLK-003.md) - Network library imports
-- [PYTEST-FLK-004](FLK-004.md) - CWD dependency
-- [PYTEST-FLK-005](FLK-005.md) - Mystery guest
-- [PYTEST-FLK-008](FLK-008.md) - Random without fixed seed
-- [PYTEST-FLK-009](FLK-009.md) - Subprocess without timeout
+| Rule ID | Name | Severity |
+|---------|------|----------|
+| [PYTEST-FLK-001](./PYTEST-FLK-001.md) | TimeSleepRule | Warning |
+| [PYTEST-FLK-002](./PYTEST-FLK-002.md) | FileIoRule | Warning |
+| [PYTEST-FLK-003](./PYTEST-FLK-003.md) | NetworkImportRule | Warning |
+| [PYTEST-FLK-004](./PYTEST-FLK-004.md) | CwdDependencyRule | Warning |
+| [PYTEST-FLK-005](./PYTEST-FLK-005.md) | MysteryGuestRule | Warning |
+| [PYTEST-XDIST-001](./PYTEST-XDIST-001.md) | XdistSharedStateRule | Warning |
+| [PYTEST-XDIST-002](./PYTEST-XDIST-002.md) | XdistFixtureIoRule | Warning |
 
-## Maintenance Rules
+## Maintenance
 
-Rules that detect code smells affecting test maintainability.
+| Rule ID | Name | Severity |
+|---------|------|----------|
+| [PYTEST-MNT-001](./PYTEST-MNT-001.md) | TestLogicRule | Warning |
+| [PYTEST-MNT-002](./PYTEST-MNT-002.md) | MagicAssertRule | Warning |
+| [PYTEST-MNT-004](./PYTEST-MNT-004.md) | NoAssertionRule | Error |
+| [PYTEST-MNT-005](./PYTEST-MNT-005.md) | MockOnlyVerifyRule | Warning |
+| [PYTEST-MNT-006](./PYTEST-MNT-006.md) | AssertionRouletteRule | Warning |
+| [PYTEST-MNT-007](./PYTEST-MNT-007.md) | RawExceptionHandlingRule | Warning |
+| [PYTEST-PARAM-001](./PYTEST-PARAM-001.md) | ParametrizeEmptyRule | Warning |
+| [PYTEST-PARAM-002](./PYTEST-PARAM-002.md) | ParametrizeDuplicateRule | Warning |
+| [PYTEST-PARAM-003](./PYTEST-PARAM-003.md) | ParametrizeExplosionRule | Warning |
 
-- [PYTEST-MNT-001](MNT-001.md) - Conditional logic in test
-- [PYTEST-MNT-002](MNT-002.md) - Magic assertion
-- [PYTEST-MNT-003](MNT-003.md) - Suboptimal assertion
-- [PYTEST-MNT-004](MNT-004.md) - No assertions
-- [PYTEST-MNT-005](MNT-005.md) - Mock-only verification
-- [PYTEST-MNT-006](MNT-006.md) - Assertion roulette
-- [PYTEST-MNT-007](MNT-007.md) - Raw exception handling
+## Fixture
 
-## Fixture Rules
+| Rule ID | Name | Severity |
+|---------|------|----------|
+| [PYTEST-FIX-001](./PYTEST-FIX-001.md) | AutouseFixtureRule | Warning |
+| [PYTEST-FIX-003](./PYTEST-FIX-003.md) | InvalidScopeRule | Error |
+| [PYTEST-FIX-004](./PYTEST-FIX-004.md) | ShadowedFixtureRule | Warning |
+| [PYTEST-FIX-005](./PYTEST-FIX-005.md) | UnusedFixtureRule | Warning |
+| [PYTEST-FIX-006](./PYTEST-FIX-006.md) | StatefulSessionFixtureRule | Warning |
+| [PYTEST-FIX-007](./PYTEST-FIX-007.md) | FixtureMutationRule | Warning |
+| [PYTEST-FIX-008](./PYTEST-FIX-008.md) | FixtureDbCommitNoCleanupRule | Warning |
+| [PYTEST-FIX-009](./PYTEST-FIX-009.md) | FixtureOverlyBroadScopeRule | Warning |
 
-Rules that detect problematic fixture patterns.
+## Enhancement
 
-- [PYTEST-FIX-001](FIX-001.md) - Autouse fixture
-- [PYTEST-FIX-003](FIX-003.md) - Invalid scope
-- [PYTEST-FIX-004](FIX-004.md) - Shadowed fixture
-- [PYTEST-FIX-005](FIX-005.md) - Unused fixture
-- [PYTEST-FIX-006](FIX-006.md) - Stateful session fixture
-- [PYTEST-FIX-007](FIX-007.md) - Fixture mutation
-- [PYTEST-FIX-008](FIX-008.md) - DB commit without cleanup
-- [PYTEST-FIX-009](FIX-009.md) - Overly broad scope
+| Rule ID | Name | Severity |
+|---------|------|----------|
+| [PYTEST-MNT-003](./PYTEST-MNT-003.md) | SuboptimalAssertRule | Info |
+| [PYTEST-BDD-001](./PYTEST-BDD-001.md) | BddMissingScenarioRule | Info |
+| [PYTEST-PBT-001](./PYTEST-PBT-001.md) | PropertyTestHintRule | Info |
+| [PYTEST-DBC-001](./PYTEST-DBC-001.md) | NoContractHintRule | Info |

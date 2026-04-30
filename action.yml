@@ -1,0 +1,43 @@
+name: "pytest-linter"
+description: "Detect test smells in Python/pytest test files"
+branding:
+  icon: "check-circle"
+  color: "green"
+inputs:
+  path:
+    description: "File or directory to lint"
+    required: false
+    default: "."
+  format:
+    description: "Output format (terminal, json, sarif)"
+    required: false
+    default: "terminal"
+  output:
+    description: "Output file path"
+    required: false
+    default: ""
+  no-color:
+    description: "Disable colored output"
+    required: false
+    default: "false"
+runs:
+  using: "composite"
+  steps:
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+    - name: Cache Rust artifacts
+      uses: Swatinem/rust-cache@v2
+    - name: Build pytest-linter
+      shell: bash
+      run: cargo build --release --manifest-path "${{ github.action_path }}/../Cargo.toml"
+    - name: Run pytest-linter
+      shell: bash
+      run: |
+        ARGS="--format ${{ inputs.format }}"
+        if [ -n "${{ inputs.output }}" ]; then
+          ARGS="$ARGS --output ${{ inputs.output }}"
+        fi
+        if [ "${{ inputs.no-color }}" == "true" ]; then
+          ARGS="$ARGS --no-color"
+        fi
+        ${{ github.action_path }}/../target/release/pytest-linter $ARGS ${{ inputs.path }}

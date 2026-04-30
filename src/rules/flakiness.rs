@@ -295,6 +295,107 @@ impl Rule for XdistSharedStateRule {
     }
 }
 
+pub struct SocketWithoutBindTimeoutRule;
+
+impl Rule for SocketWithoutBindTimeoutRule {
+    fn id(&self) -> &'static str {
+        "PYTEST-FLK-010"
+    }
+    fn name(&self) -> &'static str {
+        "SocketWithoutBindTimeoutRule"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Warning
+    }
+    fn category(&self) -> Category {
+        Category::Flakiness
+    }
+    fn check(
+        &self,
+        module: &ParsedModule,
+        _all_modules: &[ParsedModule],
+        _ctx: &RuleContext,
+    ) -> Vec<Violation> {
+        let mut violations = Vec::new();
+        let has_socket_import = module.imports.iter().any(|imp| imp.contains("socket"));
+        if !has_socket_import {
+            return violations;
+        }
+        for test in &module.test_functions {
+            if test.uses_network {
+                violations.push(make_violation(
+                    self.id(),
+                    self.name(),
+                    self.severity(),
+                    self.category(),
+                    format!(
+                        "Test '{}' uses socket without proper bind and timeout setup",
+                        test.name
+                    ),
+                    module.file_path.clone(),
+                    test.line,
+                    Some(
+                        "Add socket.settimeout() or use timeout parameter in socket.socket()"
+                            .to_string(),
+                    ),
+                    Some(test.name.clone()),
+                ));
+            }
+        }
+        violations
+    }
+}
+
+pub struct DatetimeInAssertionRule;
+
+impl Rule for DatetimeInAssertionRule {
+    fn id(&self) -> &'static str {
+        "PYTEST-FLK-011"
+    }
+    fn name(&self) -> &'static str {
+        "DatetimeInAssertionRule"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Warning
+    }
+    fn category(&self) -> Category {
+        Category::Flakiness
+    }
+    fn check(
+        &self,
+        module: &ParsedModule,
+        _all_modules: &[ParsedModule],
+        _ctx: &RuleContext,
+    ) -> Vec<Violation> {
+        let mut violations = Vec::new();
+        let has_datetime_import = module.imports.iter().any(|imp| imp.contains("datetime"));
+        if !has_datetime_import {
+            return violations;
+        }
+        for test in &module.test_functions {
+            if test.has_assertions {
+                violations.push(make_violation(
+                    self.id(),
+                    self.name(),
+                    self.severity(),
+                    self.category(),
+                    format!(
+                        "Test '{}' uses datetime functions near assertions — tests relying on real time are flaky",
+                        test.name
+                    ),
+                    module.file_path.clone(),
+                    test.line,
+                    Some(
+                        "Use freezegun or time mocking to make assertions deterministic".to_string(),
+                    ),
+                    Some(test.name.clone()),
+                ));
+            }
+        }
+        violations
+    }
+}
+
 /// Rule that detects session-scoped fixtures performing file I/O.
 pub struct XdistFixtureIoRule;
 
@@ -493,7 +594,7 @@ fn collect_random_calls(node: Node, source: &[u8], lines: &mut Vec<usize>) {
                 "random.gauss",
                 "random.normalvariate",
             ];
-            let is_random = random_fns.iter().any(|rf| text == *rf)
+            let is_random = random_fns.contains(&text)
                 || (f.kind() == "attribute"
                     && f.child_by_field_name("object")
                         .is_some_and(|o| o.utf8_text(source).unwrap_or_default() == "random"));
@@ -558,7 +659,7 @@ fn collect_subprocess_calls_without_timeout(node: Node, source: &[u8], lines: &m
                 "subprocess.check_output",
                 "subprocess.check_call",
             ];
-            let is_subprocess = subprocess_fns.iter().any(|sf| text == *sf)
+            let is_subprocess = subprocess_fns.contains(&text)
                 || (f.kind() == "attribute"
                     && f.child_by_field_name("object")
                         .is_some_and(|o| o.utf8_text(source).unwrap_or_default() == "subprocess"));
@@ -592,35 +693,253 @@ fn call_has_timeout(call_node: Node, source: &[u8]) -> bool {
 
 /// Find the function_definition node at the given 1-indexed line number.
 fn find_function_node<'tree>(root: &'tree Node<'tree>, target_line: usize) -> Option<Node<'tree>> {
-    let mut to_visit = vec![*root];
-    while let Some(node) = to_visit.pop() {
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            match child.kind() {
-                "function_definition" => {
-                    if child.start_position().row + 1 == target_line {
-                        return Some(child);
-                    }
-                }
-                "decorated_definition" => {
-                    let mut inner = child.walk();
-                    for c in child.children(&mut inner) {
-                        if c.kind() == "function_definition"
-                            && c.start_position().row + 1 == target_line
-                        {
-                            return Some(c);
-                        }
-                        if c.kind() == "class_definition" {
-                            to_visit.push(c);
-                        }
-                    }
-                }
-                "class_definition" => {
-                    to_visit.push(child);
-                }
-                _ => {}
+    let mut cursor = root.walk();
+    for child in root.children(&mut cursor) {
+        match child.kind() {
+            "function_definition" if child.start_position().row + 1 == target_line => {
+                return Some(child);
             }
+            "decorated_definition" => {
+                let mut inner = child.walk();
+                for c in child.children(&mut inner) {
+                    if c.kind() == "function_definition"
+                        && c.start_position().row + 1 == target_line
+                    {
+                        return Some(c);
+                    }
+                }
+            }
+            _ => {}
         }
     }
     None
+}
+
+#[cfg(test)]
+mod debug_timeout {
+    use super::*;
+
+    #[test]
+    fn debug_call_has_timeout() {
+        let source = r#"import subprocess
+
+def test_subprocess_safe():
+    result = subprocess.run(["echo", "hello"], timeout=30)
+    assert result.returncode == 0
+"#;
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&tree_sitter_python::LANGUAGE.into())
+            .unwrap();
+        let tree = parser.parse(source, None).unwrap();
+        let root = tree.root_node();
+        let bytes = source.as_bytes();
+
+        // Find the call node
+        fn find_call<'a>(
+            node: &tree_sitter::Node<'a>,
+            source: &'a [u8],
+        ) -> Option<tree_sitter::Node<'a>> {
+            if node.kind() == "call" {
+                if let Some(f) = node.child_by_field_name("function") {
+                    let text = f.utf8_text(source).unwrap_or_default();
+                    if text.contains("subprocess") {
+                        return Some(*node);
+                    }
+                }
+            }
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                if let Some(c) = find_call(&child, source) {
+                    return Some(c);
+                }
+            }
+            None
+        }
+
+        let call = find_call(&root, bytes).expect("should find subprocess call");
+        let func_text = call
+            .child_by_field_name("function")
+            .unwrap()
+            .utf8_text(bytes)
+            .unwrap();
+        eprintln!("call kind: {}", call.kind());
+        eprintln!("call text: {}", call.utf8_text(bytes).unwrap());
+        eprintln!("function: {}", func_text);
+
+        let args = call.child_by_field_name("arguments");
+        eprintln!("arguments node: {:?}", args.as_ref().map(|a| a.kind()));
+
+        if let Some(a) = args {
+            let mut cursor = a.walk();
+            for (i, child) in a.children(&mut cursor).enumerate() {
+                eprintln!(
+                    "  arg[{}] kind={} text={}",
+                    i,
+                    child.kind(),
+                    child.utf8_text(bytes).unwrap()
+                );
+                if child.kind() == "keyword_argument" {
+                    let name_field = child.child_by_field_name("name");
+                    eprintln!(
+                        "    name_field: {:?}",
+                        name_field.as_ref().map(|n| n.utf8_text(bytes).unwrap())
+                    );
+                }
+            }
+        }
+
+        let result = call_has_timeout(call, bytes);
+        eprintln!("call_has_timeout result: {}", result);
+        assert!(
+            result,
+            "call_has_timeout should return true for subprocess.run with timeout=30"
+        );
+    }
+}
+
+#[cfg(test)]
+mod mutation_tests {
+    use super::*;
+
+    fn parse(source: &str) -> tree_sitter::Tree {
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&tree_sitter_python::LANGUAGE.into())
+            .unwrap();
+        parser.parse(source, None).unwrap()
+    }
+
+    #[test]
+    fn test_find_function_node_finds_top_level() {
+        let source = "def test_foo():\n    pass\n";
+        let tree = parse(source);
+        let root = tree.root_node();
+        let node = find_function_node(&root, 1);
+        assert!(node.is_some(), "should find function on line 1");
+    }
+
+    #[test]
+    fn test_find_function_node_finds_in_decorated() {
+        let source = "@decorator\ndef test_bar():\n    pass\n";
+        let tree = parse(source);
+        let root = tree.root_node();
+        let node = find_function_node(&root, 2);
+        assert!(
+            node.is_some(),
+            "should find function on line 2 inside decorated_definition"
+        );
+        assert_eq!(node.unwrap().kind(), "function_definition");
+    }
+
+    #[test]
+    fn test_find_function_node_wrong_line_returns_none() {
+        let source = "def test_foo():\n    pass\n";
+        let tree = parse(source);
+        let root = tree.root_node();
+        let node = find_function_node(&root, 99);
+        assert!(node.is_none(), "should not find function on wrong line");
+    }
+
+    #[test]
+    fn test_collect_random_calls_detects_random_module_attribute() {
+        let source = "import random\nx = random.unknown_func()\n";
+        let tree = parse(source);
+        let mut lines = Vec::new();
+        collect_random_calls(tree.root_node(), source.as_bytes(), &mut lines);
+        assert!(
+            !lines.is_empty(),
+            "random.<unknown> should be detected via attribute object check"
+        );
+    }
+
+    #[test]
+    fn test_collect_random_calls_detects_randint() {
+        let source = "import random\nx = random.randint(1, 10)\n";
+        let tree = parse(source);
+        let mut lines = Vec::new();
+        collect_random_calls(tree.root_node(), source.as_bytes(), &mut lines);
+        assert!(!lines.is_empty(), "random.randint should be detected");
+    }
+
+    #[test]
+    fn test_collect_random_calls_no_false_positive() {
+        let source = "x = deterministic_func()\n";
+        let tree = parse(source);
+        let mut lines = Vec::new();
+        collect_random_calls(tree.root_node(), source.as_bytes(), &mut lines);
+        assert!(lines.is_empty(), "non-random call should not be detected");
+    }
+
+    #[test]
+    fn test_collect_random_calls_no_false_positive_attribute() {
+        let source = "x = math.sqrt(4)\n";
+        let tree = parse(source);
+        let mut lines = Vec::new();
+        collect_random_calls(tree.root_node(), source.as_bytes(), &mut lines);
+        assert!(
+            lines.is_empty(),
+            "math.sqrt (non-random attribute) should not be detected as random"
+        );
+    }
+
+    #[test]
+    fn test_collect_subprocess_calls_detects_subprocess_attribute() {
+        let source = "import subprocess\nr = subprocess.unknown_func()\n";
+        let tree = parse(source);
+        let mut lines = Vec::new();
+        collect_subprocess_calls_without_timeout(tree.root_node(), source.as_bytes(), &mut lines);
+        assert!(
+            !lines.is_empty(),
+            "subprocess.<unknown> should be detected via attribute object check"
+        );
+    }
+
+    #[test]
+    fn test_collect_subprocess_calls_detects_run() {
+        let source = "import subprocess\nr = subprocess.run(['ls'])\n";
+        let tree = parse(source);
+        let mut lines = Vec::new();
+        collect_subprocess_calls_without_timeout(tree.root_node(), source.as_bytes(), &mut lines);
+        assert!(
+            !lines.is_empty(),
+            "subprocess.run without timeout should be detected"
+        );
+    }
+
+    #[test]
+    fn test_find_function_node_decorated_wrong_line_returns_none() {
+        let source = "@decorator\ndef test_bar():\n    pass\n";
+        let tree = parse(source);
+        let root = tree.root_node();
+        let node = find_function_node(&root, 99);
+        assert!(
+            node.is_none(),
+            "decorated function on wrong line should return None"
+        );
+    }
+
+    #[test]
+    fn test_collect_subprocess_calls_no_false_positive_attribute() {
+        let source = "r = os.system('ls')\n";
+        let tree = parse(source);
+        let mut lines = Vec::new();
+        collect_subprocess_calls_without_timeout(tree.root_node(), source.as_bytes(), &mut lines);
+        assert!(
+            lines.is_empty(),
+            "os.system (non-subprocess attribute) should not be detected as subprocess"
+        );
+    }
+
+    #[test]
+    fn test_collect_subprocess_calls_no_false_positive() {
+        let source = "x = other_func()\n";
+        let tree = parse(source);
+        let mut lines = Vec::new();
+        collect_subprocess_calls_without_timeout(tree.root_node(), source.as_bytes(), &mut lines);
+        assert!(
+            lines.is_empty(),
+            "non-subprocess call should not be detected"
+        );
+    }
 }

@@ -1,7 +1,9 @@
 //! Rules that detect fixture anti-patterns: autouse, scope issues, mutations, missing cleanup.
 
+use std::collections::{HashMap, HashSet};
+
 use crate::engine::{fixture_scope_by_name, make_violation};
-use crate::models::{Category, ParsedModule, Severity, Violation};
+use crate::models::{Category, Fixture, FixtureScope, ParsedModule, Severity, Violation};
 use crate::rules::{Rule, RuleContext};
 
 /// Rule that detects autouse fixtures which implicitly affect all tests.
@@ -337,7 +339,6 @@ impl Rule for FixtureDbCommitNoCleanupRule {
     }
 }
 
-/// Rule that detects fixtures with overly broad scope.
 pub struct FixtureOverlyBroadScopeRule;
 
 impl Rule for FixtureOverlyBroadScopeRule {
@@ -379,6 +380,248 @@ impl Rule for FixtureOverlyBroadScopeRule {
                     module.file_path.clone(),
                     fixture.line,
                     Some("Change fixture scope to 'function'".to_string()),
+                    None,
+                ));
+            }
+        }
+        violations
+    }
+}
+
+pub struct AutouseCascadeDepthRule;
+
+impl Rule for AutouseCascadeDepthRule {
+    fn id(&self) -> &'static str {
+        "PYTEST-FIX-013"
+    }
+    fn name(&self) -> &'static str {
+        "AutouseCascadeDepthRule"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Warning
+    }
+    fn category(&self) -> Category {
+        Category::Fixture
+    }
+    fn check(
+        &self,
+        module: &ParsedModule,
+        _all_modules: &[ParsedModule],
+        ctx: &RuleContext,
+    ) -> Vec<Violation> {
+        let mut violations = Vec::new();
+        for fixture in &module.fixtures {
+            if fixture.is_autouse {
+                let mut visited = HashSet::new();
+                let depth = compute_cascade_depth(fixture, ctx.fixture_map, &mut visited);
+                if depth > 3 {
+                    violations.push(make_violation(
+                        self.id(),
+                        self.name(),
+                        self.severity(),
+                        self.category(),
+                        format!(
+                            "Autouse fixture '{}' has dependency cascade depth of {} (> 3)",
+                            fixture.name, depth
+                        ),
+                        module.file_path.clone(),
+                        fixture.line,
+                        Some("Reduce fixture dependency chain or remove autouse".to_string()),
+                        None,
+                    ));
+                }
+            }
+        }
+        violations
+    }
+}
+
+fn compute_cascade_depth(
+    fixture: &Fixture,
+    fixture_map: &HashMap<String, Vec<&Fixture>>,
+    visited: &mut HashSet<String>,
+) -> usize {
+    if visited.contains(&fixture.name) {
+        return 0;
+    }
+    visited.insert(fixture.name.clone());
+    let deps = fixture.dependencies.clone();
+    let result = if deps.is_empty() {
+        1
+    } else {
+        deps.iter()
+            .map(|dep| {
+                fixture_map
+                    .get(dep)
+                    .and_then(|v| {
+                        v.iter()
+                            .find(|f| f.file_path == fixture.file_path || v.len() == 1)
+                            .or_else(|| v.first())
+                    })
+                    .map(|f| compute_cascade_depth(f, fixture_map, visited))
+                    .unwrap_or(1)
+            })
+            .max()
+            .unwrap_or(0)
+            + 1
+    };
+    visited.remove(&fixture.name);
+    result
+}
+
+pub struct ModuleScopeFixtureMutatedRule;
+
+impl Rule for ModuleScopeFixtureMutatedRule {
+    fn id(&self) -> &'static str {
+        "PYTEST-FIX-010"
+    }
+    fn name(&self) -> &'static str {
+        "ModuleScopeFixtureMutatedRule"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Error
+    }
+    fn category(&self) -> Category {
+        Category::Fixture
+    }
+    fn check(
+        &self,
+        module: &ParsedModule,
+        _all_modules: &[ParsedModule],
+        ctx: &RuleContext,
+    ) -> Vec<Violation> {
+        let mut violations = Vec::new();
+        for test in &module.test_functions {
+            for dep in &test.mutates_fixture_deps {
+                let is_broad_scoped = ctx.fixture_map.get(dep).is_some_and(|fixtures| {
+                    fixtures
+                        .iter()
+                        .find(|f| f.file_path == module.file_path)
+                        .or_else(|| fixtures.first())
+                        .is_some_and(|f| f.scope >= FixtureScope::Module)
+                });
+                if is_broad_scoped {
+                    violations.push(make_violation(
+                        self.id(),
+                        self.name(),
+                        self.severity(),
+                        self.category(),
+                        format!(
+                            "Test '{}' mutates module/session-scoped fixture '{}' — causes cross-test contamination",
+                            test.name, dep
+                        ),
+                        module.file_path.clone(),
+                        test.line,
+                        Some(
+                            "Use function-scoped fixture or copy the value before mutation"
+                                .to_string(),
+                        ),
+                        Some(test.name.clone()),
+                    ));
+                }
+            }
+        }
+        violations
+    }
+}
+
+pub struct YieldWithoutTryFinallyRule;
+
+impl Rule for YieldWithoutTryFinallyRule {
+    fn id(&self) -> &'static str {
+        "PYTEST-FIX-011"
+    }
+    fn name(&self) -> &'static str {
+        "YieldWithoutTryFinallyRule"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Warning
+    }
+    fn category(&self) -> Category {
+        Category::Fixture
+    }
+    fn check(
+        &self,
+        module: &ParsedModule,
+        _all_modules: &[ParsedModule],
+        _ctx: &RuleContext,
+    ) -> Vec<Violation> {
+        let mut violations = Vec::new();
+        for fixture in &module.fixtures {
+            if fixture.has_yield && !fixture.has_cleanup {
+                violations.push(make_violation(
+                    self.id(),
+                    self.name(),
+                    self.severity(),
+                    self.category(),
+                    format!(
+                        "Fixture '{}' uses yield without try/finally cleanup",
+                        fixture.name
+                    ),
+                    module.file_path.clone(),
+                    fixture.line,
+                    Some(
+                        "Wrap yield in try/finally to ensure cleanup runs even on failure"
+                            .to_string(),
+                    ),
+                    None,
+                ));
+            }
+        }
+        violations
+    }
+}
+
+pub struct FixtureNameShadowsBuiltinRule;
+
+impl Rule for FixtureNameShadowsBuiltinRule {
+    fn id(&self) -> &'static str {
+        "PYTEST-FIX-012"
+    }
+    fn name(&self) -> &'static str {
+        "FixtureNameShadowsBuiltinRule"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Warning
+    }
+    fn category(&self) -> Category {
+        Category::Fixture
+    }
+    fn check(
+        &self,
+        module: &ParsedModule,
+        _all_modules: &[ParsedModule],
+        _ctx: &RuleContext,
+    ) -> Vec<Violation> {
+        let mut violations = Vec::new();
+        let shadows = [
+            "list",
+            "dict",
+            "set",
+            "id",
+            "type",
+            "input",
+            "open",
+            "tmp_path",
+            "capsys",
+            "monkeypatch",
+            "request",
+            "fixture",
+        ];
+        for fixture in &module.fixtures {
+            if shadows.contains(&fixture.name.as_str()) {
+                violations.push(make_violation(
+                    self.id(),
+                    self.name(),
+                    self.severity(),
+                    self.category(),
+                    format!(
+                        "Fixture '{}' shadows a Python builtin or pytest hook",
+                        fixture.name
+                    ),
+                    module.file_path.clone(),
+                    fixture.line,
+                    Some("Rename the fixture to avoid shadowing built-in names".to_string()),
                     None,
                 ));
             }

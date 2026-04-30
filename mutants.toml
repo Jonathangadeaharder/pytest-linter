@@ -1,0 +1,8 @@
+exclude_globs = [
+    "lsp-server/**",
+    "src/main.rs",
+    "src/output/**",
+    "benches/**",
+]
+
+minimum_test_score = 80

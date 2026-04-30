@@ -22,6 +22,10 @@ struct Cli {
     #[arg(long)]
     no_color: bool,
 
+    /// Soft memory limit in MB. Warns if estimated usage exceeds this limit (default: 256).
+    #[arg(long, default_value_t = 256)]
+    memory_limit: usize,
+
     #[arg(long)]
     incremental: bool,
 
@@ -38,10 +42,7 @@ struct Cli {
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    let mut config = Config::default();
-    if let Some(loaded) = Config::from_pyproject(&cli.paths[0])? {
-        config = loaded;
-    }
+    let mut config = Config::discover(&cli.paths[0])?;
     config = config.merge_cli(cli.format.clone(), cli.output.clone());
 
     let format_str = config
@@ -99,12 +100,13 @@ fn main() -> Result<()> {
         process::exit(1);
     }
 
-    let has_errors = pytest_linter::engine::run_linter(
+    let has_errors = pytest_linter::engine::run_linter_with_memory_limit(
         &paths,
         &format_str,
         output_path.as_deref(),
         cli.no_color,
         config,
+        cli.memory_limit,
     )?;
 
     if has_errors {
