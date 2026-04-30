@@ -26,7 +26,7 @@ runs:
       uses: Swatinem/rust-cache@v2
     - name: Build pytest-linter
       shell: bash
-      run: cargo build --release --manifest-path ${{ github.action_path }}/../../Cargo.toml
+      run: cargo build --release --manifest-path ${{ github.action_path }}/../../../Cargo.toml
     - name: Run pytest-linter
       shell: bash
       run: |
@@ -37,7 +37,7 @@ runs:
         if [ "${{ inputs.no-color }}" == "true" ]; then
           ARGS="$ARGS --no-color"
         fi
-        ${{ github.action_path }}/../../target/release/pytest-linter $ARGS ${{ inputs.path }} || true
+        ${{ github.action_path }}/../../../target/release/pytest-linter $ARGS ${{ inputs.path }} || true
 outputs:
   sarif-file:
     description: "Path to the SARIF output file"

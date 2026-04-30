@@ -205,10 +205,20 @@ impl Config {
 
                 let table = match tool_table.as_table() {
                     Some(t) => t,
-                    None => return Ok(None),
+                    None => {
+                        match current.parent() {
+                            Some(parent) => current = parent,
+                            None => break,
+                        }
+                        continue;
+                    }
                 };
                 if table.is_empty() {
-                    return Ok(None);
+                    match current.parent() {
+                        Some(parent) => current = parent,
+                        None => break,
+                    }
+                    continue;
                 }
 
                 let tool_config: ToolConfig = tool_table.try_into().with_context(|| {
@@ -242,7 +252,11 @@ impl Config {
                     .with_context(|| format!("read {}", candidate.display()))?;
 
                 if contents.trim().is_empty() {
-                    return Ok(None);
+                    match current.parent() {
+                        Some(parent) => current = parent,
+                        None => break,
+                    }
+                    continue;
                 }
 
                 let tool_config: ToolConfig = toml::from_str(&contents)
