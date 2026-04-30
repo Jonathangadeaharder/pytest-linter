@@ -749,7 +749,6 @@ mod tests {
     }
 
     #[test]
-    #[test]
     fn test_collect_suppressions_bare_noqa() {
         let module = crate::parser::PythonParser::new()
             .unwrap()

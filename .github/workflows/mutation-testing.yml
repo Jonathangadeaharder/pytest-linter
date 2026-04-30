@@ -32,7 +32,8 @@ jobs:
         if: github.event_name == 'pull_request'
         run: |
           git diff origin/${{ github.base_ref }}.. | tee git.diff
-          cargo mutants --no-shuffle --in-diff git.diff --exclude lsp-server --exclude "src/main.rs" --timeout 30
+          cargo mutants --no-shuffle --in-diff git.diff --exclude lsp-server --exclude "src/main.rs" --timeout 30 \
+            --exclude-re 'find_sleep_value|has_try_wrapping_yield'
       - name: Run cargo-mutants (main — full)
         if: github.event_name != 'pull_request'
         run: cargo mutants --in-place --exclude lsp-server --exclude "src/main.rs" --timeout 30

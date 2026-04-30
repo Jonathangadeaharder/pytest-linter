@@ -958,7 +958,7 @@ impl PythonParser {
                         .child_by_field_name("operator")
                         .map(|op| Self::node_text(op, source));
                     if op.as_deref() == Some("-") {
-                        if let Some(operand) = child.child_by_field_name("operand") {
+                        if let Some(operand) = child.child_by_field_name("argument") {
                             let val_str = Self::node_text(operand, source);
                             if let Ok(val) = val_str.parse::<f64>() {
                                 return Some(-val);
@@ -3294,6 +3294,56 @@ def test_sleep_int():
 "#,
         );
         assert_eq!(module.test_functions[0].sleep_value, Some(5.0));
+    }
+
+    #[test]
+    fn test_detect_sleep_value_negative_arg() {
+        let module = parse_source(
+            r#"
+import time
+def test_sleep_neg():
+    time.sleep(-5)
+    assert True
+"#,
+        );
+        assert_eq!(
+            module.test_functions[0].sleep_value,
+            Some(-5.0),
+            "negative sleep via unary operator must be extracted as negative value"
+        );
+    }
+
+    #[test]
+    fn test_detect_sleep_value_negative_float_arg() {
+        let module = parse_source(
+            r#"
+import time
+def test_sleep_neg_float():
+    time.sleep(-0.5)
+    assert True
+"#,
+        );
+        assert_eq!(
+            module.test_functions[0].sleep_value,
+            Some(-0.5),
+            "negative float sleep via unary operator must be extracted as negative value"
+        );
+    }
+
+    #[test]
+    fn test_detect_sleep_value_plus_unary_not_extracted() {
+        let module = parse_source(
+            r#"
+import time
+def test_sleep_plus():
+    time.sleep(+5)
+    assert True
+"#,
+        );
+        assert_eq!(
+            module.test_functions[0].sleep_value, None,
+            "unary + sleep should not be extracted as negative"
+        );
     }
 
     #[test]
