@@ -177,6 +177,9 @@ impl PythonParser {
         let has_random_seed = Self::detect_random_seed(body.as_ref(), source);
         let uses_subprocess = Self::detect_subprocess_usage(body.as_ref(), source);
         let has_subprocess_timeout = Self::detect_subprocess_timeout(body.as_ref(), source);
+        let mocked_stdlib_targets =
+            Self::detect_stdlib_mock_targets(body.as_ref(), source, &decorators);
+        let mocks_stdlib_module = !mocked_stdlib_targets.is_empty();
 
         let body_hash = body.map(|b| {
             let text = Self::node_text(b, source);
@@ -214,6 +217,8 @@ impl PythonParser {
             has_random_seed,
             uses_subprocess,
             has_subprocess_timeout,
+            mocks_stdlib_module,
+            mocked_stdlib_targets,
         }
     }
 
@@ -1359,6 +1364,88 @@ impl PythonParser {
             }
         }
         false
+    }
+
+    fn detect_stdlib_mock_targets(
+        body: Option<&tree_sitter::Node>,
+        source: &[u8],
+        decorators: &[DecoratorInfo],
+    ) -> Vec<String> {
+        const STDLIB_MODULES: &[&str] = &[
+            "subprocess",
+            "os",
+            "os.path",
+            "sys",
+            "socket",
+            "http.client",
+            "http.server",
+            "builtins",
+            "io",
+            "pathlib",
+            "json",
+            "csv",
+            "re",
+            "time",
+            "datetime",
+            "shutil",
+            "tempfile",
+            "glob",
+            "logging",
+            "warnings",
+            "threading",
+            "multiprocessing",
+            "asyncio",
+        ];
+
+        let mut targets = Vec::new();
+
+        // Check @patch decorators
+        for dec in decorators {
+            if let Some(target) = extract_patch_target(&dec.text) {
+                if STDLIB_MODULES.iter().any(|m| target.starts_with(m))
+                    && !targets.contains(&target)
+                {
+                    targets.push(target);
+                }
+            }
+        }
+
+        // Check patch() calls in body
+        if let Some(body_node) = body {
+            let body_text = Self::node_text(*body_node, source);
+            for cap in body_text.match_indices("patch(") {
+                let after = &body_text[cap.0..];
+                if let Some(target) = extract_patch_target(after) {
+                    if STDLIB_MODULES.iter().any(|m| target.starts_with(m))
+                        && !targets.contains(&target)
+                    {
+                        targets.push(target);
+                    }
+                }
+            }
+        }
+
+        targets
+    }
+}
+
+fn extract_patch_target(text: &str) -> Option<String> {
+    // @patch("module.path") or @patch('module.path')
+    let start = text.find('(')?;
+    let rest = &text[start + 1..];
+    extract_first_string_arg(rest)
+}
+
+fn extract_first_string_arg(text: &str) -> Option<String> {
+    let trimmed = text.trim_start();
+    if trimmed.starts_with('"') {
+        let end = trimmed[1..].find('"')?;
+        Some(trimmed[1..1 + end].to_string())
+    } else if trimmed.starts_with('\'') {
+        let end = trimmed[1..].find('\'')?;
+        Some(trimmed[1..1 + end].to_string())
+    } else {
+        None
     }
 }
 
@@ -3936,6 +4023,247 @@ def fix_try_no_yield():
         assert!(
             !module.fixtures[0].has_cleanup,
             "try without yield should not be cleanup"
+        );
+    }
+
+    // ── extract_patch_target unit tests ──
+
+    #[test]
+    fn test_extract_patch_target_double_quotes() {
+        let result = extract_patch_target(r#"@patch("subprocess.run")"#);
+        assert_eq!(result, Some("subprocess.run".to_string()));
+    }
+
+    #[test]
+    fn test_extract_patch_target_single_quotes() {
+        let result = extract_patch_target(r#"@patch('os.path.exists')"#);
+        assert_eq!(result, Some("os.path.exists".to_string()));
+    }
+
+    #[test]
+    fn test_extract_patch_target_no_parens() {
+        let result = extract_patch_target("@pytest.mark.slow");
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_extract_patch_target_no_string() {
+        let result = extract_patch_target("@patch(123)");
+        assert_eq!(result, None);
+    }
+
+    // ── extract_first_string_arg unit tests ──
+
+    #[test]
+    fn test_extract_first_string_arg_double_quotes() {
+        let result = extract_first_string_arg(r#""socket.socket")"#);
+        assert_eq!(result, Some("socket.socket".to_string()));
+    }
+
+    #[test]
+    fn test_extract_first_string_arg_single_quotes() {
+        let result = extract_first_string_arg("'builtins.open')");
+        assert_eq!(result, Some("builtins.open".to_string()));
+    }
+
+    #[test]
+    fn test_extract_first_string_arg_no_string() {
+        let result = extract_first_string_arg("123)");
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_extract_first_string_arg_empty_string() {
+        let result = extract_first_string_arg(r#"""")"#);
+        assert_eq!(result, Some(String::new()));
+    }
+
+    // ── detect_stdlib_mock_targets unit tests ──
+
+    #[test]
+    fn test_detect_stdlib_mock_targets_subprocess() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test_stdlib.py");
+        std::fs::write(
+            &path,
+            r#"
+from unittest.mock import patch
+
+@patch("subprocess.run")
+def test_sub(mock):
+    mock.assert_called_once()
+"#,
+        )
+        .unwrap();
+
+        let mut parser = PythonParser::new().unwrap();
+        let module = parser.parse_file(&path).unwrap();
+        assert!(module.test_functions[0].mocks_stdlib_module);
+        assert_eq!(
+            module.test_functions[0].mocked_stdlib_targets,
+            vec!["subprocess.run"]
+        );
+    }
+
+    #[test]
+    fn test_detect_stdlib_mock_targets_non_stdlib() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test_nonstdlib.py");
+        std::fs::write(
+            &path,
+            r#"
+from unittest.mock import patch
+
+@patch("myapp.service.fetch")
+def test_fetch(mock):
+    assert mock() is not None
+"#,
+        )
+        .unwrap();
+
+        let mut parser = PythonParser::new().unwrap();
+        let module = parser.parse_file(&path).unwrap();
+        assert!(!module.test_functions[0].mocks_stdlib_module);
+        assert!(module.test_functions[0].mocked_stdlib_targets.is_empty());
+    }
+
+    #[test]
+    fn test_detect_stdlib_mock_targets_multiple() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test_multi.py");
+        std::fs::write(
+            &path,
+            r#"
+from unittest.mock import patch
+
+@patch("os.path.exists")
+@patch("subprocess.run")
+def test_multi(mock_run, mock_exists):
+    mock_run.assert_called()
+    mock_exists.assert_called()
+"#,
+        )
+        .unwrap();
+
+        let mut parser = PythonParser::new().unwrap();
+        let module = parser.parse_file(&path).unwrap();
+        assert!(module.test_functions[0].mocks_stdlib_module);
+        assert_eq!(module.test_functions[0].mocked_stdlib_targets.len(), 2);
+        assert!(module.test_functions[0]
+            .mocked_stdlib_targets
+            .contains(&"subprocess.run".to_string()));
+        assert!(module.test_functions[0]
+            .mocked_stdlib_targets
+            .contains(&"os.path.exists".to_string()));
+    }
+
+    #[test]
+    fn test_detect_stdlib_mock_targets_no_duplicates() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test_dedup.py");
+        std::fs::write(
+            &path,
+            r#"
+from unittest.mock import patch
+
+@patch("subprocess.run")
+@patch("subprocess.run")
+def test_dedup(mock1, mock2):
+    mock1.assert_called()
+    mock2.assert_called()
+"#,
+        )
+        .unwrap();
+
+        let mut parser = PythonParser::new().unwrap();
+        let module = parser.parse_file(&path).unwrap();
+        assert!(module.test_functions[0].mocks_stdlib_module);
+        assert_eq!(
+            module.test_functions[0].mocked_stdlib_targets.len(),
+            1,
+            "duplicate stdlib targets should be deduplicated"
+        );
+    }
+
+    #[test]
+    fn test_detect_stdlib_mock_targets_body_patch_dedup() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test_body_dedup.py");
+        std::fs::write(
+            &path,
+            r#"
+from unittest.mock import patch
+
+@patch("subprocess.run")
+def test_body_dedup(mock_run):
+    with patch("subprocess.run") as mock_run2:
+        mock_run.assert_called()
+        mock_run2.assert_called()
+"#,
+        )
+        .unwrap();
+
+        let mut parser = PythonParser::new().unwrap();
+        let module = parser.parse_file(&path).unwrap();
+        assert!(module.test_functions[0].mocks_stdlib_module);
+        assert_eq!(
+            module.test_functions[0].mocked_stdlib_targets.len(),
+            1,
+            "decorator + body patch for same target should be deduplicated"
+        );
+    }
+
+    #[test]
+    fn test_detect_stdlib_mock_targets_body_only_no_dedup_needed() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test_body_only.py");
+        std::fs::write(
+            &path,
+            r#"
+from unittest.mock import patch
+
+def test_body_only():
+    with patch("subprocess.run") as mock_run:
+        mock_run.assert_called()
+"#,
+        )
+        .unwrap();
+
+        let mut parser = PythonParser::new().unwrap();
+        let module = parser.parse_file(&path).unwrap();
+        assert!(module.test_functions[0].mocks_stdlib_module);
+        assert_eq!(
+            module.test_functions[0].mocked_stdlib_targets,
+            vec!["subprocess.run"],
+            "body-only patch should detect stdlib target"
+        );
+    }
+
+    #[test]
+    fn test_detect_stdlib_mock_targets_body_nonstdlib_not_added() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test_body_nonstdlib.py");
+        std::fs::write(
+            &path,
+            r#"
+from unittest.mock import patch
+
+def test_body_nonstdlib():
+    with patch("myapp.service.fetch") as mock_fetch:
+        assert mock_fetch() is not None
+"#,
+        )
+        .unwrap();
+
+        let mut parser = PythonParser::new().unwrap();
+        let module = parser.parse_file(&path).unwrap();
+        assert!(
+            !module.test_functions[0].mocks_stdlib_module,
+            "non-stdlib body patch should not trigger mocks_stdlib_module"
+        );
+        assert!(
+            module.test_functions[0].mocked_stdlib_targets.is_empty(),
+            "non-stdlib body patch should not be added to targets"
         );
     }
 }

@@ -1195,6 +1195,8 @@ mod tests {
                 has_random_seed: false,
                 uses_subprocess: false,
                 has_subprocess_timeout: false,
+                mocks_stdlib_module: false,
+                mocked_stdlib_targets: vec![],
             }],
             fixtures: vec![
                 Fixture {
@@ -1275,6 +1277,8 @@ mod tests {
                 has_random_seed: false,
                 uses_subprocess: false,
                 has_subprocess_timeout: false,
+                mocks_stdlib_module: false,
+                mocked_stdlib_targets: vec![],
             }],
             fixtures: vec![Fixture {
                 name: "db_connection".to_string(),
@@ -1337,6 +1341,8 @@ mod tests {
                 has_random_seed: false,
                 uses_subprocess: false,
                 has_subprocess_timeout: false,
+                mocks_stdlib_module: false,
+                mocked_stdlib_targets: vec![],
             }],
             fixtures: vec![
                 Fixture {
