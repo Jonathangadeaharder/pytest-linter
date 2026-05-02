@@ -227,6 +227,23 @@ impl Rule for MockOnlyVerifyRule {
                     Some(test.name.clone()),
                 ));
             }
+            if test.mocks_stdlib_module {
+                violations.push(make_violation(
+                    self.id(),
+                    self.name(),
+                    self.severity(),
+                    self.category(),
+                    format!(
+                        "Test '{}' mocks stdlib module(s): {} — use dependency injection or test doubles instead",
+                        test.name,
+                        test.mocked_stdlib_targets.join(", ")
+                    ),
+                    module.file_path.clone(),
+                    test.line,
+                    Some("Refactor to inject dependencies instead of patching stdlib internals".to_string()),
+                    Some(test.name.clone()),
+                ));
+            }
         }
         violations
     }

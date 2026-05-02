@@ -6218,3 +6218,129 @@ def test_rand():
     let v = find_violation(&violations, "PYTEST-FLK-008");
     assert!(v.is_some(), "random.randint should trigger FLK-008");
 }
+
+// ── PYTEST-MNT-005: stdlib mock detection ──
+
+#[test]
+fn test_mnt005_mock_subprocess_triggers() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_stdlib_mock.py",
+        r#"
+from unittest.mock import patch
+
+@patch("subprocess.run")
+def test_subprocess(mock_run):
+    mock_run.return_value.returncode = 0
+    mock_run.assert_called_once()
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-MNT-005");
+    assert!(v.is_some(), "mocking subprocess should trigger MNT-005");
+}
+
+#[test]
+fn test_mnt005_mock_os_path_triggers() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_os_path_mock.py",
+        r#"
+from unittest.mock import patch
+
+@patch("os.path.exists")
+def test_path(mock_exists):
+    mock_exists.return_value = True
+    mock_exists.assert_called_once()
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-MNT-005");
+    assert!(v.is_some(), "mocking os.path should trigger MNT-005");
+}
+
+#[test]
+fn test_mnt005_mock_builtins_triggers() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_builtins_mock.py",
+        r#"
+from unittest.mock import patch
+
+@patch("builtins.open")
+def test_open(mock_open):
+    mock_open.return_value.__enter__ = lambda s: s
+    mock_open.assert_called_once()
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-MNT-005");
+    assert!(v.is_some(), "mocking builtins should trigger MNT-005");
+}
+
+#[test]
+fn test_mnt005_mock_socket_triggers() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_socket_mock.py",
+        r#"
+from unittest.mock import patch
+
+@patch("socket.socket")
+def test_socket(mock_sock):
+    mock_sock.return_value.recv.return_value = b"data"
+    mock_sock.assert_called_once()
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-MNT-005");
+    assert!(v.is_some(), "mocking socket should trigger MNT-005");
+}
+
+#[test]
+fn test_mnt005_mock_time_triggers() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_time_mock.py",
+        r#"
+from unittest.mock import patch
+
+@patch("time.time")
+def test_time(mock_time):
+    mock_time.return_value = 1000.0
+    mock_time.assert_called_once()
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-MNT-005");
+    assert!(v.is_some(), "mocking time should trigger MNT-005");
+}
+
+#[test]
+fn test_mnt005_non_stdlib_mock_no_trigger() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_nonstdlib_mock.py",
+        r#"
+from unittest.mock import patch
+
+@patch("myapp.service.fetch_data")
+def test_fetch(mock_fetch):
+    mock_fetch.return_value = {"ok": True}
+    result = mock_fetch()
+    assert result == {"ok": True}
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-MNT-005");
+    assert!(
+        v.is_none(),
+        "mocking non-stdlib module should NOT trigger MNT-005"
+    );
+}

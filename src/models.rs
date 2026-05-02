@@ -99,6 +99,8 @@ pub struct TestFunction {
     pub has_random_seed: bool,
     pub uses_subprocess: bool,
     pub has_subprocess_timeout: bool,
+    pub mocks_stdlib_module: bool,
+    pub mocked_stdlib_targets: Vec<String>,
 }
 
 /// Scope of a pytest fixture, from narrowest (function) to widest (session).

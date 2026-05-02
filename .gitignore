@@ -145,3 +145,4 @@ mutants*.out/
 mutants *.out*/
 mutants.out
 mutants*.out*
+cov.xml
