@@ -34,7 +34,7 @@ runs:
         if [ -n "${{ inputs.version }}" ]; then
           echo "value=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
         else
-          echo "value=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          echo "value=latest" >> "$GITHUB_OUTPUT"
         fi
 
     - name: Detect platform
@@ -65,8 +65,8 @@ runs:
 
         curl -fSL -o "${ARCHIVE}" "${BASE_URL}/${ARCHIVE}"
         curl -fSL -o "${CHECKSUM}" "${BASE_URL}/${CHECKSUM}"
-        sha256sum -c "${CHECKSUM}"
-        tar xzf "${ARCHIVE}"
+        shasum -a 256 -c "${CHECKSUM}"
+        tar xzf "${ARCHIVE}" --strip-components=1
         chmod +x pytest-linter
         echo "/tmp/pytest-linter" >> "$GITHUB_PATH"
 

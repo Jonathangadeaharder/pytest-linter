@@ -35,6 +35,7 @@ def test_api():
 ### ✅ Good
 
 ```python
+import requests
 from unittest.mock import patch
 
 def test_api():

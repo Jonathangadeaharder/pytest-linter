@@ -1,9 +1,8 @@
 - id: pytest-linter
   name: pytest-linter
   description: Detect test smells in Python/pytest test suites
-  language: python
+  language: system
   entry: pytest-linter
   types: [python]
   pass_filenames: true
   args: []
-  additional_dependencies: []
