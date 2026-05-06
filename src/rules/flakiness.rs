@@ -123,12 +123,26 @@ impl Rule for NetworkImportRule {
         _all_modules: &[ParsedModule],
         _ctx: &RuleContext,
     ) -> Vec<Violation> {
-        let network_modules = ["requests", "socket", "httpx", "aiohttp", "urllib"];
+        let network_modules = [
+            "requests", "socket", "httpx", "aiohttp", "urllib",
+            "urllib3", "pycurl", "tornado.httpclient", "grpc", "aiogrpc",
+        ];
+        let mock_layer_libs = [
+            "pytest_httpx", "respx", "aioresponses", "responses", "requests_mock",
+            "pytest_mock", "vcrpy", "betamax", "httmock",
+        ];
+
         let has_network = module
             .imports
             .iter()
             .any(|imp| network_modules.iter().any(|nm| imp.contains(nm)));
-        if has_network {
+
+        let has_mock_layer = module
+            .imports
+            .iter()
+            .any(|imp| mock_layer_libs.iter().any(|ml| imp.contains(ml)));
+
+        if has_network && !has_mock_layer {
             vec![make_violation(
                 self.id(),
                 self.name(),

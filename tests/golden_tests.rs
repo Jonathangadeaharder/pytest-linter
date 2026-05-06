@@ -100,3 +100,28 @@ fn test_golden_pandas_patterns() {
 fn test_golden_django_patterns() {
     run_golden_test("django_patterns.py");
 }
+
+#[test]
+fn test_golden_fix_006_stateful_session() {
+    run_golden_test("fix_006_stateful_session.py");
+}
+
+#[test]
+fn test_golden_fix_007_chained_mutation() {
+    run_golden_test("fix_007_chained_mutation.py");
+}
+
+#[test]
+fn test_golden_flk_001_async_sleep() {
+    run_golden_test("flk_001_async_sleep.py");
+}
+
+#[test]
+fn test_golden_flk_003_network_httpx() {
+    run_golden_test("flk_003_network_httpx.py");
+}
+
+#[test]
+fn test_golden_flk_003_network_mock_clean() {
+    run_golden_test("flk_003_network_mock_clean.py");
+}
