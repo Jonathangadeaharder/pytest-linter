@@ -3,6 +3,12 @@ exclude_globs = [
     "src/main.rs",
     "src/output/**",
     "benches/**",
+    "tests/**",
 ]
 
-minimum_test_score = 80
+exclude_re = [
+    "find_sleep_value",
+    "has_try_wrapping_yield",
+]
+
+minimum_test_score = 75

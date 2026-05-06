@@ -2,6 +2,8 @@ name: Mutation Testing
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: "0 3 * * *"
   push:
     branches: [main, master]
     paths:
@@ -32,11 +34,10 @@ jobs:
         if: github.event_name == 'pull_request'
         run: |
           git diff origin/${{ github.base_ref }}.. | tee git.diff
-          cargo mutants --no-shuffle --in-diff git.diff --exclude lsp-server --exclude "src/main.rs" --timeout 30 \
-            --exclude-re 'find_sleep_value|has_try_wrapping_yield'
-      - name: Run cargo-mutants (main — full)
+          cargo mutants --no-shuffle --in-diff git.diff --timeout 30
+      - name: Run cargo-mutants (full — nightly / main)
         if: github.event_name != 'pull_request'
-        run: cargo mutants --in-place --exclude lsp-server --exclude "src/main.rs" --timeout 30
+        run: cargo mutants --in-place --timeout 30
       - name: Archive mutants.out
         uses: actions/upload-artifact@v4
         if: always()
