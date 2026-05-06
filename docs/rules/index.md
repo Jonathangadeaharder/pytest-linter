@@ -11,12 +11,12 @@ pytest-linter includes **40 rules** across four categories.
 | [PYTEST-FLK-003](./PYTEST-FLK-003.md) | NetworkImportRule | Warning |
 | [PYTEST-FLK-004](./PYTEST-FLK-004.md) | CwdDependencyRule | Warning |
 | [PYTEST-FLK-005](./PYTEST-FLK-005.md) | MysteryGuestRule | Warning |
-| [PYTEST-XDIST-001](./PYTEST-XDIST-001.md) | XdistSharedStateRule | Warning |
-| [PYTEST-XDIST-002](./PYTEST-XDIST-002.md) | XdistFixtureIoRule | Warning |
 | [PYTEST-FLK-008](./PYTEST-FLK-008.md) | RandomWithoutSeedRule | Warning |
 | [PYTEST-FLK-009](./PYTEST-FLK-009.md) | SubprocessWithoutTimeoutRule | Warning |
 | [PYTEST-FLK-010](./PYTEST-FLK-010.md) | SocketWithoutBindTimeoutRule | Warning |
 | [PYTEST-FLK-011](./PYTEST-FLK-011.md) | DatetimeInAssertionRule | Warning |
+| [PYTEST-XDIST-001](./PYTEST-XDIST-001.md) | XdistSharedStateRule | Warning |
+| [PYTEST-XDIST-002](./PYTEST-XDIST-002.md) | XdistFixtureIoRule | Warning |
 
 ## Maintenance
 
@@ -28,13 +28,13 @@ pytest-linter includes **40 rules** across four categories.
 | [PYTEST-MNT-005](./PYTEST-MNT-005.md) | MockOnlyVerifyRule | Warning |
 | [PYTEST-MNT-006](./PYTEST-MNT-006.md) | AssertionRouletteRule | Warning |
 | [PYTEST-MNT-007](./PYTEST-MNT-007.md) | RawExceptionHandlingRule | Warning |
-| [PYTEST-PARAM-001](./PYTEST-PARAM-001.md) | ParametrizeEmptyRule | Warning |
-| [PYTEST-PARAM-002](./PYTEST-PARAM-002.md) | ParametrizeDuplicateRule | Warning |
-| [PYTEST-PARAM-003](./PYTEST-PARAM-003.md) | ParametrizeExplosionRule | Warning |
 | [PYTEST-MNT-014](./PYTEST-MNT-014.md) | ConditionalLogicInTestRule | Warning |
 | [PYTEST-MNT-015](./PYTEST-MNT-015.md) | DuplicateTestBodiesRule | Info |
 | [PYTEST-MNT-016](./PYTEST-MNT-016.md) | SleepWithValueRule | Warning |
 | [PYTEST-MNT-017](./PYTEST-MNT-017.md) | TestNameLengthRule | Info |
+| [PYTEST-PARAM-001](./PYTEST-PARAM-001.md) | ParametrizeEmptyRule | Warning |
+| [PYTEST-PARAM-002](./PYTEST-PARAM-002.md) | ParametrizeDuplicateRule | Warning |
+| [PYTEST-PARAM-003](./PYTEST-PARAM-003.md) | ParametrizeExplosionRule | Warning |
 
 ## Fixture
 

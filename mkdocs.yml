@@ -49,6 +49,8 @@ markdown_extensions:
 nav:
   - Home: index.md
   - Getting Started: getting-started.md
+  - Configuration: configuration.md
+  - CLI Reference: cli-reference.md
   - Rules:
       - Overview: rules/index.md
       - Flakiness:
