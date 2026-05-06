@@ -426,6 +426,186 @@ RULES = [
             "def test_parse_valid():\n    result = parse('valid json')\n    assert result.success\n\ndef test_parse_invalid():\n    with pytest.raises(ParseError):\n        parse('invalid json')",
         ],
     },
+    {
+        "id": "PYTEST-FLK-008",
+        "name": "RandomWithoutSeedRule",
+        "severity": "Warning",
+        "category": "Flakiness",
+        "message": "Test '{test}' uses random without fixed seed — causes flaky tests",
+        "suggestion": "Call random.seed() at the start of the test or use a fixture",
+        "rationale": "Using `random` without a fixed seed produces non-deterministic output. Tests that depend on random values will fail intermittently across different runs because the random state varies.",
+        "bad": [
+            "import random\n\ndef test_shuffle():\n    items = list(range(10))\n    random.shuffle(items)\n    assert items[0] != 0  # may pass or fail unpredictably",
+        ],
+        "good": [
+            "import random\n\ndef test_shuffle():\n    random.seed(42)\n    items = list(range(10))\n    random.shuffle(items)\n    assert items[0] == 7  # deterministic",
+        ],
+    },
+    {
+        "id": "PYTEST-FLK-009",
+        "name": "SubprocessWithoutTimeoutRule",
+        "severity": "Warning",
+        "category": "Flakiness",
+        "message": "Test '{test}' uses subprocess without timeout — may hang indefinitely",
+        "suggestion": "Add timeout parameter to subprocess calls",
+        "rationale": "Subprocess calls without a `timeout` parameter can hang indefinitely if the child process stalls. In CI environments this causes builds to time out at the job level rather than failing fast.",
+        "bad": [
+            "import subprocess\n\ndef test_cli():\n    result = subprocess.run(['my-cli', 'serve'])\n    assert result.returncode == 0",
+        ],
+        "good": [
+            "import subprocess\n\ndef test_cli():\n    result = subprocess.run(['my-cli', 'serve'], timeout=10)\n    assert result.returncode == 0",
+        ],
+    },
+    {
+        "id": "PYTEST-FLK-010",
+        "name": "SocketWithoutBindTimeoutRule",
+        "severity": "Warning",
+        "category": "Flakiness",
+        "message": "Test '{test}' uses socket without proper bind and timeout setup",
+        "suggestion": "Add socket.settimeout() or use timeout parameter in socket.socket()",
+        "rationale": "Socket operations without timeout configuration can block indefinitely on connect/accept/recv. Tests that create sockets should always set timeouts to avoid hanging the test suite.",
+        "bad": [
+            "import socket\n\ndef test_server():\n    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)\n    s.connect(('localhost', 8080))\n    data = s.recv(1024)",
+        ],
+        "good": [
+            "import socket\n\ndef test_server():\n    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)\n    s.settimeout(5)\n    s.connect(('localhost', 8080))\n    data = s.recv(1024)",
+        ],
+    },
+    {
+        "id": "PYTEST-FLK-011",
+        "name": "DatetimeInAssertionRule",
+        "severity": "Warning",
+        "category": "Flakiness",
+        "message": "Test '{test}' uses datetime functions near assertions — tests relying on real time are flaky",
+        "suggestion": "Use freezegun or time mocking to make assertions deterministic",
+        "rationale": "Assertions involving `datetime.now()`, `datetime.today()`, or similar functions produce different values on each run. These tests fail when run around midnight, across timezones, or under load.",
+        "bad": [
+            "from datetime import datetime\n\ndef test_created_at():\n    obj = create_record()\n    assert obj.created_at == datetime.now()",
+        ],
+        "good": [
+            "from freezegun import freeze_time\nfrom datetime import datetime\n\n@freeze_time('2025-01-01 12:00:00')\ndef test_created_at():\n    obj = create_record()\n    assert obj.created_at == datetime(2025, 1, 1, 12, 0, 0)",
+        ],
+    },
+    {
+        "id": "PYTEST-MNT-014",
+        "name": "ConditionalLogicInTestRule",
+        "severity": "Warning",
+        "category": "Maintenance",
+        "message": "Parametrized test '{test}' contains conditional logic (if/elif/else/for/while) — use separate parameter cases instead of branching",
+        "suggestion": "Split into separate tests or use pytest.mark.parametrize",
+        "rationale": "Conditional logic inside parametrized tests defeats the purpose of parametrization. Each branch should be a separate parameter case for clearer failure isolation and better test reporting.",
+        "bad": [
+            "@pytest.mark.parametrize('role', ['admin', 'user'])\ndef test_access(role):\n    if role == 'admin':\n        assert has_admin_access()\n    else:\n        assert not has_admin_access()",
+        ],
+        "good": [
+            "@pytest.mark.parametrize('role,expected', [\n    ('admin', True),\n    ('user', False),\n])\ndef test_access(role, expected):\n    assert has_admin_access(role) == expected",
+        ],
+    },
+    {
+        "id": "PYTEST-MNT-015",
+        "name": "DuplicateTestBodiesRule",
+        "severity": "Info",
+        "category": "Maintenance",
+        "message": "Test '{test}' has identical body to {count} other test(s): {peers} (shared body hash)",
+        "suggestion": "Consolidate or differentiate the test bodies",
+        "rationale": "Duplicate test bodies provide no additional verification value and increase maintenance burden. Either the tests are redundant (remove them) or they should test different scenarios (differentiate them).",
+        "bad": [
+            "def test_add_positive():\n    result = add(2, 3)\n    assert result == 5\n\ndef test_add_positive_two():\n    result = add(2, 3)\n    assert result == 5",
+        ],
+        "good": [
+            "def test_add_positive():\n    result = add(2, 3)\n    assert result == 5\n\ndef test_add_negative():\n    result = add(-1, -2)\n    assert result == -3",
+        ],
+    },
+    {
+        "id": "PYTEST-MNT-016",
+        "name": "SleepWithValueRule",
+        "severity": "Warning",
+        "category": "Maintenance",
+        "message": "Test '{test}' uses time.sleep() with value > 0.1s — slows test suite",
+        "suggestion": "Use mocking, async waits, or reduce sleep duration",
+        "rationale": "Using `time.sleep()` with values > 0.1s unnecessarily slows the test suite. In large projects, even small sleeps compound. Use mocking, `pytest-asyncio` waits, or reduce the sleep to the minimum needed.",
+        "bad": [
+            "import time\n\ndef test_debounce():\n    trigger_event()\n    time.sleep(2)\n    assert is_debounced()",
+        ],
+        "good": [
+            "import time\nfrom unittest.mock import patch\n\ndef test_debounce():\n    with patch('time.sleep'):\n        trigger_event()\n    assert is_debounced()",
+        ],
+    },
+    {
+        "id": "PYTEST-MNT-017",
+        "name": "TestNameLengthRule",
+        "severity": "Info",
+        "category": "Maintenance",
+        "message": "Test name '{test}' exceeds 80 characters ({count} chars)",
+        "suggestion": "Shorten the test name to be more concise",
+        "rationale": "Overly long test names reduce readability in test reports, IDE test runners, and CI logs. Names > 80 characters usually contain implementation details that belong in the test body or parametrize parameters instead.",
+        "bad": [
+            "def test_user_registration_with_valid_email_and_password_creates_account_and_sends_welcome_email_and_redirects_to_dashboard():\n    ...",
+        ],
+        "good": [
+            "@pytest.mark.parametrize('email,password', [\n    ('valid@example.com', 'strongpass'),\n])\ndef test_user_registration(email, password):\n    ...",
+        ],
+    },
+    {
+        "id": "PYTEST-FIX-010",
+        "name": "ModuleScopeFixtureMutatedRule",
+        "severity": "Error",
+        "category": "Fixture",
+        "message": "Test '{test}' mutates module/session-scoped fixture '{fixture}' — causes cross-test contamination",
+        "suggestion": "Use function-scoped fixture or copy the value before mutation",
+        "rationale": "Mutating a module or session-scoped fixture causes state to leak between tests. Test B sees the state left by test A, creating order-dependent failures that are hard to debug.",
+        "bad": [
+            "@pytest.fixture(scope='module')\ndef config():\n    return {'debug': True}\n\ndef test_a(config):\n    config['debug'] = False\n\ndef test_b(config):\n    # config['debug'] is now False — contaminated by test_a",
+        ],
+        "good": [
+            "@pytest.fixture(scope='module')\ndef config():\n    return {'debug': True}\n\ndef test_a(config):\n    test_cfg = config.copy()\n    test_cfg['debug'] = False\n    assert not test_cfg['debug']",
+        ],
+    },
+    {
+        "id": "PYTEST-FIX-011",
+        "name": "YieldWithoutTryFinallyRule",
+        "severity": "Warning",
+        "category": "Fixture",
+        "message": "Fixture '{fixture}' uses yield without try/finally cleanup",
+        "suggestion": "Wrap yield in try/finally to ensure cleanup runs even on failure",
+        "rationale": "A `yield` fixture without `try/finally` will skip teardown code if the test raises an exception. This leaves resources (DB connections, temp files, mocks) in a dirty state for subsequent tests.",
+        "bad": [
+            "@pytest.fixture\ndef db_connection():\n    conn = create_connection()\n    yield conn\n    conn.close()  # skipped if test raises",
+        ],
+        "good": [
+            "@pytest.fixture\ndef db_connection():\n    conn = create_connection()\n    try:\n        yield conn\n    finally:\n        conn.close()  # always runs",
+        ],
+    },
+    {
+        "id": "PYTEST-FIX-012",
+        "name": "FixtureNameShadowsBuiltinRule",
+        "severity": "Warning",
+        "category": "Fixture",
+        "message": "Fixture '{fixture}' shadows a Python builtin or pytest hook",
+        "suggestion": "Rename the fixture to avoid shadowing built-in names",
+        "rationale": "Fixture names that shadow Python builtins (`list`, `dict`, `id`, `type`, `open`) or pytest hooks (`tmp_path`, `capsys`, `request`) cause confusing errors and make the test harder to understand.",
+        "bad": [
+            "@pytest.fixture\ndef list():\n    return [1, 2, 3]",
+        ],
+        "good": [
+            "@pytest.fixture\ndef item_list():\n    return [1, 2, 3]",
+        ],
+    },
+    {
+        "id": "PYTEST-FIX-013",
+        "name": "AutouseCascadeDepthRule",
+        "severity": "Warning",
+        "category": "Fixture",
+        "message": "Autouse fixture '{fixture}' has dependency cascade depth of {depth} (> 3)",
+        "suggestion": "Reduce fixture dependency chain or remove autouse",
+        "rationale": "Deep fixture dependency chains with `autouse=True` create hidden, complex setup graphs that are hard to debug. When an autouse fixture depends on other fixtures that depend on more fixtures, understanding test setup requires tracing many levels.",
+        "bad": [
+            "@pytest.fixture(autouse=True)\ndef base():\n    return {'base': True}\n\n@pytest.fixture(autouse=True)\ndef layer1(base):\n    return {**base, 'l1': True}\n\n@pytest.fixture(autouse=True)\ndef layer2(layer1):\n    return {**layer1, 'l2': True}\n\n@pytest.fixture(autouse=True)\ndef layer3(layer2):\n    return {**layer2, 'l3': True}",
+        ],
+        "good": [
+            "@pytest.fixture\ndef env():\n    return {'base': True, 'l1': True, 'l2': True, 'l3': True}\n\ndef test_env(env):\n    assert env['base']",
+        ],
+    },
 ]
 
 
@@ -470,7 +650,7 @@ def generate_rule_page(rule: dict) -> str:
 
 
 def generate_rules_index() -> str:
-    lines = ["# Rules Overview\n", f"pytest-linter includes **{len(RULES)} rules** across three categories.\n"]
+    lines = ["# Rules Overview\n", f"pytest-linter includes **{len(RULES)} rules** across four categories.\n"]
 
     categories = {}
     for r in RULES:
