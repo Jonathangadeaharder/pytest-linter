@@ -17,7 +17,7 @@ Socket operations without timeout configuration can block indefinitely on connec
 
 ## Suggestion
 
-Add socket.settimeout() or use socket.create_connection() with a timeout
+Add socket.settimeout() or use timeout parameter in socket.socket()
 
 ## Examples
 
