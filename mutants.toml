@@ -7,8 +7,8 @@ exclude_globs = [
 ]
 
 exclude_re = [
-    "find_sleep_value",
-    "has_try_wrapping_yield",
+    "find_sleep_value$",
+    "has_try_wrapping_yield$",
 ]
 
 minimum_test_score = 75
