@@ -125,6 +125,45 @@ def test_something():  # noqa: PYTEST-FLK-001
 - **CLI** via clap with terminal/JSON/SARIF output
 - **Parallel** file parsing and rule checking via rayon
 
+
+## LSP Server
+
+A `tower-lsp`-based LSP server ships as the `pytest-linter-lsp` binary. It provides real-time diagnostics in any LSP-aware editor. Scope: diagnostics only (code actions and hover are future work).
+
+### Install
+
+```bash
+cargo install --path lsp-server
+```
+
+### Neovim (native LSP)
+
+```lua
+-- init.lua
+vim.lsp.config('pytest_linter', {
+  cmd = { 'pytest-linter-lsp' },
+  filetypes = { 'python' },
+  root_markers = { 'pyproject.toml', 'pytest-linter.toml' },
+})
+vim.lsp.enable('pytest_linter')
+```
+
+### VS Code (launch.json)
+
+```json
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Attach to pytest-linter LSP",
+      "type": "extensionHost",
+      "request": "launch",
+      "runtimeExecutable": "${workspaceFolder}/target/debug/pytest-linter-lsp",
+      "runtimeArgs": ["--stdio"]
+    }
+  ]
+}
+```
 ## License
 
 MIT

@@ -1,182 +1,140 @@
-use std::path::PathBuf;
+use std::sync::{Arc, RwLock};
 
-use anyhow::Result;
-use lsp_server::{Connection, Message, Notification};
-use lsp_types::{
-    Diagnostic, DiagnosticSeverity, DidChangeConfigurationParams, DidChangeTextDocumentParams,
-    DidCloseTextDocumentParams, DidOpenTextDocumentParams, InitializeParams, InitializeResult,
-    Position, Range, ServerCapabilities, TextDocumentSyncCapability, TextDocumentSyncKind,
-    TextDocumentSyncOptions, Url,
-};
 use pytest_linter::config::Config;
+use tower_lsp::lsp_types::*;
+use tower_lsp::Client;
 
-struct LspState {
-    config: Config,
-    workspace_root: Option<PathBuf>,
+struct Backend {
+    client: Client,
+    config: Arc<RwLock<Config>>,
 }
 
-impl LspState {
-    fn reload_config(&mut self) {
-        if let Some(ref root) = self.workspace_root {
+#[tower_lsp::async_trait]
+impl tower_lsp::LanguageServer for Backend {
+    async fn initialize(
+        &self,
+        params: InitializeParams,
+    ) -> anyhow::Result<InitializeResult, tower_lsp::jsonrpc::Error> {
+        let workspace_root = params
+            .workspace_folders
+            .as_ref()
+            .and_then(|folders| folders.first())
+            .and_then(|f| f.uri.to_file_path().ok())
+            .or_else(|| {
+                #[allow(deprecated)]
+                params
+                    .root_uri
+                    .as_ref()
+                    .and_then(|uri| uri.to_file_path().ok())
+            });
+
+        if let Some(ref root) = workspace_root {
             if let Ok(cfg) = Config::discover(root) {
-                self.config = cfg;
-            }
-        }
-    }
-}
-
-fn main() -> Result<()> {
-    let (connection, io_threads) = Connection::stdio();
-
-    let (id, init_params) = connection.initialize_start()?;
-    let init_params: InitializeParams = serde_json::from_value(init_params)?;
-
-    let workspace_root = init_params
-        .workspace_folders
-        .as_ref()
-        .and_then(|folders| folders.first())
-        .and_then(|f| f.uri.to_file_path().ok())
-        .or_else(|| {
-            init_params
-                .root_uri
-                .as_ref()
-                .and_then(|uri| uri.to_file_path().ok())
-        });
-
-    let config = match workspace_root.as_ref() {
-        Some(root) => Config::discover(root)?,
-        None => Config::default(),
-    };
-
-    let state = LspState {
-        config,
-        workspace_root,
-    };
-
-    let server_caps = ServerCapabilities {
-        text_document_sync: Some(TextDocumentSyncCapability::Options(
-            TextDocumentSyncOptions {
-                open_close: Some(true),
-                change: Some(TextDocumentSyncKind::FULL),
-                will_save: None,
-                will_save_wait_until: None,
-                save: None,
-            },
-        )),
-        ..Default::default()
-    };
-
-    let init_result = InitializeResult {
-        capabilities: server_caps,
-        server_info: Some(lsp_types::ServerInfo {
-            name: "pytest-linter".to_string(),
-            version: Some(env!("CARGO_PKG_VERSION").to_string()),
-        }),
-    };
-
-    connection.initialize_finish(id, serde_json::to_value(init_result)?)?;
-
-    main_loop(connection, state)?;
-
-    io_threads.join()?;
-    Ok(())
-}
-
-fn main_loop(connection: Connection, mut state: LspState) -> Result<()> {
-    for msg in &connection.receiver {
-        match msg {
-            Message::Request(req) => {
-                if connection.handle_shutdown(&req)? {
-                    return Ok(());
+                if let Ok(mut guard) = self.config.write() {
+                    *guard = cfg;
                 }
             }
-            Message::Notification(not) => match not.method.as_str() {
-                "textDocument/didOpen" => {
-                    let params: DidOpenTextDocumentParams =
-                        serde_json::from_value(not.params.clone())?;
-                    let uri = &params.text_document.uri;
-                    let text = &params.text_document.text;
-                    let diagnostics = lint_document(uri, text, &state).unwrap_or_default();
-                    publish_diagnostics(&connection, uri.clone(), diagnostics)?;
-                }
-                "textDocument/didChange" => {
-                    let params: DidChangeTextDocumentParams =
-                        serde_json::from_value(not.params.clone())?;
-                    let uri = &params.text_document.uri;
-                    let text = params
-                        .content_changes
-                        .last()
-                        .map(|c| c.text.clone())
-                        .unwrap_or_default();
-                    let diagnostics = lint_document(uri, &text, &state).unwrap_or_default();
-                    publish_diagnostics(&connection, uri.clone(), diagnostics)?;
-                }
-                "textDocument/didClose" => {
-                    let params: DidCloseTextDocumentParams =
-                        serde_json::from_value(not.params.clone())?;
-                    publish_diagnostics(&connection, params.text_document.uri, vec![])?;
-                }
-                "workspace/didChangeConfiguration" => {
-                    let _params: DidChangeConfigurationParams =
-                        serde_json::from_value(not.params.clone())?;
-                    state.reload_config();
-                }
-                _ => {}
-            },
-            Message::Response(_) => {}
         }
-    }
-    Ok(())
-}
 
-fn lint_document(uri: &Url, text: &str, state: &LspState) -> Option<Vec<Diagnostic>> {
-    let file_path = uri.to_file_path().ok()?;
-
-    let engine = pytest_linter::engine::LintEngine::new(state.config.clone()).ok()?;
-    let violations = engine.lint_source(text, &file_path).ok()?;
-
-    let diagnostics = violations
-        .into_iter()
-        .map(|v| Diagnostic {
-            range: Range {
-                start: Position {
-                    line: v.line.saturating_sub(1) as u32,
-                    character: v.col.map(|c| c.saturating_sub(1) as u32).unwrap_or(0),
-                },
-                end: Position {
-                    line: v.line.saturating_sub(1) as u32,
-                    character: v.col.map(|c| c.saturating_sub(1) as u32).unwrap_or(0),
-                },
+        Ok(InitializeResult {
+            capabilities: ServerCapabilities {
+                text_document_sync: Some(TextDocumentSyncCapability::Options(
+                    TextDocumentSyncOptions {
+                        open_close: Some(true),
+                        change: Some(TextDocumentSyncKind::FULL),
+                        will_save: None,
+                        will_save_wait_until: None,
+                        save: None,
+                    },
+                )),
+                ..Default::default()
             },
-            severity: Some(match v.severity {
-                pytest_linter::models::Severity::Error => DiagnosticSeverity::ERROR,
-                pytest_linter::models::Severity::Warning => DiagnosticSeverity::WARNING,
-                pytest_linter::models::Severity::Info => DiagnosticSeverity::INFORMATION,
+            server_info: Some(ServerInfo {
+                name: "pytest-linter".to_string(),
+                version: Some(env!("CARGO_PKG_VERSION").to_string()),
             }),
-            code: Some(lsp_types::NumberOrString::String(v.rule_id.clone())),
-            source: Some("pytest-linter".to_string()),
-            message: v.message,
-            ..Diagnostic::default()
         })
-        .collect();
+    }
 
-    Some(diagnostics)
+    async fn initialized(&self, _: InitializedParams) {}
+
+    async fn shutdown(&self) -> anyhow::Result<(), tower_lsp::jsonrpc::Error> {
+        Ok(())
+    }
+
+    async fn did_open(&self, params: DidOpenTextDocumentParams) {
+        let uri = params.text_document.uri;
+        let text = params.text_document.text;
+        let config = self.config.read().unwrap().clone();
+        let diagnostics = Self::lint_document(&uri, &text, &config);
+        self.client.publish_diagnostics(uri, diagnostics, None).await;
+    }
+
+    async fn did_change(&self, params: DidChangeTextDocumentParams) {
+        let uri = params.text_document.uri;
+        let text = params
+            .content_changes
+            .last()
+            .map(|c| c.text.clone())
+            .unwrap_or_default();
+        let config = self.config.read().unwrap().clone();
+        let diagnostics = Self::lint_document(&uri, &text, &config);
+        self.client.publish_diagnostics(uri, diagnostics, None).await;
+    }
 }
 
-fn publish_diagnostics(
-    connection: &Connection,
-    uri: Url,
-    diagnostics: Vec<Diagnostic>,
-) -> Result<()> {
-    let params = lsp_types::PublishDiagnosticsParams {
-        uri,
-        diagnostics,
-        version: None,
-    };
-    let not = Notification {
-        method: "textDocument/publishDiagnostics".to_string(),
-        params: serde_json::to_value(params)?,
-    };
-    connection.sender.send(Message::Notification(not))?;
-    Ok(())
+impl Backend {
+    fn lint_document(uri: &Url, text: &str, config: &Config) -> Vec<Diagnostic> {
+        let file_path = match uri.to_file_path() {
+            Ok(p) => p,
+            Err(_) => return vec![],
+        };
+
+        let engine = match pytest_linter::engine::LintEngine::new(config.clone()) {
+            Ok(e) => e,
+            Err(_) => return vec![],
+        };
+
+        let violations = match engine.lint_source(text, &file_path) {
+            Ok(v) => v,
+            Err(_) => return vec![],
+        };
+
+        violations
+            .into_iter()
+            .map(|v| Diagnostic {
+                range: Range {
+                    start: Position {
+                        line: v.line.saturating_sub(1) as u32,
+                        character: v.col.map(|c| c.saturating_sub(1) as u32).unwrap_or(0),
+                    },
+                    end: Position {
+                        line: v.line.saturating_sub(1) as u32,
+                        character: v.col.map(|c| c.saturating_sub(1) as u32).unwrap_or(0),
+                    },
+                },
+                severity: Some(match v.severity {
+                    pytest_linter::models::Severity::Error => DiagnosticSeverity::ERROR,
+                    pytest_linter::models::Severity::Warning => DiagnosticSeverity::WARNING,
+                    pytest_linter::models::Severity::Info => DiagnosticSeverity::INFORMATION,
+                }),
+                code: Some(NumberOrString::String(v.rule_id.clone())),
+                source: Some("pytest-linter".to_string()),
+                message: v.message,
+                ..Diagnostic::default()
+            })
+            .collect()
+    }
+}
+
+#[tokio::main]
+async fn main() {
+    let (service, socket) = tower_lsp::LspService::new(|client| Backend {
+        client,
+        config: Arc::new(RwLock::new(Config::default())),
+    });
+
+    tower_lsp::Server::new(tokio::io::stdin(), tokio::io::stdout(), socket)
+        .serve(service)
+        .await;
 }
