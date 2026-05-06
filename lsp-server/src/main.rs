@@ -67,7 +67,9 @@ impl tower_lsp::LanguageServer for Backend {
         let text = params.text_document.text;
         let config = self.config.read().unwrap().clone();
         let diagnostics = Self::lint_document(&uri, &text, &config);
-        self.client.publish_diagnostics(uri, diagnostics, None).await;
+        self.client
+            .publish_diagnostics(uri, diagnostics, None)
+            .await;
     }
 
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
@@ -79,7 +81,9 @@ impl tower_lsp::LanguageServer for Backend {
             .unwrap_or_default();
         let config = self.config.read().unwrap().clone();
         let diagnostics = Self::lint_document(&uri, &text, &config);
-        self.client.publish_diagnostics(uri, diagnostics, None).await;
+        self.client
+            .publish_diagnostics(uri, diagnostics, None)
+            .await;
     }
 }
 
