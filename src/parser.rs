@@ -1,5 +1,6 @@
 use crate::models::{Fixture, FixtureScope, ParsedModule, TestFunction};
 use anyhow::Result;
+use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 use std::path::Path;
 use tree_sitter::Parser;
@@ -698,9 +699,10 @@ impl PythonParser {
                             "add", "discard",
                         ];
                         if mutating_methods.contains(&method.as_str())
-                            && fixture_deps.contains(&obj_name)
+                            && (fixture_deps.contains(&obj_name)
+                                || Self::is_fixture_chain(&obj, source, fixture_deps))
                         {
-                            mutated.push(obj_name);
+                            mutated.push(Self::get_fixture_root(&obj, source, fixture_deps));
                         }
                     }
                 }
@@ -739,6 +741,8 @@ impl PythonParser {
                 let name = Self::node_text(v, source);
                 if fixture_deps.contains(&name) {
                     mutated.push(name);
+                } else if Self::is_fixture_chain(&v, source, fixture_deps) {
+                    mutated.push(Self::get_fixture_root(&v, source, fixture_deps));
                 }
             }
         }
@@ -748,9 +752,70 @@ impl PythonParser {
                 let name = Self::node_text(o, source);
                 if fixture_deps.contains(&name) {
                     mutated.push(name);
+                } else if Self::is_fixture_chain(&o, source, fixture_deps) {
+                    mutated.push(Self::get_fixture_root(&o, source, fixture_deps));
                 }
             }
         }
+    }
+
+    /// Check if an attribute chain's root is a fixture dependency.
+    fn is_fixture_chain(node: &tree_sitter::Node, source: &[u8], fixture_deps: &[String]) -> bool {
+        let mut current = *node;
+        loop {
+            if current.kind() == "identifier" {
+                let name = Self::node_text(current, source);
+                return fixture_deps.contains(&name);
+            }
+            if current.kind() == "attribute" {
+                if let Some(obj) = current.child_by_field_name("object") {
+                    current = obj;
+                } else {
+                    return false;
+                }
+            } else if current.kind() == "subscript" {
+                if let Some(val) = current.child_by_field_name("value") {
+                    current = val;
+                } else {
+                    return false;
+                }
+            } else {
+                return false;
+            }
+        }
+    }
+
+    /// Get the root fixture name from an attribute chain.
+    fn get_fixture_root(
+        node: &tree_sitter::Node,
+        source: &[u8],
+        fixture_deps: &[String],
+    ) -> String {
+        let mut current = *node;
+        loop {
+            if current.kind() == "identifier" {
+                let name = Self::node_text(current, source);
+                if fixture_deps.contains(&name) {
+                    return name;
+                }
+            }
+            if current.kind() == "attribute" {
+                if let Some(obj) = current.child_by_field_name("object") {
+                    current = obj;
+                } else {
+                    break;
+                }
+            } else if current.kind() == "subscript" {
+                if let Some(val) = current.child_by_field_name("value") {
+                    current = val;
+                } else {
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+        String::new()
     }
 
     fn extract_docstring(func_node: &tree_sitter::Node, source: &[u8]) -> Option<String> {
@@ -794,6 +859,7 @@ impl PythonParser {
 
     fn extract_fixtures(root: &tree_sitter::Node, source: &[u8], file_path: &Path) -> Vec<Fixture> {
         let mut fixtures = Vec::new();
+        let frozen_classes = Self::detect_frozen_dataclass_names(root, source);
 
         for func_node in Self::collect_function_nodes(root) {
             let decorators = Self::get_decorators(&func_node, source);
@@ -815,7 +881,12 @@ impl PythonParser {
                     let dec_texts: Vec<String> =
                         decorators.iter().map(|d| d.text.clone()).collect();
                     fixtures.push(Self::build_fixture(
-                        &func_node, source, file_path, &name, &dec_texts,
+                        &func_node,
+                        source,
+                        file_path,
+                        &name,
+                        &dec_texts,
+                        &frozen_classes,
                     ));
                 }
             }
@@ -829,6 +900,7 @@ impl PythonParser {
         file_path: &Path,
         name: &str,
         decorators: &[String],
+        frozen_classes: &HashSet<String>,
     ) -> Fixture {
         let line = func_node.start_position().row + 1;
         let body = func_node.child_by_field_name("body");
@@ -838,7 +910,7 @@ impl PythonParser {
             .iter()
             .any(|d| d.contains("autouse") && d.contains("True"));
         let dependencies = Self::extract_fixture_deps(func_node, source);
-        let returns_mutable = Self::detect_mutable_return(body.as_ref(), source);
+        let returns_mutable = Self::detect_mutable_return(body.as_ref(), source, frozen_classes);
         let has_yield = Self::detect_yield(body.as_ref());
         let has_db_commit = Self::detect_db_commit(body.as_ref(), source);
         let has_db_rollback = Self::detect_db_rollback(body.as_ref(), source);
@@ -1169,36 +1241,149 @@ impl PythonParser {
         false
     }
 
-    fn detect_mutable_return(body: Option<&tree_sitter::Node>, source: &[u8]) -> bool {
-        body.is_some_and(|b| Self::has_mutable_return_in_body(*b, source))
+    fn detect_frozen_dataclass_names(root: &tree_sitter::Node, source: &[u8]) -> HashSet<String> {
+        let mut frozen = HashSet::new();
+        let mut cursor = root.walk();
+        for child in root.children(&mut cursor) {
+            if child.kind() == "decorated_definition" {
+                let mut inner = child.walk();
+                let mut class_node = None;
+                let mut decorators_text = Vec::new();
+                for c in child.children(&mut inner) {
+                    match c.kind() {
+                        "class_definition" => class_node = Some(c),
+                        "decorator" => {
+                            decorators_text.push(Self::node_text(c, source));
+                        }
+                        _ => {}
+                    }
+                }
+                if let Some(cls) = class_node {
+                    let is_frozen = decorators_text.iter().any(|d| {
+                        (d.contains("dataclass") && d.contains("frozen") && d.contains("True"))
+                            || d.contains("@frozen")
+                    });
+                    if is_frozen {
+                        if let Some(name_node) = cls.child_by_field_name("name") {
+                            frozen.insert(Self::node_text(name_node, source));
+                        }
+                    }
+                }
+            }
+        }
+        frozen
     }
 
-    fn has_mutable_return_in_body(node: tree_sitter::Node, source: &[u8]) -> bool {
+    fn detect_mutable_return(
+        body: Option<&tree_sitter::Node>,
+        source: &[u8],
+        frozen_classes: &HashSet<String>,
+    ) -> bool {
+        body.is_some_and(|b| Self::has_mutable_return_in_body(*b, source, frozen_classes))
+    }
+
+    fn has_mutable_return_in_body(
+        node: tree_sitter::Node,
+        source: &[u8],
+        frozen_classes: &HashSet<String>,
+    ) -> bool {
         if node.kind() == "return_statement" {
             let mut cursor = node.walk();
             for child in node.children(&mut cursor) {
-                if Self::is_mutable_node(child, source) {
+                if Self::is_mutable_node(child, source, frozen_classes) {
                     return true;
                 }
             }
         }
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            if Self::has_mutable_return_in_body(child, source) {
+            if Self::has_mutable_return_in_body(child, source, frozen_classes) {
                 return true;
             }
         }
         false
     }
 
-    fn is_mutable_node(node: tree_sitter::Node, source: &[u8]) -> bool {
+    fn is_mutable_node(
+        node: tree_sitter::Node,
+        source: &[u8],
+        frozen_classes: &HashSet<String>,
+    ) -> bool {
         match node.kind() {
-            "list" | "dictionary" => true,
+            "list" | "dictionary" | "set" => true,
             "call" => {
                 let func = node.child_by_field_name("function");
                 if let Some(f) = func {
                     let name = Self::node_text(f, source);
-                    return name == "list" || name == "dict";
+                    // Known immutable constructors
+                    let immutable_constructors = [
+                        "int",
+                        "str",
+                        "float",
+                        "bool",
+                        "bytes",
+                        "complex",
+                        "tuple",
+                        "frozenset",
+                        "NoneType",
+                        "Path",
+                        "PurePath",
+                        "PurePosixPath",
+                        "PureWindowsPath",
+                        "Decimal",
+                        "date",
+                        "datetime",
+                        "time",
+                        "timedelta",
+                        "UUID",
+                        "ipaddress",
+                        "IPv4Address",
+                        "IPv6Address",
+                        "re.compile",
+                        "enum",
+                    ];
+                    if immutable_constructors.iter().any(|ic| name == *ic) {
+                        return false;
+                    }
+                    // Known mutable constructors
+                    let mutable_constructors = [
+                        "list",
+                        "dict",
+                        "set",
+                        "bytearray",
+                        "deque",
+                        "defaultdict",
+                        "Counter",
+                        "OrderedDict",
+                    ];
+                    if mutable_constructors.iter().any(|mc| name == *mc) {
+                        return true;
+                    }
+                    // Class instance constructor: uppercase first letter = class convention
+                    if let Some(first_char) = name.chars().next() {
+                        if first_char.is_uppercase() {
+                            // Check if it's a frozen dataclass
+                            let class_name = name.split('.').last().unwrap_or(&name);
+                            if frozen_classes.contains(class_name) {
+                                return false;
+                            }
+                            return true;
+                        }
+                    }
+                    // Check for attribute access like module.Class()
+                    if f.kind() == "attribute" {
+                        if let Some(attr) = f.child_by_field_name("attribute") {
+                            let attr_name = Self::node_text(attr, source);
+                            if let Some(first_char) = attr_name.chars().next() {
+                                if first_char.is_uppercase() {
+                                    if frozen_classes.contains(attr_name.as_str()) {
+                                        return false;
+                                    }
+                                    return true;
+                                }
+                            }
+                        }
+                    }
                 }
                 false
             }
