@@ -1,6 +1,6 @@
 # Rules Overview
 
-pytest-linter includes **39 rules** across four categories.
+pytest-linter includes **40 rules** across four categories.
 
 ## Flakiness
 
@@ -51,6 +51,7 @@ pytest-linter includes **39 rules** across four categories.
 | [PYTEST-FIX-010](./PYTEST-FIX-010.md) | ModuleScopeFixtureMutatedRule | Error |
 | [PYTEST-FIX-011](./PYTEST-FIX-011.md) | YieldWithoutTryFinallyRule | Warning |
 | [PYTEST-FIX-012](./PYTEST-FIX-012.md) | FixtureNameShadowsBuiltinRule | Warning |
+| [PYTEST-FIX-013](./PYTEST-FIX-013.md) | AutouseCascadeDepthRule | Warning |
 
 ## Enhancement
 

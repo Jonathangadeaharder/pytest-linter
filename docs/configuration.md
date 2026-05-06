@@ -13,7 +13,10 @@ format = "terminal"
 output = ""
 
 # Select specific rules to enable (empty = all)
-rules = ["PYTEST-FLK-001", "PYTEST-MNT-004"]
+# Each rule is a table key with optional severity/enable overrides
+[tool.pytest-linter.rules]
+PYTEST-FLK-001 = {}
+PYTEST-MNT-004 = {}
 ```
 
 ## Per-Rule Overrides
@@ -21,11 +24,13 @@ rules = ["PYTEST-FLK-001", "PYTEST-MNT-004"]
 Override severity or disable individual rules:
 
 ```toml
-[tool.pytest-linter.overrides.PYTEST-FLK-001]
-severity = "info"
+[[tool.pytest-linter.overrides]]
+path = "tests/integration/**"
+rules = { PYTEST-FLK-001 = { severity = "info" } }
 
-[tool.pytest-linter.overrides.PYTEST-MNT-003]
-enabled = false
+[[tool.pytest-linter.overrides]]
+path = "tests/unit/**"
+rules = { PYTEST-MNT-003 = { enabled = false } }
 ```
 
 ## Suppression
