@@ -24,11 +24,11 @@ Reduce scope of '{fixture}' to match or be narrower than '{dep}'
 ### ❌ Bad
 
 ```python
-@pytest.fixture(scope='function')
+@pytest.fixture(scope='session')
 def config():
     return load_config()
 
-@pytest.fixture(scope='session')
+@pytest.fixture(scope='function')
 def db(config):
     return Database(config)
 ```
