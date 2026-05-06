@@ -760,11 +760,7 @@ impl PythonParser {
     }
 
     /// Check if an attribute chain's root is a fixture dependency.
-    fn is_fixture_chain(
-        node: &tree_sitter::Node,
-        source: &[u8],
-        fixture_deps: &[String],
-    ) -> bool {
+    fn is_fixture_chain(node: &tree_sitter::Node, source: &[u8], fixture_deps: &[String]) -> bool {
         let mut current = *node;
         loop {
             if current.kind() == "identifier" {
@@ -885,7 +881,12 @@ impl PythonParser {
                     let dec_texts: Vec<String> =
                         decorators.iter().map(|d| d.text.clone()).collect();
                     fixtures.push(Self::build_fixture(
-                        &func_node, source, file_path, &name, &dec_texts, &frozen_classes,
+                        &func_node,
+                        source,
+                        file_path,
+                        &name,
+                        &dec_texts,
+                        &frozen_classes,
                     ));
                 }
             }
@@ -1273,11 +1274,19 @@ impl PythonParser {
         frozen
     }
 
-    fn detect_mutable_return(body: Option<&tree_sitter::Node>, source: &[u8], frozen_classes: &HashSet<String>) -> bool {
+    fn detect_mutable_return(
+        body: Option<&tree_sitter::Node>,
+        source: &[u8],
+        frozen_classes: &HashSet<String>,
+    ) -> bool {
         body.is_some_and(|b| Self::has_mutable_return_in_body(*b, source, frozen_classes))
     }
 
-    fn has_mutable_return_in_body(node: tree_sitter::Node, source: &[u8], frozen_classes: &HashSet<String>) -> bool {
+    fn has_mutable_return_in_body(
+        node: tree_sitter::Node,
+        source: &[u8],
+        frozen_classes: &HashSet<String>,
+    ) -> bool {
         if node.kind() == "return_statement" {
             let mut cursor = node.walk();
             for child in node.children(&mut cursor) {
@@ -1295,7 +1304,11 @@ impl PythonParser {
         false
     }
 
-    fn is_mutable_node(node: tree_sitter::Node, source: &[u8], frozen_classes: &HashSet<String>) -> bool {
+    fn is_mutable_node(
+        node: tree_sitter::Node,
+        source: &[u8],
+        frozen_classes: &HashSet<String>,
+    ) -> bool {
         match node.kind() {
             "list" | "dictionary" | "set" => true,
             "call" => {
@@ -1304,18 +1317,45 @@ impl PythonParser {
                     let name = Self::node_text(f, source);
                     // Known immutable constructors
                     let immutable_constructors = [
-                        "int", "str", "float", "bool", "bytes", "complex",
-                        "tuple", "frozenset", "NoneType",
-                        "Path", "PurePath", "PurePosixPath", "PureWindowsPath",
-                        "Decimal", "date", "datetime", "time", "timedelta",
-                        "UUID", "ipaddress", "IPv4Address", "IPv6Address",
-                        "re.compile", "enum",
+                        "int",
+                        "str",
+                        "float",
+                        "bool",
+                        "bytes",
+                        "complex",
+                        "tuple",
+                        "frozenset",
+                        "NoneType",
+                        "Path",
+                        "PurePath",
+                        "PurePosixPath",
+                        "PureWindowsPath",
+                        "Decimal",
+                        "date",
+                        "datetime",
+                        "time",
+                        "timedelta",
+                        "UUID",
+                        "ipaddress",
+                        "IPv4Address",
+                        "IPv6Address",
+                        "re.compile",
+                        "enum",
                     ];
                     if immutable_constructors.iter().any(|ic| name == *ic) {
                         return false;
                     }
                     // Known mutable constructors
-                    let mutable_constructors = ["list", "dict", "set", "bytearray", "deque", "defaultdict", "Counter", "OrderedDict"];
+                    let mutable_constructors = [
+                        "list",
+                        "dict",
+                        "set",
+                        "bytearray",
+                        "deque",
+                        "defaultdict",
+                        "Counter",
+                        "OrderedDict",
+                    ];
                     if mutable_constructors.iter().any(|mc| name == *mc) {
                         return true;
                     }

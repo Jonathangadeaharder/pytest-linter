@@ -124,12 +124,27 @@ impl Rule for NetworkImportRule {
         _ctx: &RuleContext,
     ) -> Vec<Violation> {
         let network_modules = [
-            "requests", "socket", "httpx", "aiohttp", "urllib",
-            "urllib3", "pycurl", "tornado.httpclient", "grpc", "aiogrpc",
+            "requests",
+            "socket",
+            "httpx",
+            "aiohttp",
+            "urllib",
+            "urllib3",
+            "pycurl",
+            "tornado.httpclient",
+            "grpc",
+            "aiogrpc",
         ];
         let mock_layer_libs = [
-            "pytest_httpx", "respx", "aioresponses", "responses", "requests_mock",
-            "pytest_mock", "vcrpy", "betamax", "httmock",
+            "pytest_httpx",
+            "respx",
+            "aioresponses",
+            "responses",
+            "requests_mock",
+            "pytest_mock",
+            "vcrpy",
+            "betamax",
+            "httmock",
         ];
 
         let has_network = module
