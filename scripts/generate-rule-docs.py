@@ -48,7 +48,7 @@ RULES = [
             "import requests\nimport httpx\n\ndef test_api():\n    resp = requests.get('https://api.example.com')\n    assert resp.status_code == 200",
         ],
         "good": [
-            "from unittest.mock import patch\n\ndef test_api():\n    with patch('requests.get') as mock_get:\n        mock_get.return_value.status_code = 200\n        resp = requests.get('https://api.example.com')\n        assert resp.status_code == 200",
+            "import requests\nfrom unittest.mock import patch\n\ndef test_api():\n    with patch('requests.get') as mock_get:\n        mock_get.return_value.status_code = 200\n        resp = requests.get('https://api.example.com')\n        assert resp.status_code == 200",
         ],
     },
     {
@@ -315,7 +315,7 @@ RULES = [
         "suggestion": "Reduce scope of '{fixture}' to match or be narrower than '{dep}'",
         "rationale": "A fixture with a broader scope than its dependency will fail because the dependency may be torn down before the dependent fixture is done. Scope hierarchy: function < class < module < package < session.",
         "bad": [
-            "@pytest.fixture(scope='session')\ndef config():\n    return load_config()\n\n@pytest.fixture(scope='function')\ndef db(config):\n    return Database(config)",
+            "@pytest.fixture(scope='function')\ndef config():\n    return load_config()\n\n@pytest.fixture(scope='session')\ndef db(config):\n    return Database(config)",
         ],
         "good": [
             "@pytest.fixture(scope='session')\ndef config():\n    return load_config()\n\n@pytest.fixture(scope='session')\ndef db(config):\n    return Database(config)",
@@ -462,7 +462,7 @@ RULES = [
         "severity": "Warning",
         "category": "Flakiness",
         "message": "Test '{test}' uses socket without proper bind and timeout setup",
-        "suggestion": "Add socket.settimeout() or use timeout parameter in socket.socket()",
+        "suggestion": "Add socket.settimeout() or use socket.create_connection() with a timeout",
         "rationale": "Socket operations without timeout configuration can block indefinitely on connect/accept/recv. Tests that create sockets should always set timeouts to avoid hanging the test suite.",
         "bad": [
             "import socket\n\ndef test_server():\n    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)\n    s.connect(('localhost', 8080))\n    data = s.recv(1024)",
@@ -568,9 +568,9 @@ RULES = [
         "category": "Fixture",
         "message": "Fixture '{fixture}' uses yield without try/finally cleanup",
         "suggestion": "Wrap yield in try/finally to ensure cleanup runs even on failure",
-        "rationale": "A `yield` fixture without `try/finally` will skip teardown code if the test raises an exception. This leaves resources (DB connections, temp files, mocks) in a dirty state for subsequent tests.",
+        "rationale": "While pytest runs teardown code after `yield` even if a test fails, using `try/finally` is essential for fixtures that acquire multiple resources. It ensures that if an error occurs during the setup of one resource, previously acquired resources are still cleaned up.",
         "bad": [
-            "@pytest.fixture\ndef db_connection():\n    conn = create_connection()\n    yield conn\n    conn.close()  # skipped if test raises",
+            "@pytest.fixture\ndef db_connection():\n    conn = create_connection()\n    yield conn\n    conn.close()  # may be skipped if setup fails before yield",
         ],
         "good": [
             "@pytest.fixture\ndef db_connection():\n    conn = create_connection()\n    try:\n        yield conn\n    finally:\n        conn.close()  # always runs",
