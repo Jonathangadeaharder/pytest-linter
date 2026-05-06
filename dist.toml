@@ -1,5 +1,10 @@
 [dist]
 format = "gz"
+installers = ["shell", "powershell", "homebrew"]
+merge-tasks = true
+
+[dist.checksums]
+style = "file"
 
 [dist.targets]
 x86_64-unknown-linux-gnu = {}

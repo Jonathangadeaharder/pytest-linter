@@ -20,16 +20,77 @@ inputs:
     description: "Disable colored output"
     required: false
     default: "false"
+  version:
+    description: "Version of pytest-linter to use (defaults to the ref that triggered the workflow)"
+    required: false
+    default: ""
 runs:
   using: "composite"
   steps:
-    - name: Install Rust toolchain
-      uses: dtolnay/rust-toolchain@stable
-    - name: Cache Rust artifacts
-      uses: Swatinem/rust-cache@v2
-    - name: Build pytest-linter
+    - name: Determine version
+      id: version
       shell: bash
-      run: cargo build --release --manifest-path "${{ github.action_path }}/../Cargo.toml"
+      run: |
+        if [ -n "${{ inputs.version }}" ]; then
+          echo "value=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+        else
+          echo "value=latest" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Detect platform
+      id: platform
+      shell: bash
+      run: |
+        case "${{ runner.os }}-${{ runner.arch }}" in
+          Linux-X64)   echo "target=x86_64-unknown-linux-gnu" >> "$GITHUB_OUTPUT" ;;
+          Linux-ARM64) echo "target=aarch64-unknown-linux-gnu" >> "$GITHUB_OUTPUT" ;;
+          macOS-X64)   echo "target=x86_64-apple-darwin" >> "$GITHUB_OUTPUT" ;;
+          macOS-ARM64) echo "target=aarch64-apple-darwin" >> "$GITHUB_OUTPUT" ;;
+          Windows-X64) echo "target=x86_64-pc-windows-msvc" >> "$GITHUB_OUTPUT" ;;
+          *)           echo "Unsupported platform"; exit 1 ;;
+        esac
+
+    - name: Download pytest-linter binary (Unix)
+      if: runner.os != 'Windows'
+      shell: bash
+      run: |
+        VERSION="${{ steps.version.outputs.value }}"
+        TARGET="${{ steps.platform.outputs.target }}"
+        BASE_URL="https://github.com/Jonathangadeaharder/pytest-linter/releases/download/${VERSION}"
+        ARCHIVE="pytest-linter-${TARGET}.tar.gz"
+        CHECKSUM="${ARCHIVE}.sha256"
+
+        mkdir -p /tmp/pytest-linter
+        cd /tmp/pytest-linter
+
+        curl -fSL -o "${ARCHIVE}" "${BASE_URL}/${ARCHIVE}"
+        curl -fSL -o "${CHECKSUM}" "${BASE_URL}/${CHECKSUM}"
+        shasum -a 256 -c "${CHECKSUM}"
+        tar xzf "${ARCHIVE}" --strip-components=1
+        chmod +x pytest-linter
+        echo "/tmp/pytest-linter" >> "$GITHUB_PATH"
+
+    - name: Download pytest-linter binary (Windows)
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        $VERSION = "${{ steps.version.outputs.value }}"
+        $TARGET = "${{ steps.platform.outputs.target }}"
+        $BASE_URL = "https://github.com/Jonathangadeaharder/pytest-linter/releases/download/$VERSION"
+        $ARCHIVE = "pytest-linter-$TARGET.zip"
+        $CHECKSUM = "$ARCHIVE.sha256"
+
+        mkdir -Force C:\pytest-linter | Out-Null
+        cd C:\pytest-linter
+
+        Invoke-WebRequest -Uri "$BASE_URL/$ARCHIVE" -OutFile $ARCHIVE
+        Invoke-WebRequest -Uri "$BASE_URL/$CHECKSUM" -OutFile $CHECKSUM
+        $hash = (Get-FileHash -Algorithm SHA256 $ARCHIVE).Hash
+        $expected = (Get-Content $CHECKSUM).Split()[0]
+        if ($hash -ne $expected) { throw "Checksum mismatch" }
+        Expand-Archive -Path $ARCHIVE -DestinationPath .
+        "C:\pytest-linter" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
+
     - name: Run pytest-linter
       shell: bash
       run: |
@@ -40,4 +101,4 @@ runs:
         if [ "${{ inputs.no-color }}" == "true" ]; then
           ARGS="$ARGS --no-color"
         fi
-        ${{ github.action_path }}/../target/release/pytest-linter $ARGS ${{ inputs.path }}
+        pytest-linter $ARGS ${{ inputs.path }}

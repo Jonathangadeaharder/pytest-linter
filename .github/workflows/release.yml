@@ -11,8 +11,8 @@ permissions:
   attestations: write
 
 jobs:
-  build-and-release:
-    name: Build and Release
+  build-binaries:
+    name: Build ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -37,7 +37,7 @@ jobs:
           - target: x86_64-pc-windows-msvc
             os: windows-latest
             artifact_name: pytest-linter.exe
-            asset_name: pytest-linter-x86_64-pc-windows-msvc.exe
+            asset_name: pytest-linter-x86_64-pc-windows-msvc
 
     steps:
       - uses: actions/checkout@v4
@@ -45,7 +45,7 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      - name: Install cross-compilation tools (Linux)
+      - name: Install cross-compilation tools (Linux ARM64)
         if: matrix.target == 'aarch64-unknown-linux-gnu'
         run: |
           sudo apt-get update
@@ -85,9 +85,36 @@ jobs:
             staging/*.zip
             staging/*.sha256
 
+  build-python-wrapper:
+    name: Build PyPI package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Update wrapper version from tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          sed -i "s/VERSION = \".*\"/VERSION = \"$VERSION\"/" python-wrapper/pytest_linter_wrapper/__init__.py
+          sed -i "s/^version = \".*\"/version = \"$VERSION\"/" python-wrapper/pyproject.toml
+
+      - name: Build package
+        run: |
+          pip install build
+          cd python-wrapper
+          python -m build
+
+      - name: Upload dist artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: pypi-dist
+          path: python-wrapper/dist/
+
   release:
-    name: Create Release
-    needs: build-and-release
+    name: Create GitHub Release
+    needs: [build-binaries, build-python-wrapper]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -118,3 +145,22 @@ jobs:
         with:
           generate_release_notes: true
           files: artifacts/*
+
+  publish-pypi:
+    name: Publish to PyPI
+    needs: release
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/pytest-linter/
+    permissions:
+      id-token: write
+    steps:
+      - name: Download PyPI artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: pypi-dist
+          path: dist/
+
+      - name: Publish to PyPI (trusted publisher)
+        uses: pypa/gh-action-pypi-publish@release/v1

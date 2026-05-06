@@ -1,6 +1,6 @@
 # Rules Overview
 
-pytest-linter includes **28 rules** across three categories.
+pytest-linter includes **40 rules** across four categories.
 
 ## Flakiness
 
@@ -13,6 +13,10 @@ pytest-linter includes **28 rules** across three categories.
 | [PYTEST-FLK-005](./PYTEST-FLK-005.md) | MysteryGuestRule | Warning |
 | [PYTEST-XDIST-001](./PYTEST-XDIST-001.md) | XdistSharedStateRule | Warning |
 | [PYTEST-XDIST-002](./PYTEST-XDIST-002.md) | XdistFixtureIoRule | Warning |
+| [PYTEST-FLK-008](./PYTEST-FLK-008.md) | RandomWithoutSeedRule | Warning |
+| [PYTEST-FLK-009](./PYTEST-FLK-009.md) | SubprocessWithoutTimeoutRule | Warning |
+| [PYTEST-FLK-010](./PYTEST-FLK-010.md) | SocketWithoutBindTimeoutRule | Warning |
+| [PYTEST-FLK-011](./PYTEST-FLK-011.md) | DatetimeInAssertionRule | Warning |
 
 ## Maintenance
 
@@ -27,6 +31,10 @@ pytest-linter includes **28 rules** across three categories.
 | [PYTEST-PARAM-001](./PYTEST-PARAM-001.md) | ParametrizeEmptyRule | Warning |
 | [PYTEST-PARAM-002](./PYTEST-PARAM-002.md) | ParametrizeDuplicateRule | Warning |
 | [PYTEST-PARAM-003](./PYTEST-PARAM-003.md) | ParametrizeExplosionRule | Warning |
+| [PYTEST-MNT-014](./PYTEST-MNT-014.md) | ConditionalLogicInTestRule | Warning |
+| [PYTEST-MNT-015](./PYTEST-MNT-015.md) | DuplicateTestBodiesRule | Info |
+| [PYTEST-MNT-016](./PYTEST-MNT-016.md) | SleepWithValueRule | Warning |
+| [PYTEST-MNT-017](./PYTEST-MNT-017.md) | TestNameLengthRule | Info |
 
 ## Fixture
 
@@ -40,6 +48,10 @@ pytest-linter includes **28 rules** across three categories.
 | [PYTEST-FIX-007](./PYTEST-FIX-007.md) | FixtureMutationRule | Warning |
 | [PYTEST-FIX-008](./PYTEST-FIX-008.md) | FixtureDbCommitNoCleanupRule | Warning |
 | [PYTEST-FIX-009](./PYTEST-FIX-009.md) | FixtureOverlyBroadScopeRule | Warning |
+| [PYTEST-FIX-010](./PYTEST-FIX-010.md) | ModuleScopeFixtureMutatedRule | Error |
+| [PYTEST-FIX-011](./PYTEST-FIX-011.md) | YieldWithoutTryFinallyRule | Warning |
+| [PYTEST-FIX-012](./PYTEST-FIX-012.md) | FixtureNameShadowsBuiltinRule | Warning |
+| [PYTEST-FIX-013](./PYTEST-FIX-013.md) | AutouseCascadeDepthRule | Warning |
 
 ## Enhancement
 

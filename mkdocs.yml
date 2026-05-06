@@ -71,10 +71,10 @@ nav:
           - PYTEST-MNT-005 (MockOnlyVerifyRule): rules/PYTEST-MNT-005.md
           - PYTEST-MNT-006 (AssertionRouletteRule): rules/PYTEST-MNT-006.md
           - PYTEST-MNT-007 (RawExceptionHandlingRule): rules/PYTEST-MNT-007.md
-          - PYTEST-MNT-014 (DeprecatedMarkerRule): rules/PYTEST-MNT-014.md
-          - PYTEST-MNT-015 (TestNameTypoRule): rules/PYTEST-MNT-015.md
-          - PYTEST-MNT-016 (ConditionalSkipRule): rules/PYTEST-MNT-016.md
-          - PYTEST-MNT-017 (LooseCleanupRule): rules/PYTEST-MNT-017.md
+          - PYTEST-MNT-014 (ConditionalLogicInTestRule): rules/PYTEST-MNT-014.md
+          - PYTEST-MNT-015 (DuplicateTestBodiesRule): rules/PYTEST-MNT-015.md
+          - PYTEST-MNT-016 (SleepWithValueRule): rules/PYTEST-MNT-016.md
+          - PYTEST-MNT-017 (TestNameLengthRule): rules/PYTEST-MNT-017.md
           - PYTEST-BDD-001 (BddMissingScenarioRule): rules/PYTEST-BDD-001.md
           - PYTEST-PBT-001 (PropertyTestHintRule): rules/PYTEST-PBT-001.md
           - PYTEST-PARAM-001 (ParametrizeEmptyRule): rules/PYTEST-PARAM-001.md
@@ -88,10 +88,11 @@ nav:
           - PYTEST-FIX-006 (StatefulSessionFixtureRule): rules/PYTEST-FIX-006.md
           - PYTEST-FIX-007 (FixtureMutationRule): rules/PYTEST-FIX-007.md
           - PYTEST-FIX-008 (FixtureDbCommitNoCleanupRule): rules/PYTEST-FIX-008.md
-          - PYTEST-FIX-009 (AutouseCascadeDepthRule): rules/PYTEST-FIX-009.md
-          - PYTEST-FIX-010 (UnusedYieldFixtureRule): rules/PYTEST-FIX-010.md
-          - PYTEST-FIX-011 (MissingYieldCleanupRule): rules/PYTEST-FIX-011.md
-          - PYTEST-FIX-012 (FixtureParamCountRule): rules/PYTEST-FIX-012.md
+          - PYTEST-FIX-009 (FixtureOverlyBroadScopeRule): rules/PYTEST-FIX-009.md
+          - PYTEST-FIX-010 (ModuleScopeFixtureMutatedRule): rules/PYTEST-FIX-010.md
+          - PYTEST-FIX-011 (YieldWithoutTryFinallyRule): rules/PYTEST-FIX-011.md
+          - PYTEST-FIX-012 (FixtureNameShadowsBuiltinRule): rules/PYTEST-FIX-012.md
+          - PYTEST-FIX-013 (AutouseCascadeDepthRule): rules/PYTEST-FIX-013.md
           - PYTEST-DBC-001 (NoContractHintRule): rules/PYTEST-DBC-001.md
   - Comparison: comparison.md
   - Migration Guide: migration.md
