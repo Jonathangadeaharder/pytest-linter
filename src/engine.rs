@@ -125,7 +125,7 @@ impl LintEngine {
     /// Lint all test files discovered under the given paths and return violations.
     #[allow(clippy::missing_errors_doc)]
     pub fn lint_paths(&self, paths: &[PathBuf]) -> Result<Vec<Violation>> {
-        let files = discover_files(paths);
+        let files = discover_files(paths, &self.config.excludes);
 
         let (estimated_mb, over_budget) = exceeds_memory_budget(&files, self.memory_limit_mb);
         if over_budget {
@@ -216,8 +216,27 @@ fn exceeds_memory_budget(files: &[PathBuf], memory_limit_mb: usize) -> (u64, boo
     (estimated_mb, estimated_mb > memory_limit_mb as u64)
 }
 
-/// Discover test files from the given paths (files or directories).
-fn discover_files(paths: &[PathBuf]) -> Vec<PathBuf> {
+/// Default directory names to exclude during file discovery (virtual environments,
+/// package caches, and VCS directories).
+pub const DEFAULT_EXCLUDED_DIRS: &[&str] = &[
+    ".git",
+    ".hg",
+    ".svn",
+    ".venv",
+    "venv",
+    "env",
+    "__pypackages__",
+    "site-packages",
+    "node_modules",
+    "__pycache__",
+];
+
+/// Discover test files from the given paths (files or directories),
+/// skipping any directory whose name is in `exclude_dirs`.
+fn discover_files(paths: &[PathBuf], exclude_dirs: &[String]) -> Vec<PathBuf> {
+    let exclude_set: std::collections::HashSet<&str> =
+        exclude_dirs.iter().map(|s| s.as_str()).collect();
+
     let mut files = Vec::new();
 
     for path in paths {
@@ -226,6 +245,17 @@ fn discover_files(paths: &[PathBuf]) -> Vec<PathBuf> {
         } else if path.is_dir() {
             for entry in WalkDir::new(path)
                 .into_iter()
+                .filter_entry(|e| {
+                    // Prune directories that match any exclusion pattern
+                    if e.file_type().is_dir() {
+                        if let Some(name) = e.file_name().to_str() {
+                            if exclude_set.contains(name) {
+                                return false;
+                            }
+                        }
+                    }
+                    true
+                })
                 .filter_map(std::result::Result::ok)
             {
                 let p = entry.path();
@@ -726,6 +756,7 @@ fn format_sarif(violations: &[Violation], output_path: Option<&Path>) -> Result<
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
     use std::path::PathBuf;
 
     #[test]
@@ -1083,7 +1114,7 @@ mod tests {
         std::fs::write(dir.path().join("test_bar.txt"), "not a python file\n").unwrap();
         std::fs::write(dir.path().join("test_baz.rs"), "fn main() {}\n").unwrap();
 
-        let files = discover_files(&[dir.path().to_path_buf()]);
+        let files = discover_files(&[dir.path().to_path_buf()], &[]);
         let basenames: Vec<String> = files
             .iter()
             .map(|f| f.file_name().unwrap().to_string_lossy().to_string())
@@ -1109,7 +1140,7 @@ mod tests {
         std::fs::write(dir.path().join("helper.py"), "def helper(): pass\n").unwrap();
         std::fs::write(dir.path().join("conftest.py"), "import pytest\n").unwrap();
 
-        let files = discover_files(&[dir.path().to_path_buf()]);
+        let files = discover_files(&[dir.path().to_path_buf()], &[]);
         let basenames: Vec<String> = files
             .iter()
             .map(|f| f.file_name().unwrap().to_string_lossy().to_string())
@@ -1408,7 +1439,7 @@ mod tests {
         )
         .unwrap();
 
-        let files = discover_files(&[dir.path().to_path_buf()]);
+        let files = discover_files(&[dir.path().to_path_buf()], &[]);
         let names: Vec<String> = files
             .iter()
             .map(|f| f.file_name().unwrap().to_string_lossy().to_string())
@@ -1460,5 +1491,27 @@ mod tests {
     fn test_is_py_test_file_rejects_non_py_test_named_file() {
         // A file named "test_foo" without .py extension should be rejected
         assert!(!is_py_test_file(Path::new("test_foo")));
+    }
+
+    #[test]
+    fn test_discover_files_excludes_venv_dirs() {
+        let dir = tempfile::tempdir().unwrap();
+        let venv = dir.path().join(".venv/lib/site-packages");
+        fs::create_dir_all(&venv).unwrap();
+        fs::write(venv.join("test_something.py"), "def test_venv(): pass").unwrap();
+        fs::write(dir.path().join("test_real.py"), "def test_real(): pass").unwrap();
+        let files = discover_files(&[dir.path().to_path_buf()], &[".venv".to_string()]);
+        let names: Vec<String> = files
+            .iter()
+            .map(|f| f.file_name().unwrap().to_str().unwrap().to_string())
+            .collect();
+        assert!(
+            names.contains(&"test_real.py".to_string()),
+            "should include project test files"
+        );
+        assert!(
+            !names.iter().any(|n| n == "test_something.py"),
+            "should exclude .venv test files"
+        );
     }
 }
