@@ -3,6 +3,7 @@
 use anyhow::Result;
 use clap::Parser;
 use pytest_linter::config::Config;
+use pytest_linter::engine::DEFAULT_EXCLUDED_DIRS;
 use std::path::PathBuf;
 use std::process;
 
@@ -29,6 +30,10 @@ struct Cli {
     #[arg(long)]
     incremental: bool,
 
+    /// Additional directory names to exclude during file discovery (can be repeated).
+    #[arg(long, value_name = "DIR")]
+    exclude: Vec<String>,
+
     #[arg(long, default_value = "HEAD")]
     base: String,
 
@@ -43,7 +48,14 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     let mut config = Config::discover(&cli.paths[0])?;
-    config = config.merge_cli(cli.format.clone(), cli.output.clone());
+    let default_excludes: Vec<String> = DEFAULT_EXCLUDED_DIRS
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    let mut all_excludes = default_excludes;
+    all_excludes.extend(cli.exclude.iter().cloned());
+
+    config = config.merge_cli(cli.format.clone(), cli.output.clone(), all_excludes);
 
     let format_str = config
         .format

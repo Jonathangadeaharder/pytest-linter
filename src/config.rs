@@ -38,6 +38,8 @@ pub struct ToolConfig {
     pub output: Option<PathBuf>,
     /// Per-glob override configurations
     pub overrides: Option<Vec<OverrideConfig>>,
+    /// Additional directory names to exclude during file discovery
+    pub excludes: Option<Vec<String>>,
 }
 
 /// Final, merged configuration used by the linter.
@@ -59,6 +61,8 @@ pub struct Config {
     pub overrides: Vec<OverrideConfig>,
     /// Directory containing the config file, used for resolving override glob patterns
     pub config_dir: Option<PathBuf>,
+    /// Directory names to exclude during file discovery (in addition to built-in defaults)
+    pub excludes: Vec<String>,
 }
 
 impl Default for Config {
@@ -79,6 +83,7 @@ impl Default for Config {
             output: None,
             overrides: vec![],
             config_dir: None,
+            excludes: vec![],
         }
     }
 }
@@ -328,6 +333,8 @@ impl Config {
             self.config_dir = other.config_dir;
         }
 
+        self.excludes.extend(other.excludes);
+
         self
     }
 
@@ -377,13 +384,19 @@ impl Config {
     }
 
     /// Apply CLI overrides on top of existing config. If value is None, keep current value
-    pub fn merge_cli(mut self, format: Option<String>, output: Option<PathBuf>) -> Self {
+    pub fn merge_cli(
+        mut self,
+        format: Option<String>,
+        output: Option<PathBuf>,
+        excludes: Vec<String>,
+    ) -> Self {
         if format.is_some() {
             self.format = format;
         }
         if output.is_some() {
             self.output = output;
         }
+        self.excludes.extend(excludes);
         self
     }
 }
@@ -480,7 +493,11 @@ severity = "info"
     #[test]
     fn test_merge_cli_overrides() {
         let cfg = Config::default();
-        let merged = cfg.merge_cli(Some("json".to_string()), Some(PathBuf::from("out.log")));
+        let merged = cfg.merge_cli(
+            Some("json".to_string()),
+            Some(PathBuf::from("out.log")),
+            vec![],
+        );
         assert_eq!(merged.format, Some("json".to_string()));
         assert_eq!(merged.output, Some(PathBuf::from("out.log")));
     }
