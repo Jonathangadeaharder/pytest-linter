@@ -244,6 +244,23 @@ impl Rule for MockOnlyVerifyRule {
                     Some(test.name.clone()),
                 ));
             }
+            if test.has_weak_assertions && !test.weak_assertion_details.is_empty() {
+                violations.push(make_violation(
+                    self.id(),
+                    self.name(),
+                    self.severity(),
+                    self.category(),
+                    format!(
+                        "Test '{}' uses weak assertion patterns: {}",
+                        test.name,
+                        test.weak_assertion_details.join(", ")
+                    ),
+                    module.file_path.clone(),
+                    test.line,
+                    Some("Use value-level assertions instead of type/existence/key-presence checks".to_string()),
+                    Some(test.name.clone()),
+                ));
+            }
         }
         violations
     }

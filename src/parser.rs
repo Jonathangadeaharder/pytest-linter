@@ -181,6 +181,8 @@ impl PythonParser {
         let mocked_stdlib_targets =
             Self::detect_stdlib_mock_targets(body.as_ref(), source, &decorators);
         let mocks_stdlib_module = !mocked_stdlib_targets.is_empty();
+        let (has_weak_assertions, weak_assertion_details) =
+            Self::detect_weak_assertions(body.as_ref(), source);
 
         let body_hash = body.map(|b| {
             let text = Self::node_text(b, source);
@@ -220,6 +222,8 @@ impl PythonParser {
             has_subprocess_timeout,
             mocks_stdlib_module,
             mocked_stdlib_targets,
+            has_weak_assertions,
+            weak_assertion_details,
         }
     }
 
@@ -1549,6 +1553,79 @@ impl PythonParser {
             }
         }
         false
+    }
+
+    fn detect_weak_assertions(
+        body: Option<&tree_sitter::Node>,
+        source: &[u8],
+    ) -> (bool, Vec<String>) {
+        let mut details = Vec::new();
+        if let Some(b) = body {
+            Self::collect_weak_assertions(*b, source, &mut details);
+        }
+        (!details.is_empty(), details)
+    }
+
+    fn collect_weak_assertions(
+        node: tree_sitter::Node,
+        source: &[u8],
+        details: &mut Vec<String>,
+    ) {
+        if node.kind() == "call" {
+            let func = node.child_by_field_name("function");
+            if let Some(f) = func {
+                let text = Self::node_text(f, source);
+                let weak_patterns = [
+                    ("assertIsInstance", "type-only assertion"),
+                    ("isinstance", "type-only assertion"),
+                    ("assertTrue", "existence-only assertion"),
+                    ("assertIsNotNone", "existence-only assertion"),
+                    ("assertIn", "key-presence-only assertion"),
+                    ("assert "HasKey", "key-presence-only assertion"),
+                ];
+                for (pattern, category) in &weak_patterns {
+                    if text.contains(pattern) {
+                        details.push(category.to_string());
+                    }
+                }
+                if text == "assertIsInstance" || text == "isinstance" {
+                    let already = details.iter().any(|d| d == "type-only assertion");
+                    if !already {
+                        details.push("type-only assertion".to_string());
+                    }
+                }
+            }
+        }
+        if node.kind() == "comparison_operator" {
+            let mut cursor = node.walk();
+            let children: Vec<_> = node.children(&mut cursor).collect();
+            let ops: Vec<&str> = children.iter().map(|c| Self::node_text(*c, source).trim()).collect();
+            for op in &ops {
+                if *op == "in" {
+                    details.push("key-presence-only assertion".to_string());
+                }
+                if *op == "is not" {
+                    for right_text in &ops {
+                        if *right_text == "None" {
+                            details.push("existence-only assertion".to_string());
+                        }
+                    }
+                }
+            }
+            for (i, child) in children.iter().enumerate() {
+                let text = Self::node_text(*child, source);
+                if text == "type" && i + 1 < children.len() {
+                    let next_text = Self::node_text(children[i + 1], source);
+                    if next_text == "==" || next_text == "is" {
+                        details.push("type-only assertion".to_string());
+                    }
+                }
+            }
+        }
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            Self::collect_weak_assertions(child, source, details);
+        }
     }
 
     fn detect_stdlib_mock_targets(
