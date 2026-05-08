@@ -34,10 +34,8 @@ impl Rule for PatchTargetingDefinitionModuleRule {
                     if let Some(ci) = class_idx {
                         if ci > 0 {
                             let def_module = parts[..ci].join(".");
-                            let imports_from_definition = module
-                                .imports
-                                .iter()
-                                .any(|imp| imp.contains(&def_module));
+                            let imports_from_definition =
+                                module.imports.iter().any(|imp| imp.contains(&def_module));
                             if imports_from_definition {
                                 violations.push(make_violation(
                                     self.id(),

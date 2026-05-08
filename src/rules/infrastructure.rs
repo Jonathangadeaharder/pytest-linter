@@ -24,8 +24,8 @@ impl Rule for NetworkBanMissingRule {
         _ctx: &RuleContext,
     ) -> Vec<Violation> {
         let network_modules = [
-            "requests", "httpx", "aiohttp", "urllib", "urllib3", "socket",
-            "pycurl", "grpc", "aiogrpc",
+            "requests", "httpx", "aiohttp", "urllib", "urllib3", "socket", "pycurl", "grpc",
+            "aiogrpc",
         ];
         let has_network = module
             .imports
@@ -38,8 +38,15 @@ impl Rule for NetworkBanMissingRule {
             || module.source.contains("pytest.mark.network")
             || module.source.contains("conftest");
         let mock_layer_libs = [
-            "pytest_httpx", "respx", "aioresponses", "responses",
-            "requests_mock", "pytest_mock", "vcrpy", "betamax", "httmock",
+            "pytest_httpx",
+            "respx",
+            "aioresponses",
+            "responses",
+            "requests_mock",
+            "pytest_mock",
+            "vcrpy",
+            "betamax",
+            "httmock",
         ];
         let has_mock_layer = module
             .imports
@@ -56,7 +63,9 @@ impl Rule for NetworkBanMissingRule {
             "File imports network libraries without @pytest.mark.network or mock layer".to_string(),
             module.file_path.clone(),
             1,
-            Some("Add @pytest.mark.network or use a mock layer (respx, responses, etc.)".to_string()),
+            Some(
+                "Add @pytest.mark.network or use a mock layer (respx, responses, etc.)".to_string(),
+            ),
             None,
         )]
     }
@@ -83,9 +92,7 @@ impl Rule for LiveSuiteUnmarkedRule {
         _all_modules: &[ParsedModule],
         _ctx: &RuleContext,
     ) -> Vec<Violation> {
-        let network_modules = [
-            "requests", "httpx", "aiohttp", "urllib", "socket", "grpc",
-        ];
+        let network_modules = ["requests", "httpx", "aiohttp", "urllib", "socket", "grpc"];
         let has_network = module
             .imports
             .iter()
@@ -94,8 +101,14 @@ impl Rule for LiveSuiteUnmarkedRule {
             return vec![];
         }
         let mock_layer_libs = [
-            "pytest_httpx", "respx", "aioresponses", "responses",
-            "requests_mock", "vcrpy", "betamax", "httmock",
+            "pytest_httpx",
+            "respx",
+            "aioresponses",
+            "responses",
+            "requests_mock",
+            "vcrpy",
+            "betamax",
+            "httmock",
         ];
         let has_mock_layer = module
             .imports
@@ -159,9 +172,7 @@ impl Rule for NonIdiomaticMonkeyPatchRule {
                     "monkeypatch.chdir(",
                     "monkeypatch.syspath_prepend(",
                 ];
-                let has_monkeypatch_call = non_idiomatic_patterns
-                    .iter()
-                    .any(|p| body.contains(p));
+                let has_monkeypatch_call = non_idiomatic_patterns.iter().any(|p| body.contains(p));
                 if has_monkeypatch_call {
                     let has_context = body.contains("with monkeypatch.context()")
                         || body.contains("monkeypatch.undo()");

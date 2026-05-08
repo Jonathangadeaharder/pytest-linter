@@ -258,7 +258,10 @@ impl Rule for MockOnlyVerifyRule {
                     ),
                     module.file_path.clone(),
                     test.line,
-                    Some("Use value-level assertions instead of type/existence/key-presence checks".to_string()),
+                    Some(
+                        "Use value-level assertions instead of type/existence/key-presence checks"
+                            .to_string(),
+                    ),
                     Some(test.name.clone()),
                 ));
             }
@@ -837,19 +840,26 @@ impl Rule for InlineSchemaRedeclaredRule {
         if tests.len() < 2 {
             return violations;
         }
-        let mut schema_hashes: HashMap<u64, Vec<String>> =
-            HashMap::new();
+        let mut schema_hashes: HashMap<u64, Vec<String>> = HashMap::new();
         for test in tests {
             for line in source.lines() {
                 let trimmed = line.trim();
                 let dict_content = if let Some(eq_pos) = trimmed.find("= {") {
                     let rest = &trimmed[eq_pos + 2..].trim();
-                    if rest.starts_with('{') && rest.ends_with('}') && rest.len() > 20 && rest.contains(':') {
+                    if rest.starts_with('{')
+                        && rest.ends_with('}')
+                        && rest.len() > 20
+                        && rest.contains(':')
+                    {
                         Some(rest.to_string())
                     } else {
                         None
                     }
-                } else if trimmed.starts_with('{') && trimmed.ends_with('}') && trimmed.len() > 20 && trimmed.contains(':') {
+                } else if trimmed.starts_with('{')
+                    && trimmed.ends_with('}')
+                    && trimmed.len() > 20
+                    && trimmed.contains(':')
+                {
                     Some(trimmed.to_string())
                 } else {
                     None
@@ -858,7 +868,10 @@ impl Rule for InlineSchemaRedeclaredRule {
                     let mut hasher = std::collections::hash_map::DefaultHasher::new();
                     content.hash(&mut hasher);
                     let hash = hasher.finish();
-                    schema_hashes.entry(hash).or_default().push(test.name.clone());
+                    schema_hashes
+                        .entry(hash)
+                        .or_default()
+                        .push(test.name.clone());
                 }
             }
         }

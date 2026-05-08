@@ -1573,11 +1573,7 @@ impl PythonParser {
         (!details.is_empty(), details)
     }
 
-    fn collect_weak_assertions(
-        node: tree_sitter::Node,
-        source: &[u8],
-        details: &mut Vec<String>,
-    ) {
+    fn collect_weak_assertions(node: tree_sitter::Node, source: &[u8], details: &mut Vec<String>) {
         if node.kind() == "call" {
             let func = node.child_by_field_name("function");
             if let Some(f) = func {
@@ -1603,7 +1599,10 @@ impl PythonParser {
         if node.kind() == "comparison_operator" {
             let mut cursor = node.walk();
             let children: Vec<_> = node.children(&mut cursor).collect();
-            let ops: Vec<String> = children.iter().map(|c| Self::node_text(*c, source).trim().to_string()).collect();
+            let ops: Vec<String> = children
+                .iter()
+                .map(|c| Self::node_text(*c, source).trim().to_string())
+                .collect();
             for op in &ops {
                 if op == "in" {
                     details.push("key-presence-only assertion".to_string());
@@ -1721,16 +1720,24 @@ impl PythonParser {
         targets
     }
 
-    fn detect_mock_usage(
-        body: Option<&tree_sitter::Node>,
-        source: &[u8],
-    ) -> (bool, usize) {
-        let body_text = body.map(|b| Self::node_text(*b, source)).unwrap_or_default();
+    fn detect_mock_usage(body: Option<&tree_sitter::Node>, source: &[u8]) -> (bool, usize) {
+        let body_text = body
+            .map(|b| Self::node_text(*b, source))
+            .unwrap_or_default();
         let has_magic_mock = body_text.contains("MagicMock");
         let mock_kw = [
-            "Mock(", "MagicMock(", "AsyncMock(", "patch(", ".return_value",
-            ".side_effect", ".assert_called", ".called", ".call_count",
-            ".assert_called_once", ".assert_called_with", ".assert_not_called",
+            "Mock(",
+            "MagicMock(",
+            "AsyncMock(",
+            "patch(",
+            ".return_value",
+            ".side_effect",
+            ".assert_called",
+            ".called",
+            ".call_count",
+            ".assert_called_once",
+            ".assert_called_with",
+            ".assert_not_called",
         ];
         let mut count = 0usize;
         for kw in &mock_kw {
@@ -1743,11 +1750,10 @@ impl PythonParser {
         (has_magic_mock, count)
     }
 
-    fn detect_shutil_copy(
-        body: Option<&tree_sitter::Node>,
-        source: &[u8],
-    ) -> bool {
-        let body_text = body.map(|b| Self::node_text(*b, source)).unwrap_or_default();
+    fn detect_shutil_copy(body: Option<&tree_sitter::Node>, source: &[u8]) -> bool {
+        let body_text = body
+            .map(|b| Self::node_text(*b, source))
+            .unwrap_or_default();
         body_text.contains("shutil.copy(")
             || body_text.contains("shutil.copy2(")
             || body_text.contains("shutil.copyfile(")
