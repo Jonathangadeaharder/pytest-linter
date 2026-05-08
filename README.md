@@ -24,9 +24,9 @@ pytest-linter --baseline violations.json /path/to/tests
 pytest-linter --check-baseline violations.json /path/to/tests
 ```
 
-## Rules (30)
+## Rules (49)
 
-**Flakiness (9):**
+**Flakiness (7):**
 
 | Rule ID | Name | Severity |
 |---------|------|----------|
@@ -37,8 +37,19 @@ pytest-linter --check-baseline violations.json /path/to/tests
 | PYTEST-FLK-005 | MysteryGuestRule | Warning |
 | PYTEST-FLK-008 | RandomWithoutSeedRule | Warning |
 | PYTEST-FLK-009 | SubprocessWithoutTimeoutRule | Warning |
+| PYTEST-FLK-010 | SocketWithoutBindTimeoutRule | Warning |
+| PYTEST-FLK-011 | DatetimeInAssertionRule | Warning |
 | PYTEST-XDIST-001 | XdistSharedStateRule | Warning |
 | PYTEST-XDIST-002 | XdistFixtureIoRule | Warning |
+
+**Infrastructure (4):**
+
+| Rule ID | Name | Severity |
+|---------|------|----------|
+| PYTEST-INF-001 | NetworkBanMissingRule | Warning |
+| PYTEST-INF-002 | LiveSuiteUnmarkedRule | Warning |
+| PYTEST-INF-003 | NonIdiomaticMonkeyPatchRule | Info |
+| PYTEST-INF-004 | MacOsCopyArtefactRule | Warning |
 
 **Maintenance (12):**
 
@@ -51,11 +62,20 @@ pytest-linter --check-baseline violations.json /path/to/tests
 | PYTEST-MNT-005 | MockOnlyVerifyRule | Warning |
 | PYTEST-MNT-006 | AssertionRouletteRule | Warning |
 | PYTEST-MNT-007 | RawExceptionHandlingRule | Warning |
+| PYTEST-MNT-014 | ConditionalLogicInTestRule | Warning |
+| PYTEST-MNT-015 | DuplicateTestBodiesRule | Info |
+| PYTEST-MNT-016 | SleepWithValueRule | Warning |
+| PYTEST-MNT-017 | TestNameLengthRule | Info |
+| PYTEST-VAL-001 | InlineSchemaRedeclaredRule | Info |
 | PYTEST-BDD-001 | BddMissingScenarioRule | Info |
 | PYTEST-PBT-001 | PropertyTestHintRule | Info |
 | PYTEST-PARAM-001 | ParametrizeEmptyRule | Warning |
 | PYTEST-PARAM-002 | ParametrizeDuplicateRule | Warning |
 | PYTEST-PARAM-003 | ParametrizeExplosionRule | Warning |
+| PYTEST-MOC-001 | PatchTargetingDefinitionModuleRule | Warning |
+| PYTEST-MOC-002 | MagicMockOnAsyncRule | Error |
+| PYTEST-MOC-003 | PatchInitBypassRule | Warning |
+| PYTEST-MOC-004 | MockRatioBudgetRule | Info |
 
 **Fixtures (9):**
 
@@ -69,6 +89,10 @@ pytest-linter --check-baseline violations.json /path/to/tests
 | PYTEST-FIX-007 | FixtureMutationRule | Warning |
 | PYTEST-FIX-008 | FixtureDbCommitNoCleanupRule | Warning |
 | PYTEST-FIX-009 | FixtureOverlyBroadScopeRule | Warning |
+| PYTEST-FIX-010 | ModuleScopeFixtureMutatedRule | Error |
+| PYTEST-FIX-011 | YieldWithoutTryFinallyRule | Warning |
+| PYTEST-FIX-012 | FixtureNameShadowsBuiltinRule | Warning |
+| PYTEST-FIX-013 | AutouseCascadeDepthRule | Warning |
 | PYTEST-DBC-001 | NoContractHintRule | Info |
 
 ## CLI Options

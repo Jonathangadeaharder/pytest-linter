@@ -15,6 +15,7 @@ def test_slow():  # expect: PYTEST-MNT-016
 
 # --- FLK-003: network import at module level ---
 # expect: PYTEST-FLK-003
+# expect: PYTEST-INF-001
 
 
 # --- FLK-002: file I/O without tmp_path ---

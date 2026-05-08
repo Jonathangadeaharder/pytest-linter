@@ -2,6 +2,7 @@
 # expect: PYTEST-FIX-007
 # expect: PYTEST-BDD-001
 # expect: PYTEST-DBC-001
+# expect: PYTEST-MNT-005
 
 import pytest
 

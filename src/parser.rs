@@ -181,7 +181,13 @@ impl PythonParser {
         let mocked_stdlib_targets =
             Self::detect_stdlib_mock_targets(body.as_ref(), source, &decorators);
         let mocks_stdlib_module = !mocked_stdlib_targets.is_empty();
+        let (has_weak_assertions, weak_assertion_details) =
+            Self::detect_weak_assertions(body.as_ref(), source);
+        let patch_targets = Self::detect_all_patch_targets(body.as_ref(), source, &decorators);
+        let (has_magic_mock, mock_count) = Self::detect_mock_usage(body.as_ref(), source);
+        let uses_shutil_copy = Self::detect_shutil_copy(body.as_ref(), source);
 
+        let end_line = func_node.end_position().row + 1;
         let body_hash = body.map(|b| {
             let text = Self::node_text(b, source);
             let mut hasher = std::collections::hash_map::DefaultHasher::new();
@@ -193,6 +199,7 @@ impl PythonParser {
             name: name.to_string(),
             file_path: file_path.to_path_buf(),
             line,
+            end_line,
             is_async,
             is_parametrized,
             parametrize_count,
@@ -220,6 +227,12 @@ impl PythonParser {
             has_subprocess_timeout,
             mocks_stdlib_module,
             mocked_stdlib_targets,
+            has_weak_assertions,
+            weak_assertion_details,
+            patch_targets,
+            has_magic_mock,
+            mock_count,
+            uses_shutil_copy,
         }
     }
 
@@ -1551,6 +1564,74 @@ impl PythonParser {
         false
     }
 
+    fn detect_weak_assertions(
+        body: Option<&tree_sitter::Node>,
+        source: &[u8],
+    ) -> (bool, Vec<String>) {
+        let mut details = Vec::new();
+        if let Some(b) = body {
+            Self::collect_weak_assertions(*b, source, &mut details);
+        }
+        (!details.is_empty(), details)
+    }
+
+    fn collect_weak_assertions(node: tree_sitter::Node, source: &[u8], details: &mut Vec<String>) {
+        if node.kind() == "call" {
+            let func = node.child_by_field_name("function");
+            if let Some(f) = func {
+                let text = Self::node_text(f, source);
+                let weak_patterns: &[(&str, &str)] = &[
+                    ("assertIsInstance", "type-only assertion"),
+                    ("isinstance", "type-only assertion"),
+                    ("assertTrue", "existence-only assertion"),
+                    ("assertIsNotNone", "existence-only assertion"),
+                    ("assertIn", "key-presence-only assertion"),
+                ];
+                for (pattern, category) in weak_patterns {
+                    if text.contains(pattern) {
+                        let already = details.iter().any(|d| d == *category);
+                        if !already {
+                            details.push(category.to_string());
+                        }
+                    }
+                }
+            }
+        }
+        if node.kind() == "comparison_operator" {
+            let mut cursor = node.walk();
+            let children: Vec<_> = node.children(&mut cursor).collect();
+            let ops: Vec<String> = children
+                .iter()
+                .map(|c| Self::node_text(*c, source).trim().to_string())
+                .collect();
+            for op in &ops {
+                if op == "in" {
+                    details.push("key-presence-only assertion".to_string());
+                }
+                if *op == "is not" {
+                    for right_text in &ops {
+                        if *right_text == "None" {
+                            details.push("existence-only assertion".to_string());
+                        }
+                    }
+                }
+            }
+            for (i, child) in children.iter().enumerate() {
+                let text = Self::node_text(*child, source);
+                if text == "type" && i + 1 < children.len() {
+                    let next_text = Self::node_text(children[i + 1], source);
+                    if next_text == "==" || next_text == "is" {
+                        details.push("type-only assertion".to_string());
+                    }
+                }
+            }
+        }
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            Self::collect_weak_assertions(child, source, details);
+        }
+    }
+
     fn detect_stdlib_mock_targets(
         body: Option<&tree_sitter::Node>,
         source: &[u8],
@@ -1611,6 +1692,74 @@ impl PythonParser {
         }
 
         targets
+    }
+
+    fn detect_all_patch_targets(
+        body: Option<&tree_sitter::Node>,
+        source: &[u8],
+        decorators: &[DecoratorInfo],
+    ) -> Vec<String> {
+        let mut targets = Vec::new();
+        for dec in decorators {
+            if let Some(target) = extract_patch_target(&dec.text) {
+                if !targets.contains(&target) {
+                    targets.push(target);
+                }
+            }
+        }
+        if let Some(body_node) = body {
+            let body_text = Self::node_text(*body_node, source);
+            for cap in body_text.match_indices("patch(") {
+                let after = &body_text[cap.0..];
+                if let Some(target) = extract_patch_target(after) {
+                    if !targets.contains(&target) {
+                        targets.push(target);
+                    }
+                }
+            }
+        }
+        targets
+    }
+
+    fn detect_mock_usage(body: Option<&tree_sitter::Node>, source: &[u8]) -> (bool, usize) {
+        let body_text = body
+            .map(|b| Self::node_text(*b, source))
+            .unwrap_or_default();
+        let has_magic_mock = body_text.contains("MagicMock");
+        let mock_kw = [
+            "Mock(",
+            "MagicMock(",
+            "AsyncMock(",
+            "patch(",
+            ".return_value",
+            ".side_effect",
+            ".assert_called",
+            ".called",
+            ".call_count",
+            ".assert_called_once",
+            ".assert_called_with",
+            ".assert_not_called",
+        ];
+        let mut count = 0usize;
+        for kw in &mock_kw {
+            let mut start = 0;
+            while let Some(pos) = body_text[start..].find(kw) {
+                count += 1;
+                start += pos + kw.len();
+            }
+        }
+        (has_magic_mock, count)
+    }
+
+    fn detect_shutil_copy(body: Option<&tree_sitter::Node>, source: &[u8]) -> bool {
+        let body_text = body
+            .map(|b| Self::node_text(*b, source))
+            .unwrap_or_default();
+        body_text.contains("shutil.copy(")
+            || body_text.contains("shutil.copy2(")
+            || body_text.contains("shutil.copyfile(")
+            || body_text.contains("shutil.copytree(")
+            || body_text.contains("shutil.move(")
     }
 }
 

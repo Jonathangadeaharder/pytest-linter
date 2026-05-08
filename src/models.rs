@@ -101,6 +101,13 @@ pub struct TestFunction {
     pub has_subprocess_timeout: bool,
     pub mocks_stdlib_module: bool,
     pub mocked_stdlib_targets: Vec<String>,
+    pub has_weak_assertions: bool,
+    pub weak_assertion_details: Vec<String>,
+    pub patch_targets: Vec<String>,
+    pub has_magic_mock: bool,
+    pub mock_count: usize,
+    pub uses_shutil_copy: bool,
+    pub end_line: usize,
 }
 
 /// Scope of a pytest fixture, from narrowest (function) to widest (session).

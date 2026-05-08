@@ -1,10 +1,18 @@
 //! Rules that detect test maintenance issues: magic asserts, missing assertions, conditional logic.
 
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 
 use crate::engine::make_violation;
 use crate::models::{Category, ParsedModule, Severity, Violation};
 use crate::rules::{Rule, RuleContext};
+
+fn stable_hash(content: &str) -> u64 {
+    use std::collections::hash_map::DefaultHasher;
+    let mut hasher = DefaultHasher::new();
+    content.hash(&mut hasher);
+    hasher.finish()
+}
 
 /// Rule that detects conditional logic inside test functions.
 pub struct TestLogicRule;
@@ -241,6 +249,26 @@ impl Rule for MockOnlyVerifyRule {
                     module.file_path.clone(),
                     test.line,
                     Some("Refactor to inject dependencies instead of patching stdlib internals".to_string()),
+                    Some(test.name.clone()),
+                ));
+            }
+            if test.has_weak_assertions && !test.weak_assertion_details.is_empty() {
+                violations.push(make_violation(
+                    self.id(),
+                    self.name(),
+                    self.severity(),
+                    self.category(),
+                    format!(
+                        "Test '{}' uses weak assertion patterns: {}",
+                        test.name,
+                        test.weak_assertion_details.join(", ")
+                    ),
+                    module.file_path.clone(),
+                    test.line,
+                    Some(
+                        "Use value-level assertions instead of type/existence/key-presence checks"
+                            .to_string(),
+                    ),
                     Some(test.name.clone()),
                 ));
             }
@@ -786,6 +814,99 @@ impl Rule for TestNameLengthRule {
                     Some("Shorten the test name to be more concise".to_string()),
                     Some(test.name.clone()),
                 ));
+            }
+        }
+        violations
+    }
+}
+
+pub struct InlineSchemaRedeclaredRule;
+
+impl Rule for InlineSchemaRedeclaredRule {
+    fn id(&self) -> &'static str {
+        "PYTEST-VAL-001"
+    }
+    fn name(&self) -> &'static str {
+        "InlineSchemaRedeclaredRule"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Info
+    }
+    fn category(&self) -> Category {
+        Category::Enhancement
+    }
+    fn check(
+        &self,
+        module: &ParsedModule,
+        _all_modules: &[ParsedModule],
+        _ctx: &RuleContext,
+    ) -> Vec<Violation> {
+        let mut violations = Vec::new();
+        let source = &module.source;
+        let tests = &module.test_functions;
+        if tests.len() < 2 {
+            return violations;
+        }
+        let mut schema_hashes: HashMap<u64, Vec<String>> = HashMap::new();
+        let source_lines: Vec<&str> = source.lines().collect();
+        for test in tests {
+            let start = test.line.saturating_sub(1);
+            let len = test.end_line.saturating_sub(test.line).max(1);
+            for line in source_lines.iter().skip(start).take(len) {
+                let trimmed = line.trim();
+                let dict_content = if let Some(eq_pos) = trimmed.find("= {") {
+                    let rest = &trimmed[eq_pos + 2..].trim();
+                    if rest.starts_with('{')
+                        && rest.ends_with('}')
+                        && rest.len() > 20
+                        && rest.contains(':')
+                    {
+                        Some(rest.to_string())
+                    } else {
+                        None
+                    }
+                } else if trimmed.starts_with('{')
+                    && trimmed.ends_with('}')
+                    && trimmed.len() > 20
+                    && trimmed.contains(':')
+                {
+                    Some(trimmed.to_string())
+                } else {
+                    None
+                };
+                if let Some(content) = dict_content {
+                    let hash = stable_hash(&content);
+                    schema_hashes
+                        .entry(hash)
+                        .or_default()
+                        .push(test.name.clone());
+                }
+            }
+        }
+        let mut reported = std::collections::HashSet::new();
+        for (hash, names) in &schema_hashes {
+            if names.len() >= 2 && !reported.contains(hash) {
+                reported.insert(*hash);
+                let unique_names: std::collections::HashSet<&str> =
+                    names.iter().map(|n| n.as_str()).collect();
+                if unique_names.len() >= 2 {
+                    let test_names: Vec<&str> = unique_names.into_iter().collect();
+                    violations.push(make_violation(
+                        self.id(),
+                        self.name(),
+                        self.severity(),
+                        self.category(),
+                        format!(
+                            "Inline schema redeclared across {} tests: {} — extract to a fixture",
+                            test_names.len(),
+                            test_names.join(", ")
+                        ),
+                        module.file_path.clone(),
+                        1,
+                        Some("Extract shared test data into a fixture or conftest".to_string()),
+                        None,
+                    ));
+                }
             }
         }
         violations

@@ -15,6 +15,7 @@ def test_slow_wait():  # expect: PYTEST-MNT-016
 
 # --- FLK-003: network import at module level ---
 # expect: PYTEST-FLK-003
+# expect: PYTEST-INF-001
 
 
 # --- MNT-004: no assertion ---
