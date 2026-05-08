@@ -1230,6 +1230,10 @@ mod tests {
                 mocked_stdlib_targets: vec![],
                 has_weak_assertions: false,
                 weak_assertion_details: vec![],
+                patch_targets: vec![],
+                has_magic_mock: false,
+                mock_count: 0,
+                uses_shutil_copy: false,
             }],
             fixtures: vec![
                 Fixture {
@@ -1313,12 +1317,16 @@ mod tests {
                 mocks_stdlib_module: false,
                 mocked_stdlib_targets: vec![],
                 has_weak_assertions: false,
-                weak_assertion_details: vec![],
-            }],
-            fixtures: vec![Fixture {
-                name: "db_connection".to_string(),
-                file_path: PathBuf::from("test_a.py"),
-                line: 3,
+                 weak_assertion_details: vec![],
+                 patch_targets: vec![],
+                 has_magic_mock: false,
+                 mock_count: 0,
+                 uses_shutil_copy: false,
+             }],
+             fixtures: vec![Fixture {
+                 name: "db_connection".to_string(),
+                 file_path: PathBuf::from("test_a.py"),
+                 line: 3,
                 scope: FixtureScope::Function,
                 is_autouse: false,
                 dependencies: vec![],
@@ -1379,11 +1387,15 @@ mod tests {
                 mocks_stdlib_module: false,
                 mocked_stdlib_targets: vec![],
                 has_weak_assertions: false,
-                weak_assertion_details: vec![],
-            }],
-            fixtures: vec![
-                Fixture {
-                    name: "api_client".to_string(),
+                 weak_assertion_details: vec![],
+                 patch_targets: vec![],
+                 has_magic_mock: false,
+                 mock_count: 0,
+                 uses_shutil_copy: false,
+             }],
+             fixtures: vec![
+                 Fixture {
+                     name: "api_client".to_string(),
                     file_path: PathBuf::from("test_a.py"),
                     line: 3,
                     scope: FixtureScope::Function,

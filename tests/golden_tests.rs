@@ -125,3 +125,48 @@ fn test_golden_flk_003_network_httpx() {
 fn test_golden_flk_003_network_mock_clean() {
     run_golden_test("flk_003_network_mock_clean.py");
 }
+
+#[test]
+fn test_golden_moc_001_patch_definition() {
+    run_golden_test("moc_001_patch_definition.py");
+}
+
+#[test]
+fn test_golden_moc_002_async_magic_mock() {
+    run_golden_test("moc_002_async_magic_mock.py");
+}
+
+#[test]
+fn test_golden_moc_003_patch_init() {
+    run_golden_test("moc_003_patch_init.py");
+}
+
+#[test]
+fn test_golden_moc_004_mock_ratio() {
+    run_golden_test("moc_004_mock_ratio.py");
+}
+
+#[test]
+fn test_golden_inf_001_network_ban_missing() {
+    run_golden_test("inf_001_network_ban_missing.py");
+}
+
+#[test]
+fn test_golden_inf_002_live_unmarked() {
+    run_golden_test("inf_002_live_unmarked.py");
+}
+
+#[test]
+fn test_golden_inf_003_monkeypatch_nonidiomatic() {
+    run_golden_test("inf_003_monkeypatch_nonidiomatic.py");
+}
+
+#[test]
+fn test_golden_inf_004_shutil_copy() {
+    run_golden_test("inf_004_shutil_copy.py");
+}
+
+#[test]
+fn test_golden_val_001_inline_schema() {
+    run_golden_test("val_001_inline_schema.py");
+}

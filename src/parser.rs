@@ -183,6 +183,9 @@ impl PythonParser {
         let mocks_stdlib_module = !mocked_stdlib_targets.is_empty();
         let (has_weak_assertions, weak_assertion_details) =
             Self::detect_weak_assertions(body.as_ref(), source);
+        let patch_targets = Self::detect_all_patch_targets(body.as_ref(), source, &decorators);
+        let (has_magic_mock, mock_count) = Self::detect_mock_usage(body.as_ref(), source);
+        let uses_shutil_copy = Self::detect_shutil_copy(body.as_ref(), source);
 
         let body_hash = body.map(|b| {
             let text = Self::node_text(b, source);
@@ -224,6 +227,10 @@ impl PythonParser {
             mocked_stdlib_targets,
             has_weak_assertions,
             weak_assertion_details,
+            patch_targets,
+            has_magic_mock,
+            mock_count,
+            uses_shutil_copy,
         }
     }
 
@@ -1685,6 +1692,67 @@ impl PythonParser {
         }
 
         targets
+    }
+
+    fn detect_all_patch_targets(
+        body: Option<&tree_sitter::Node>,
+        source: &[u8],
+        decorators: &[DecoratorInfo],
+    ) -> Vec<String> {
+        let mut targets = Vec::new();
+        for dec in decorators {
+            if let Some(target) = extract_patch_target(&dec.text) {
+                if !targets.contains(&target) {
+                    targets.push(target);
+                }
+            }
+        }
+        if let Some(body_node) = body {
+            let body_text = Self::node_text(*body_node, source);
+            for cap in body_text.match_indices("patch(") {
+                let after = &body_text[cap.0..];
+                if let Some(target) = extract_patch_target(after) {
+                    if !targets.contains(&target) {
+                        targets.push(target);
+                    }
+                }
+            }
+        }
+        targets
+    }
+
+    fn detect_mock_usage(
+        body: Option<&tree_sitter::Node>,
+        source: &[u8],
+    ) -> (bool, usize) {
+        let body_text = body.map(|b| Self::node_text(*b, source)).unwrap_or_default();
+        let has_magic_mock = body_text.contains("MagicMock");
+        let mock_kw = [
+            "Mock(", "MagicMock(", "AsyncMock(", "patch(", ".return_value",
+            ".side_effect", ".assert_called", ".called", ".call_count",
+            ".assert_called_once", ".assert_called_with", ".assert_not_called",
+        ];
+        let mut count = 0usize;
+        for kw in &mock_kw {
+            let mut start = 0;
+            while let Some(pos) = body_text[start..].find(kw) {
+                count += 1;
+                start += pos + kw.len();
+            }
+        }
+        (has_magic_mock, count)
+    }
+
+    fn detect_shutil_copy(
+        body: Option<&tree_sitter::Node>,
+        source: &[u8],
+    ) -> bool {
+        let body_text = body.map(|b| Self::node_text(*b, source)).unwrap_or_default();
+        body_text.contains("shutil.copy(")
+            || body_text.contains("shutil.copy2(")
+            || body_text.contains("shutil.copyfile(")
+            || body_text.contains("shutil.copytree(")
+            || body_text.contains("shutil.move(")
     }
 }
 

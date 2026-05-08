@@ -31,7 +31,9 @@ pub trait Rule: Send + Sync {
 
 pub mod fixtures;
 pub mod flakiness;
+pub mod infrastructure;
 pub mod maintenance;
+pub mod mocking;
 
 /// Return all available lint rules.
 #[must_use]
@@ -77,6 +79,15 @@ pub fn all_rules() -> Vec<Box<dyn Rule>> {
         Box::new(maintenance::SleepWithValueRule),
         Box::new(maintenance::TestNameLengthRule),
         Box::new(fixtures::NoContractHintRule),
+        Box::new(mocking::PatchTargetingDefinitionModuleRule),
+        Box::new(mocking::MagicMockOnAsyncRule),
+        Box::new(mocking::PatchInitBypassRule),
+        Box::new(mocking::MockRatioBudgetRule),
+        Box::new(infrastructure::NetworkBanMissingRule),
+        Box::new(infrastructure::LiveSuiteUnmarkedRule),
+        Box::new(infrastructure::NonIdiomaticMonkeyPatchRule),
+        Box::new(infrastructure::MacOsCopyArtefactRule),
+        Box::new(maintenance::InlineSchemaRedeclaredRule),
     ]
 }
 
@@ -87,7 +98,7 @@ mod tests {
     #[test]
     fn test_all_rules_returns_39() {
         let rules = all_rules();
-        assert_eq!(rules.len(), 40);
+        assert_eq!(rules.len(), 49);
     }
 
     #[test]

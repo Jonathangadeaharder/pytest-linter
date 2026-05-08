@@ -1,6 +1,7 @@
 //! Rules that detect test maintenance issues: magic asserts, missing assertions, conditional logic.
 
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 
 use crate::engine::make_violation;
 use crate::models::{Category, ParsedModule, Severity, Violation};
@@ -803,6 +804,88 @@ impl Rule for TestNameLengthRule {
                     Some("Shorten the test name to be more concise".to_string()),
                     Some(test.name.clone()),
                 ));
+            }
+        }
+        violations
+    }
+}
+
+pub struct InlineSchemaRedeclaredRule;
+
+impl Rule for InlineSchemaRedeclaredRule {
+    fn id(&self) -> &'static str {
+        "PYTEST-VAL-001"
+    }
+    fn name(&self) -> &'static str {
+        "InlineSchemaRedeclaredRule"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Info
+    }
+    fn category(&self) -> Category {
+        Category::Enhancement
+    }
+    fn check(
+        &self,
+        module: &ParsedModule,
+        _all_modules: &[ParsedModule],
+        _ctx: &RuleContext,
+    ) -> Vec<Violation> {
+        let mut violations = Vec::new();
+        let source = &module.source;
+        let tests = &module.test_functions;
+        if tests.len() < 2 {
+            return violations;
+        }
+        let mut schema_hashes: HashMap<u64, Vec<String>> =
+            HashMap::new();
+        for test in tests {
+            for line in source.lines() {
+                let trimmed = line.trim();
+                let dict_content = if let Some(eq_pos) = trimmed.find("= {") {
+                    let rest = &trimmed[eq_pos + 2..].trim();
+                    if rest.starts_with('{') && rest.ends_with('}') && rest.len() > 20 && rest.contains(':') {
+                        Some(rest.to_string())
+                    } else {
+                        None
+                    }
+                } else if trimmed.starts_with('{') && trimmed.ends_with('}') && trimmed.len() > 20 && trimmed.contains(':') {
+                    Some(trimmed.to_string())
+                } else {
+                    None
+                };
+                if let Some(content) = dict_content {
+                    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                    content.hash(&mut hasher);
+                    let hash = hasher.finish();
+                    schema_hashes.entry(hash).or_default().push(test.name.clone());
+                }
+            }
+        }
+        let mut reported = std::collections::HashSet::new();
+        for (hash, names) in &schema_hashes {
+            if names.len() >= 2 && !reported.contains(hash) {
+                reported.insert(*hash);
+                let unique_names: std::collections::HashSet<&str> =
+                    names.iter().map(|n| n.as_str()).collect();
+                if unique_names.len() >= 2 {
+                    let test_names: Vec<&str> = unique_names.into_iter().collect();
+                    violations.push(make_violation(
+                        self.id(),
+                        self.name(),
+                        self.severity(),
+                        self.category(),
+                        format!(
+                            "Inline schema redeclared across {} tests: {} — extract to a fixture",
+                            test_names.len(),
+                            test_names.join(", ")
+                        ),
+                        module.file_path.clone(),
+                        1,
+                        Some("Extract shared test data into a fixture or conftest".to_string()),
+                        None,
+                    ));
+                }
             }
         }
         violations
