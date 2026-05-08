@@ -5,8 +5,14 @@
 # expect: PYTEST-MNT-002
 
 import shutil
+from pathlib import Path
 
 
 def test_uses_shutil_copy():
     shutil.copy("source.txt", "dest.txt")
     assert True
+
+
+def test_uses_finder_artefact_filename():
+    content = Path("data 2.txt").read_text()
+    assert content

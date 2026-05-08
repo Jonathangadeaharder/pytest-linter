@@ -96,7 +96,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_all_rules_returns_39() {
+    fn test_all_rules_count() {
         let rules = all_rules();
         assert_eq!(rules.len(), 49);
     }

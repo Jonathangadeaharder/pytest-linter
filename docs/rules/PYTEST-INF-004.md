@@ -4,20 +4,20 @@
 |----------|-------|
 | **ID** | `PYTEST-INF-004` |
 | **Name** | MacOsCopyArtefactRule |
-| **Severity** | Info |
+| **Severity** | Warning |
 | **Category** | Flakiness |
 
 ## Message
 
-> Test uses shutil.copy/copy2/copyfile — may copy macOS metadata artefacts
+> Test uses macOS Finder copy artefact filename or shutil.copy — may cause cross-platform failures
 
 ## Rationale
 
-On macOS, `shutil.copy2` and `shutil.copy` preserve extended attributes and resource forks (xattr/`._` files). This can cause tests to fail when run on different platforms or when comparing file contents, as the metadata differs.
+On macOS, the Finder creates duplicate files with trailing ` N` suffixes (e.g., `file 2.txt`). Tests referencing these artefact filenames will fail on non-macOS systems. Additionally, `shutil.copy2` and `shutil.copy` preserve extended attributes and resource forks (xattr/`._` files), causing cross-platform test failures.
 
 ## Suggestion
 
-Use `tmp_path.joinpath().write_bytes()` or `shutil.copy` without preserving metadata
+Normalize filenames to remove Finder copy suffixes, or use `tmp_path` fixtures
 
 ## Examples
 
@@ -26,6 +26,9 @@ Use `tmp_path.joinpath().write_bytes()` or `shutil.copy` without preserving meta
 ```python
 def test_file_copy():
     shutil.copy2("source.dat", "dest.dat")
+
+def test_reads_artefact():
+    content = Path("data 2.txt").read_text()
 ```
 
 ### ✅ Good
@@ -34,4 +37,7 @@ def test_file_copy():
 def test_file_copy(tmp_path):
     dest = tmp_path / "dest.dat"
     dest.write_bytes(Path("source.dat").read_bytes())
+
+def test_reads_data():
+    content = Path("data.txt").read_text()
 ```

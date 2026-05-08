@@ -7,6 +7,13 @@ use crate::engine::make_violation;
 use crate::models::{Category, ParsedModule, Severity, Violation};
 use crate::rules::{Rule, RuleContext};
 
+fn stable_hash(content: &str) -> u64 {
+    use std::collections::hash_map::DefaultHasher;
+    let mut hasher = DefaultHasher::new();
+    content.hash(&mut hasher);
+    hasher.finish()
+}
+
 /// Rule that detects conditional logic inside test functions.
 pub struct TestLogicRule;
 
@@ -841,8 +848,11 @@ impl Rule for InlineSchemaRedeclaredRule {
             return violations;
         }
         let mut schema_hashes: HashMap<u64, Vec<String>> = HashMap::new();
+        let source_lines: Vec<&str> = source.lines().collect();
         for test in tests {
-            for line in source.lines() {
+            let start = test.line.saturating_sub(1);
+            let len = test.end_line.saturating_sub(test.line).max(1);
+            for line in source_lines.iter().skip(start).take(len) {
                 let trimmed = line.trim();
                 let dict_content = if let Some(eq_pos) = trimmed.find("= {") {
                     let rest = &trimmed[eq_pos + 2..].trim();
@@ -865,9 +875,7 @@ impl Rule for InlineSchemaRedeclaredRule {
                     None
                 };
                 if let Some(content) = dict_content {
-                    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-                    content.hash(&mut hasher);
-                    let hash = hasher.finish();
+                    let hash = stable_hash(&content);
                     schema_hashes
                         .entry(hash)
                         .or_default()

@@ -1234,6 +1234,7 @@ mod tests {
                 has_magic_mock: false,
                 mock_count: 0,
                 uses_shutil_copy: false,
+                end_line: 1,
             }],
             fixtures: vec![
                 Fixture {
@@ -1322,6 +1323,7 @@ mod tests {
                 has_magic_mock: false,
                 mock_count: 0,
                 uses_shutil_copy: false,
+                end_line: 1,
             }],
             fixtures: vec![Fixture {
                 name: "db_connection".to_string(),
@@ -1392,6 +1394,7 @@ mod tests {
                 has_magic_mock: false,
                 mock_count: 0,
                 uses_shutil_copy: false,
+                end_line: 1,
             }],
             fixtures: vec![
                 Fixture {

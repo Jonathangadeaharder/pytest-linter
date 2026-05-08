@@ -4,7 +4,7 @@
 |----------|-------|
 | **ID** | `PYTEST-MOC-002` |
 | **Name** | MagicMockOnAsyncRule |
-| **Severity** | Warning |
+| **Severity** | Error |
 | **Category** | Maintenance |
 
 ## Message

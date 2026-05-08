@@ -24,9 +24,9 @@ pytest-linter --baseline violations.json /path/to/tests
 pytest-linter --check-baseline violations.json /path/to/tests
 ```
 
-## Rules (30)
+## Rules (49)
 
-**Flakiness (9):**
+**Flakiness (7):**
 
 | Rule ID | Name | Severity |
 |---------|------|----------|
@@ -39,11 +39,17 @@ pytest-linter --check-baseline violations.json /path/to/tests
 | PYTEST-FLK-009 | SubprocessWithoutTimeoutRule | Warning |
 | PYTEST-FLK-010 | SocketWithoutBindTimeoutRule | Warning |
 | PYTEST-FLK-011 | DatetimeInAssertionRule | Warning |
-| PYTEST-INF-001 | NetworkBanMissingRule | Warning |
-| PYTEST-INF-002 | LiveSuiteUnmarkedRule | Warning |
-| PYTEST-INF-004 | MacOsCopyArtefactRule | Info |
 | PYTEST-XDIST-001 | XdistSharedStateRule | Warning |
 | PYTEST-XDIST-002 | XdistFixtureIoRule | Warning |
+
+**Infrastructure (4):**
+
+| Rule ID | Name | Severity |
+|---------|------|----------|
+| PYTEST-INF-001 | NetworkBanMissingRule | Warning |
+| PYTEST-INF-002 | LiveSuiteUnmarkedRule | Warning |
+| PYTEST-INF-003 | NonIdiomaticMonkeyPatchRule | Info |
+| PYTEST-INF-004 | MacOsCopyArtefactRule | Warning |
 
 **Maintenance (12):**
 
@@ -67,7 +73,7 @@ pytest-linter --check-baseline violations.json /path/to/tests
 | PYTEST-PARAM-002 | ParametrizeDuplicateRule | Warning |
 | PYTEST-PARAM-003 | ParametrizeExplosionRule | Warning |
 | PYTEST-MOC-001 | PatchTargetingDefinitionModuleRule | Warning |
-| PYTEST-MOC-002 | MagicMockOnAsyncRule | Warning |
+| PYTEST-MOC-002 | MagicMockOnAsyncRule | Error |
 | PYTEST-MOC-003 | PatchInitBypassRule | Warning |
 | PYTEST-MOC-004 | MockRatioBudgetRule | Info |
 
@@ -88,7 +94,6 @@ pytest-linter --check-baseline violations.json /path/to/tests
 | PYTEST-FIX-012 | FixtureNameShadowsBuiltinRule | Warning |
 | PYTEST-FIX-013 | AutouseCascadeDepthRule | Warning |
 | PYTEST-DBC-001 | NoContractHintRule | Info |
-| PYTEST-INF-003 | NonIdiomaticMonkeyPatchRule | Info |
 
 ## CLI Options
 

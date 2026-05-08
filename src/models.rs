@@ -107,6 +107,7 @@ pub struct TestFunction {
     pub has_magic_mock: bool,
     pub mock_count: usize,
     pub uses_shutil_copy: bool,
+    pub end_line: usize,
 }
 
 /// Scope of a pytest fixture, from narrowest (function) to widest (session).

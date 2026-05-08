@@ -71,7 +71,7 @@ impl Rule for MagicMockOnAsyncRule {
         "MagicMockOnAsyncRule"
     }
     fn severity(&self) -> Severity {
-        Severity::Warning
+        Severity::Error
     }
     fn category(&self) -> Category {
         Category::Maintenance

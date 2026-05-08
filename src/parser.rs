@@ -187,6 +187,7 @@ impl PythonParser {
         let (has_magic_mock, mock_count) = Self::detect_mock_usage(body.as_ref(), source);
         let uses_shutil_copy = Self::detect_shutil_copy(body.as_ref(), source);
 
+        let end_line = func_node.end_position().row + 1;
         let body_hash = body.map(|b| {
             let text = Self::node_text(b, source);
             let mut hasher = std::collections::hash_map::DefaultHasher::new();
@@ -198,6 +199,7 @@ impl PythonParser {
             name: name.to_string(),
             file_path: file_path.to_path_buf(),
             line,
+            end_line,
             is_async,
             is_parametrized,
             parametrize_count,
@@ -1584,7 +1586,6 @@ impl PythonParser {
                     ("assertTrue", "existence-only assertion"),
                     ("assertIsNotNone", "existence-only assertion"),
                     ("assertIn", "key-presence-only assertion"),
-                    ("assert HasKey", "key-presence-only assertion"),
                 ];
                 for (pattern, category) in weak_patterns {
                     if text.contains(pattern) {

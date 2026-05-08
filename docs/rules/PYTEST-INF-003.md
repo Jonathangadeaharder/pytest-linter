@@ -33,7 +33,7 @@ def test_env(monkeypatch):
 ### ✅ Good
 
 ```python
-def test_env():
+def test_env(monkeypatch):
     with monkeypatch.context() as m:
         m.setattr("os.environ", {"TEST": "1"})
         assert os.environ["TEST"] == "1"

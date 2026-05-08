@@ -35,11 +35,11 @@ def test_api():
 
 ```python
 import requests
-import respx
+import responses
 
-@respx.mock
+@responses.activate
 def test_api():
-    respx.get("https://api.example.com/").mock(return_value=httpx.Response(200))
+    responses.add(responses.GET, "https://api.example.com", status=200)
     resp = requests.get("https://api.example.com")
     assert resp.status_code == 200
 ```
