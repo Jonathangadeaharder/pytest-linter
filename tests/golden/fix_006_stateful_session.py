@@ -5,6 +5,7 @@
 # expect: PYTEST-BDD-001
 # expect: PYTEST-DBC-001
 # expect: PYTEST-MNT-003
+# expect: PYTEST-MNT-005
 # test_uses_frozen and test_uses_int don't trigger FIX-006 but do trigger BDD-001/DBC-001
 
 import pytest

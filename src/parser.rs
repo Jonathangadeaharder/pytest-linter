@@ -1575,23 +1575,20 @@ impl PythonParser {
             let func = node.child_by_field_name("function");
             if let Some(f) = func {
                 let text = Self::node_text(f, source);
-                let weak_patterns = [
+                let weak_patterns: &[(&str, &str)] = &[
                     ("assertIsInstance", "type-only assertion"),
                     ("isinstance", "type-only assertion"),
                     ("assertTrue", "existence-only assertion"),
                     ("assertIsNotNone", "existence-only assertion"),
                     ("assertIn", "key-presence-only assertion"),
-                    ("assert "HasKey", "key-presence-only assertion"),
+                    ("assert HasKey", "key-presence-only assertion"),
                 ];
-                for (pattern, category) in &weak_patterns {
+                for (pattern, category) in weak_patterns {
                     if text.contains(pattern) {
-                        details.push(category.to_string());
-                    }
-                }
-                if text == "assertIsInstance" || text == "isinstance" {
-                    let already = details.iter().any(|d| d == "type-only assertion");
-                    if !already {
-                        details.push("type-only assertion".to_string());
+                        let already = details.iter().any(|d| d == *category);
+                        if !already {
+                            details.push(category.to_string());
+                        }
                     }
                 }
             }
@@ -1599,9 +1596,9 @@ impl PythonParser {
         if node.kind() == "comparison_operator" {
             let mut cursor = node.walk();
             let children: Vec<_> = node.children(&mut cursor).collect();
-            let ops: Vec<&str> = children.iter().map(|c| Self::node_text(*c, source).trim()).collect();
+            let ops: Vec<String> = children.iter().map(|c| Self::node_text(*c, source).trim().to_string()).collect();
             for op in &ops {
-                if *op == "in" {
+                if op == "in" {
                     details.push("key-presence-only assertion".to_string());
                 }
                 if *op == "is not" {
