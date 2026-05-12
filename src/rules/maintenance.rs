@@ -391,6 +391,11 @@ impl Rule for BddMissingScenarioRule {
     ) -> Vec<Violation> {
         let mut violations = Vec::new();
         for test in &module.test_functions {
+            // Parametrized tests provide structured coverage via data variants,
+            // so BDD-style docstrings are not required.
+            if test.is_parametrized {
+                continue;
+            }
             let has_gherkin = test.docstring.as_ref().is_some_and(|ds| {
                 let lower = ds.to_lowercase();
                 lower.contains("given") || lower.contains("when") || lower.contains("then")
