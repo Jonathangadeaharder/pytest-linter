@@ -73,13 +73,15 @@ jobs:
             brew install sonar-scanner
           fi
       - name: SonarCloud scan
+        if: github.event_name != 'pull_request' || !github.event.pull_request.head.repo.fork
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: |
           sonar-scanner \
             -Dsonar.projectKey=${{ vars.SONAR_PROJECT_KEY || 'Jonathangadeaharder_pytest-linter' }} \
             -Dsonar.organization=${{ vars.SONAR_ORGANIZATION || 'jonathangadeaharder' }} \
-            -Dsonar.coberturaReportPaths=coverage/cobertura.xml \
-            -Dsonar.host.url=https://sonarcloud.io \
-            -Dsonar.token=${{ secrets.SONAR_TOKEN }}
+            -Dsonar.rust.cobertura.reportPaths=coverage/cobertura.xml \
+            -Dsonar.host.url=https://sonarcloud.io
 
   bench:
     name: Benchmarks
