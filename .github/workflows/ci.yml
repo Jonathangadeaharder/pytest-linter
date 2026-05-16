@@ -66,16 +66,19 @@ jobs:
           path: coverage/cobertura.xml
           retention-days: 7
 
+      - name: Install sonar-scanner
+        run: |
+          if ! command -v sonar-scanner &>/dev/null; then
+            brew install sonar-scanner
+          fi
       - name: SonarCloud scan
-        uses: SonarSource/sonarcloud-github-action@v4
-        with:
-          args: >
-            -Dsonar.projectKey=Jonathangadeaharder_pytest-linter
-            -Dsonar.organization=jonathangadeaharder
-            -Dsonar.coberturaReportPaths=coverage/cobertura.xml
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          sonar-scanner \
+            -Dsonar.projectKey=Jonathangadeaharder_pytest-linter \
+            -Dsonar.organization=jonathangadeaharder \
+            -Dsonar.coberturaReportPaths=coverage/cobertura.xml \
+            -Dsonar.host.url=https://sonarcloud.io \
+            -Dsonar.token=${{ secrets.SONAR_TOKEN }}
 
   bench:
     name: Benchmarks
