@@ -57,6 +57,7 @@ jobs:
         uses: taiki-e/install-action@cargo-llvm-cov
       - name: Coverage pytest-linter + Cobertura XML
         run: |
+          mkdir -p coverage
           cargo +nightly llvm-cov --cobertura --output-path coverage/cobertura.xml --fail-under-lines 90
 
       - name: Upload Cobertura coverage report
