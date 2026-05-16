@@ -55,8 +55,27 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
-      - name: Coverage pytest-linter
-        run: cargo +nightly llvm-cov --fail-under-lines 90
+      - name: Coverage pytest-linter + Cobertura XML
+        run: |
+          cargo +nightly llvm-cov --cobertura --output-path coverage/cobertura.xml --fail-under-lines 90
+
+      - name: Upload Cobertura coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/cobertura.xml
+          retention-days: 7
+
+      - name: SonarCloud scan
+        uses: SonarSource/sonarcloud-github-action@v4
+        with:
+          args: >
+            -Dsonar.projectKey=Jonathangadeaharder_pytest-linter
+            -Dsonar.organization=jonathangadeaharder
+            -Dsonar.coberturaReportPaths=coverage/cobertura.xml
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   bench:
     name: Benchmarks
