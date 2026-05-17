@@ -154,5 +154,4 @@ mutants.out
 mutants*.out*
 cov.xml
 .worktrees/
-* 2.*
-* 2
+
