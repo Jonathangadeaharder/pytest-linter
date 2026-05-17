@@ -13,7 +13,7 @@
 
 ## Rationale
 
-A `yield` fixture without `try/finally` will skip teardown code if the test raises an exception. This leaves resources (DB connections, temp files, mocks) in a dirty state for subsequent tests.
+While pytest runs teardown code after `yield` even if a test fails, using `try/finally` is essential for fixtures that acquire multiple resources. It ensures that if an error occurs during the setup of one resource, previously acquired resources are still cleaned up.
 
 ## Suggestion
 
@@ -28,7 +28,7 @@ Wrap yield in try/finally to ensure cleanup runs even on failure
 def db_connection():
     conn = create_connection()
     yield conn
-    conn.close()  # skipped if test raises
+    conn.close()  # may be skipped if setup fails before yield
 ```
 
 ### ✅ Good
