@@ -1,6 +1,6 @@
 # Rules Overview
 
-pytest-linter includes **40 rules** across four categories.
+pytest-linter includes **49 rules** across five categories.
 
 ## Flakiness
 
@@ -17,6 +17,15 @@ pytest-linter includes **40 rules** across four categories.
 | [PYTEST-FLK-011](./PYTEST-FLK-011.md) | DatetimeInAssertionRule | Warning |
 | [PYTEST-XDIST-001](./PYTEST-XDIST-001.md) | XdistSharedStateRule | Warning |
 | [PYTEST-XDIST-002](./PYTEST-XDIST-002.md) | XdistFixtureIoRule | Warning |
+
+## Infrastructure
+
+| Rule ID | Name | Severity |
+|---------|------|----------|
+| [PYTEST-INF-001](./PYTEST-INF-001.md) | NetworkBanMissingRule | Warning |
+| [PYTEST-INF-002](./PYTEST-INF-002.md) | LiveSuiteUnmarkedRule | Warning |
+| [PYTEST-INF-003](./PYTEST-INF-003.md) | NonIdiomaticMonkeyPatchRule | Info |
+| [PYTEST-INF-004](./PYTEST-INF-004.md) | MacOsCopyArtefactRule | Warning |
 
 ## Maintenance
 
@@ -35,6 +44,15 @@ pytest-linter includes **40 rules** across four categories.
 | [PYTEST-PARAM-001](./PYTEST-PARAM-001.md) | ParametrizeEmptyRule | Warning |
 | [PYTEST-PARAM-002](./PYTEST-PARAM-002.md) | ParametrizeDuplicateRule | Warning |
 | [PYTEST-PARAM-003](./PYTEST-PARAM-003.md) | ParametrizeExplosionRule | Warning |
+
+## Mocking
+
+| Rule ID | Name | Severity |
+|---------|------|----------|
+| [PYTEST-MOC-001](./PYTEST-MOC-001.md) | PatchTargetingDefinitionModuleRule | Warning |
+| [PYTEST-MOC-002](./PYTEST-MOC-002.md) | MagicMockOnAsyncRule | Error |
+| [PYTEST-MOC-003](./PYTEST-MOC-003.md) | PatchInitBypassRule | Warning |
+| [PYTEST-MOC-004](./PYTEST-MOC-004.md) | MockRatioBudgetRule | Info |
 
 ## Fixture
 
@@ -61,3 +79,4 @@ pytest-linter includes **40 rules** across four categories.
 | [PYTEST-BDD-001](./PYTEST-BDD-001.md) | BddMissingScenarioRule | Info |
 | [PYTEST-PBT-001](./PYTEST-PBT-001.md) | PropertyTestHintRule | Info |
 | [PYTEST-DBC-001](./PYTEST-DBC-001.md) | NoContractHintRule | Info |
+| [PYTEST-VAL-001](./PYTEST-VAL-001.md) | InlineSchemaRedeclaredRule | Info |

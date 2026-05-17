@@ -5,7 +5,7 @@ Fast, tree-sitter-powered test smell detector for **pytest** (Python), written i
 ## Why pytest-linter?
 
 - **Fast**: Tree-sitter AST parsing — no regex, no Python runtime overhead
-- **Comprehensive**: 39 rules covering flakiness, maintenance, and fixture smells
+- **Comprehensive**: 49 rules covering flakiness, infrastructure, maintenance, mocking, and fixture smells
 - **Zero config**: Works out of the box with sensible defaults
 - **Multiple formats**: Terminal (colored), JSON, and SARIF output
 - **CI-friendly**: Exit code 1 on Error-severity violations
@@ -31,7 +31,7 @@ tests/test_models.py:45 PYTEST-MNT-004 [error] Test 'test_create' has no asserti
 | Feature | Description |
 |---------|-------------|
 | AST-based analysis | Tree-sitter parsing, no false positives from string matching |
-| 39 rules | Flakiness, maintenance, fixture, BDD, PBT, and parametrize checks |
+| 49 rules | Flakiness, infrastructure, maintenance, mocking, and fixture checks |
 | JSON output | `--format json` for integration with other tools |
 | SARIF output | `--format sarif` for GitHub Code Scanning |
 | Configurable | `pyproject.toml` configuration support |
