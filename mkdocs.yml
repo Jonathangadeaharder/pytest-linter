@@ -65,6 +65,11 @@ nav:
           - PYTEST-FLK-011 (DatetimeInAssertionRule): rules/PYTEST-FLK-011.md
           - PYTEST-XDIST-001 (XdistSharedStateRule): rules/PYTEST-XDIST-001.md
           - PYTEST-XDIST-002 (XdistFixtureIoRule): rules/PYTEST-XDIST-002.md
+      - Infrastructure:
+          - PYTEST-INF-001 (NetworkBanMissingRule): rules/PYTEST-INF-001.md
+          - PYTEST-INF-002 (LiveSuiteUnmarkedRule): rules/PYTEST-INF-002.md
+          - PYTEST-INF-003 (NonIdiomaticMonkeyPatchRule): rules/PYTEST-INF-003.md
+          - PYTEST-INF-004 (MacOsCopyArtefactRule): rules/PYTEST-INF-004.md
       - Maintenance:
           - PYTEST-MNT-001 (TestLogicRule): rules/PYTEST-MNT-001.md
           - PYTEST-MNT-002 (MagicAssertRule): rules/PYTEST-MNT-002.md
@@ -82,6 +87,12 @@ nav:
           - PYTEST-PARAM-001 (ParametrizeEmptyRule): rules/PYTEST-PARAM-001.md
           - PYTEST-PARAM-002 (ParametrizeDuplicateRule): rules/PYTEST-PARAM-002.md
           - PYTEST-PARAM-003 (ParametrizeExplosionRule): rules/PYTEST-PARAM-003.md
+          - PYTEST-VAL-001 (InlineSchemaRedeclaredRule): rules/PYTEST-VAL-001.md
+      - Mocking:
+          - PYTEST-MOC-001 (PatchTargetingDefinitionModuleRule): rules/PYTEST-MOC-001.md
+          - PYTEST-MOC-002 (MagicMockOnAsyncRule): rules/PYTEST-MOC-002.md
+          - PYTEST-MOC-003 (PatchInitBypassRule): rules/PYTEST-MOC-003.md
+          - PYTEST-MOC-004 (MockRatioBudgetRule): rules/PYTEST-MOC-004.md
       - Fixtures:
           - PYTEST-FIX-001 (AutouseFixtureRule): rules/PYTEST-FIX-001.md
           - PYTEST-FIX-003 (InvalidScopeRule): rules/PYTEST-FIX-003.md
