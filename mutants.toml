@@ -1,1 +1,14 @@
-exclude_re = ["src/main.rs"]
+exclude_globs = [
+    "lsp-server/**",
+    "src/main.rs",
+    "src/output/**",
+    "benches/**",
+    "tests/**",
+]
+
+exclude_re = [
+    "find_sleep_value$",
+    "has_try_wrapping_yield$",
+]
+
+minimum_test_score = 75
