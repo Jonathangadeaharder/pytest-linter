@@ -133,6 +133,13 @@ dmypy.json
 .DS_Store
 Thumbs.db
 
+# Code coverage
+coverage/
+*.lcov
+
+# Lockfiles (project uses Cargo.lock)
+*.lockfile
+
 # Project specific
 .pylintrc
 test_file.txt
