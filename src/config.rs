@@ -199,8 +199,8 @@ impl Config {
     /// Extract and deserialize the [tool.pytest-linter] section from a pyproject.toml file.
     /// Returns Ok(None) if the section is missing or empty.
     fn process_pyproject_toml(path: &Path) -> Result<Option<Config>> {
-        let contents = std::fs::read_to_string(path)
-            .with_context(|| format!("read {}", path.display()))?;
+        let contents =
+            std::fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
         let full: toml::Value = toml::from_str(&contents)
             .with_context(|| format!("parse TOML in {}", path.display()))?;
 
@@ -219,9 +219,9 @@ impl Config {
             return Ok(None);
         }
 
-        let tool_config: ToolConfig = tool_table.try_into().with_context(|| {
-            format!("deserialize tool.pytest-linter from {}", path.display())
-        })?;
+        let tool_config: ToolConfig = tool_table
+            .try_into()
+            .with_context(|| format!("deserialize tool.pytest-linter from {}", path.display()))?;
 
         let config_dir = path.parent().unwrap_or(Path::new("."));
         let cfg = Self::build_from_tool_config(tool_config, config_dir);

@@ -486,7 +486,11 @@ impl PythonParser {
         })
     }
 
-    fn is_magic_assertion(expr_node: tree_sitter::Node, source: &[u8], has_comparison: bool) -> bool {
+    fn is_magic_assertion(
+        expr_node: tree_sitter::Node,
+        source: &[u8],
+        has_comparison: bool,
+    ) -> bool {
         let kind = expr_node.kind();
         if kind == "true" || kind == "false" {
             return true;
@@ -504,8 +508,7 @@ impl PythonParser {
         line: usize,
     ) -> crate::models::AssertionInfo {
         let expression_text = Self::node_text(expr_node, source);
-        let has_comparison =
-            Self::has_node_kind_recursive(expr_node, "comparison_operator");
+        let has_comparison = Self::has_node_kind_recursive(expr_node, "comparison_operator");
         let is_magic = Self::is_magic_assertion(expr_node, source, has_comparison);
         let is_suboptimal = Self::is_suboptimal_assertion(expr_node, source);
         crate::models::AssertionInfo {
@@ -812,7 +815,9 @@ impl PythonParser {
         }
         let obj = func.child_by_field_name("object");
         let attr = func.child_by_field_name("attribute");
-        let (Some(obj), Some(attr)) = (obj, attr) else { return };
+        let (Some(obj), Some(attr)) = (obj, attr) else {
+            return;
+        };
         let obj_name = Self::node_text(obj, source);
         let method = Self::node_text(attr, source);
         let mutating_methods = [
@@ -1277,7 +1282,15 @@ impl PythonParser {
     }
 
     fn has_cleanup_text_patterns(body_text: &str) -> bool {
-        let patterns = [".close()", ".teardown_", "env_reset", ".restore()", ".cleanup()", ".remove()", ".unlink()"];
+        let patterns = [
+            ".close()",
+            ".teardown_",
+            "env_reset",
+            ".restore()",
+            ".cleanup()",
+            ".remove()",
+            ".unlink()",
+        ];
         patterns.iter().any(|p| body_text.contains(p))
     }
 
@@ -1296,12 +1309,24 @@ impl PythonParser {
     fn detect_cleanup_pattern(body: Option<&tree_sitter::Node>, source: &[u8]) -> bool {
         body.is_some_and(|b| {
             let text = String::from_utf8_lossy(&source[b.start_byte()..b.end_byte()]);
-            if Self::has_cleanup_text_patterns(&text) { return true; }
-            if Self::has_cleanup_addfinalizer(&text) { return true; }
-            if Self::has_cleanup_patch(&text) { return true; }
-            if Self::has_cleanup_tmp_path(&text) { return true; }
-            if Self::has_try_wrapping_yield(*b, source) { return true; }
-            if Self::has_with_wrapping_yield(*b, source) { return true; }
+            if Self::has_cleanup_text_patterns(&text) {
+                return true;
+            }
+            if Self::has_cleanup_addfinalizer(&text) {
+                return true;
+            }
+            if Self::has_cleanup_patch(&text) {
+                return true;
+            }
+            if Self::has_cleanup_tmp_path(&text) {
+                return true;
+            }
+            if Self::has_try_wrapping_yield(*b, source) {
+                return true;
+            }
+            if Self::has_with_wrapping_yield(*b, source) {
+                return true;
+            }
             false
         })
     }
@@ -1347,7 +1372,9 @@ impl PythonParser {
         };
         let text = Self::node_text(func, source);
         let network_libs = ["requests", "socket", "httpx", "aiohttp", "urllib"];
-        if network_libs.iter().any(|lib| text.starts_with(&format!("{}.", lib)) || text.starts_with(&format!("{} (", lib))) {
+        if network_libs.iter().any(|lib| {
+            text.starts_with(&format!("{}.", lib)) || text.starts_with(&format!("{} (", lib))
+        }) {
             return true;
         }
         if let Some(o) = func.child_by_field_name("object") {
@@ -1493,10 +1520,7 @@ impl PythonParser {
         false
     }
 
-    fn is_uppercase_class_not_frozen(
-        name: &str,
-        frozen_classes: &HashSet<String>,
-    ) -> Option<bool> {
+    fn is_uppercase_class_not_frozen(name: &str, frozen_classes: &HashSet<String>) -> Option<bool> {
         let first_char = name.chars().next()?;
         if !first_char.is_uppercase() {
             return None;
@@ -1518,7 +1542,11 @@ impl PythonParser {
         Self::is_uppercase_class_not_frozen(&attr_name, frozen_classes)
     }
 
-    fn is_mutable_call_node(node: tree_sitter::Node, source: &[u8], frozen_classes: &HashSet<String>) -> bool {
+    fn is_mutable_call_node(
+        node: tree_sitter::Node,
+        source: &[u8],
+        frozen_classes: &HashSet<String>,
+    ) -> bool {
         if node.kind() != "call" {
             return false;
         }
@@ -1527,14 +1555,45 @@ impl PythonParser {
             None => return false,
         };
         let name = Self::node_text(func, source);
-        let immutable = ["int", "str", "float", "bool", "bytes", "complex", "tuple",
-            "frozenset", "NoneType", "Path", "PurePath", "PurePosixPath", "PureWindowsPath",
-            "Decimal", "date", "datetime", "time", "timedelta", "UUID",
-            "ipaddress", "IPv4Address", "IPv6Address", "re.compile", "enum"];
+        let immutable = [
+            "int",
+            "str",
+            "float",
+            "bool",
+            "bytes",
+            "complex",
+            "tuple",
+            "frozenset",
+            "NoneType",
+            "Path",
+            "PurePath",
+            "PurePosixPath",
+            "PureWindowsPath",
+            "Decimal",
+            "date",
+            "datetime",
+            "time",
+            "timedelta",
+            "UUID",
+            "ipaddress",
+            "IPv4Address",
+            "IPv6Address",
+            "re.compile",
+            "enum",
+        ];
         if immutable.iter().any(|ic| name == *ic) {
             return false;
         }
-        let mutable = ["list", "dict", "set", "bytearray", "deque", "defaultdict", "Counter", "OrderedDict"];
+        let mutable = [
+            "list",
+            "dict",
+            "set",
+            "bytearray",
+            "deque",
+            "defaultdict",
+            "Counter",
+            "OrderedDict",
+        ];
         if mutable.iter().any(|mc| name == *mc) {
             return true;
         }
@@ -1570,9 +1629,15 @@ impl PythonParser {
         };
         let text = Self::node_text(func, source);
         let random_fns = [
-            "random.random", "random.randint", "random.choice", "random.shuffle",
-            "random.uniform", "random.randrange", "random.sample",
-            "random.gauss", "random.normalvariate",
+            "random.random",
+            "random.randint",
+            "random.choice",
+            "random.shuffle",
+            "random.uniform",
+            "random.randrange",
+            "random.sample",
+            "random.gauss",
+            "random.normalvariate",
         ];
         if random_fns.iter().any(|rf| text == *rf) {
             return true;
@@ -1613,8 +1678,12 @@ impl PythonParser {
             return true;
         }
         if func.kind() == "attribute" {
-            if let (Some(a), Some(o)) = (func.child_by_field_name("attribute"), func.child_by_field_name("object")) {
-                return Self::node_text(a, source) == "seed" && Self::node_text(o, source) == "random";
+            if let (Some(a), Some(o)) = (
+                func.child_by_field_name("attribute"),
+                func.child_by_field_name("object"),
+            ) {
+                return Self::node_text(a, source) == "seed"
+                    && Self::node_text(o, source) == "random";
             }
         }
         false
@@ -1647,8 +1716,11 @@ impl PythonParser {
         };
         let text = Self::node_text(func, source);
         let subprocess_fns = [
-            "subprocess.Popen", "subprocess.run", "subprocess.call",
-            "subprocess.check_output", "subprocess.check_call",
+            "subprocess.Popen",
+            "subprocess.run",
+            "subprocess.call",
+            "subprocess.check_output",
+            "subprocess.check_call",
         ];
         if subprocess_fns.iter().any(|sf| text == *sf) {
             return true;
@@ -1702,8 +1774,11 @@ impl PythonParser {
         };
         let text = Self::node_text(func, source);
         let subprocess_fns = [
-            "subprocess.Popen", "subprocess.run", "subprocess.call",
-            "subprocess.check_output", "subprocess.check_call",
+            "subprocess.Popen",
+            "subprocess.run",
+            "subprocess.call",
+            "subprocess.check_output",
+            "subprocess.check_call",
         ];
         subprocess_fns.iter().any(|sf| text == *sf) && !Self::call_has_timeout_kwarg(node, source)
     }
@@ -1835,9 +1910,7 @@ impl PythonParser {
         let mut targets = Vec::new();
         for dec in decorators {
             if let Some(target) = extract_patch_target(&dec.text) {
-                if filter_stdlib
-                    && !Self::STDLIB_MODULES.iter().any(|m| target.starts_with(m))
-                {
+                if filter_stdlib && !Self::STDLIB_MODULES.iter().any(|m| target.starts_with(m)) {
                     continue;
                 }
                 if !targets.contains(&target) {
@@ -1850,8 +1923,7 @@ impl PythonParser {
             for (pos, _) in body_text.match_indices("patch(") {
                 let after = &body_text[pos..];
                 if let Some(target) = extract_patch_target(after) {
-                    if filter_stdlib
-                        && !Self::STDLIB_MODULES.iter().any(|m| target.starts_with(m))
+                    if filter_stdlib && !Self::STDLIB_MODULES.iter().any(|m| target.starts_with(m))
                     {
                         continue;
                     }
