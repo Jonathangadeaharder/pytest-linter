@@ -735,9 +735,7 @@ fn call_has_timeout(call_node: Node, source: &[u8]) -> bool {
 fn find_in_decorated_definition(node: Node, target_line: usize) -> Option<Node> {
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        if child.kind() == "function_definition"
-            && child.start_position().row + 1 == target_line
-        {
+        if child.kind() == "function_definition" && child.start_position().row + 1 == target_line {
             return Some(child);
         }
     }
