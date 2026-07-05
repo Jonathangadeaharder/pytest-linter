@@ -1,7 +1,7 @@
 //! Rules that detect test flakiness patterns: time.sleep, file I/O, network, random, subprocess.
 
 use crate::engine::make_violation;
-use crate::models::{Category, ParsedModule, Severity, Violation};
+use crate::models::{Category, ParsedModule, Severity, Span, Violation};
 use crate::rules::{Rule, RuleContext};
 use tree_sitter::Node;
 
@@ -31,16 +31,13 @@ impl Rule for TimeSleepRule {
         for test in &module.test_functions {
             if test.uses_time_sleep {
                 violations.push(make_violation(
-                    self.id(),
-                    self.name(),
-                    self.severity(),
-                    self.category(),
+                    self,
                     format!(
                         "Test '{}' uses time.sleep which causes flaky tests",
                         test.name
                     ),
                     module.file_path.clone(),
-                    test.line,
+                    Span::from(test),
                     Some("Use pytest's time mocking or wait for a condition instead".to_string()),
                     Some(test.name.clone()),
                 ));
@@ -81,16 +78,13 @@ impl Rule for FileIoRule {
                     .any(|d| d == "tmp_path" || d == "tmpdir" || d == "tmp_path_factory");
                 if !has_tmp {
                     violations.push(make_violation(
-                        self.id(),
-                        self.name(),
-                        self.severity(),
-                        self.category(),
+                        self,
                         format!(
                             "Test '{}' uses file I/O without tmp_path/tmpdir fixture",
                             test.name
                         ),
                         module.file_path.clone(),
-                        test.line,
+                        Span::from(test),
                         Some("Use the tmp_path or tmpdir fixture for temporary files".to_string()),
                         Some(test.name.clone()),
                     ));
@@ -159,13 +153,10 @@ impl Rule for NetworkImportRule {
 
         if has_network && !has_mock_layer {
             vec![make_violation(
-                self.id(),
-                self.name(),
-                self.severity(),
-                self.category(),
+                self,
                 "File imports network libraries which may cause flaky tests".to_string(),
                 module.file_path.clone(),
-                1,
+                Span::file_level(),
                 Some("Mock network calls or use pytest-localserver".to_string()),
                 None,
             )]
@@ -201,16 +192,13 @@ impl Rule for CwdDependencyRule {
         for test in &module.test_functions {
             if test.uses_cwd_dependency {
                 violations.push(make_violation(
-                    self.id(),
-                    self.name(),
-                    self.severity(),
-                    self.category(),
+                    self,
                     format!(
                         "Test '{}' depends on the current working directory",
                         test.name
                     ),
                     module.file_path.clone(),
-                    test.line,
+                    Span::from(test),
                     Some("Use absolute paths or tmp_path fixture instead".to_string()),
                     Some(test.name.clone()),
                 ));
@@ -251,16 +239,13 @@ impl Rule for MysteryGuestRule {
                     .any(|d| d == "tmp_path" || d == "tmpdir" || d == "tmp_path_factory");
                 if !has_tmp {
                     violations.push(make_violation(
-                        self.id(),
-                        self.name(),
-                        self.severity(),
-                        self.category(),
+                        self,
                         format!(
                             "Test '{}' may be a Mystery Guest — uses file I/O without temp fixtures",
                             test.name
                         ),
                         module.file_path.clone(),
-                        test.line,
+                        Span::from(test),
                         Some(
                             "Use tmp_path fixture and make test data explicit".to_string(),
                         ),
@@ -304,16 +289,13 @@ impl Rule for XdistSharedStateRule {
             for dep in &test.mutates_fixture_deps {
                 if ctx.session_mutable_fixtures.contains(dep) {
                     violations.push(make_violation(
-                        self.id(),
-                        self.name(),
-                        self.severity(),
-                        self.category(),
+                        self,
                         format!(
                             "Session-scoped fixture '{}' returns mutable state that is modified by test '{}' — unsafe for xdist",
                             dep, test.name
                         ),
                         module.file_path.clone(),
-                        test.line,
+                        Span::from(test),
                         Some("Use function scope or return immutable values".to_string()),
                         Some(test.name.clone()),
                     ));
@@ -353,16 +335,13 @@ impl Rule for SocketWithoutBindTimeoutRule {
         for test in &module.test_functions {
             if test.uses_network {
                 violations.push(make_violation(
-                    self.id(),
-                    self.name(),
-                    self.severity(),
-                    self.category(),
+                    self,
                     format!(
                         "Test '{}' uses socket without proper bind and timeout setup",
                         test.name
                     ),
                     module.file_path.clone(),
-                    test.line,
+                    Span::from(test),
                     Some(
                         "Add socket.settimeout() or use timeout parameter in socket.socket()"
                             .to_string(),
@@ -404,16 +383,13 @@ impl Rule for DatetimeInAssertionRule {
         for test in &module.test_functions {
             if test.has_assertions {
                 violations.push(make_violation(
-                    self.id(),
-                    self.name(),
-                    self.severity(),
-                    self.category(),
+                        self,
                     format!(
                         "Test '{}' uses datetime functions near assertions — tests relying on real time are flaky",
                         test.name
                     ),
                     module.file_path.clone(),
-                    test.line,
+                    Span::from(test),
                     Some(
                         "Use freezegun or time mocking to make assertions deterministic".to_string(),
                     ),
@@ -451,16 +427,13 @@ impl Rule for XdistFixtureIoRule {
         for fixture in &module.fixtures {
             if fixture.scope == crate::models::FixtureScope::Session && fixture.uses_file_io {
                 violations.push(make_violation(
-                    self.id(),
-                    self.name(),
-                    self.severity(),
-                    self.category(),
+                        self,
                     format!(
                         "Session-scoped fixture '{}' uses file I/O — may conflict with xdist workers",
                         fixture.name
                     ),
                     module.file_path.clone(),
-                    fixture.line,
+                    Span::from(fixture),
                     Some("Use tmp_path_factory or make I/O paths unique per worker".to_string()),
                     None,
                 ));
@@ -493,21 +466,21 @@ impl Rule for RandomWithoutSeedRule {
         _ctx: &RuleContext,
     ) -> Vec<Violation> {
         let mut violations = Vec::new();
+        // Parse the file's source once (it is already held in module.source) instead of
+        // re-reading from disk and re-parsing per test.
+        let tree = parse_source_tree(&module.source);
         for test in &module.test_functions {
             if test.uses_random && !test.has_random_seed {
-                let random_lines = collect_random_call_lines(test);
+                let random_lines = collect_random_call_lines(test, tree.as_ref(), &module.source);
                 for line in random_lines {
                     violations.push(make_violation(
-                        self.id(),
-                        self.name(),
-                        self.severity(),
-                        self.category(),
+                        self,
                         format!(
                             "Test '{}' uses random without fixed seed — causes flaky tests",
                             test.name
                         ),
                         module.file_path.clone(),
-                        line,
+                        Span::line(line),
                         Some(
                             "Call random.seed() at the start of the test or use a fixture"
                                 .to_string(),
@@ -544,21 +517,21 @@ impl Rule for SubprocessWithoutTimeoutRule {
         _ctx: &RuleContext,
     ) -> Vec<Violation> {
         let mut violations = Vec::new();
+        // Parse the file's source once for all tests in this module.
+        let tree = parse_source_tree(&module.source);
         for test in &module.test_functions {
             if test.uses_subprocess {
-                let unguarded_lines = collect_unguarded_subprocess_calls(test);
+                let unguarded_lines =
+                    collect_unguarded_subprocess_calls(test, tree.as_ref(), &module.source);
                 for line in unguarded_lines {
                     violations.push(make_violation(
-                        self.id(),
-                        self.name(),
-                        self.severity(),
-                        self.category(),
+                        self,
                         format!(
                             "Test '{}' uses subprocess without timeout — may hang indefinitely",
                             test.name
                         ),
                         module.file_path.clone(),
-                        line,
+                        Span::line(line),
                         Some("Add timeout parameter to subprocess calls".to_string()),
                         Some(test.name.clone()),
                     ));
@@ -569,20 +542,27 @@ impl Rule for SubprocessWithoutTimeoutRule {
     }
 }
 
-/// Collect line numbers of each `random.*` call in a test function body.
-fn collect_random_call_lines(test: &crate::models::TestFunction) -> Vec<usize> {
-    let source = match std::fs::read_to_string(&test.file_path) {
-        Ok(s) => s,
-        Err(_) => return vec![test.line],
-    };
+/// Parse `source` once with the Python grammar. Returns `None` on parser setup
+/// failure (callers fall back to reporting the test's own line).
+fn parse_source_tree(source: &str) -> Option<tree_sitter::Tree> {
     let mut parser = tree_sitter::Parser::new();
-    if parser
+    parser
         .set_language(&tree_sitter_python::LANGUAGE.into())
-        .is_err()
-    {
-        return vec![test.line];
-    }
-    let tree = match parser.parse(&source, None) {
+        .ok()?;
+    parser.parse(source, None)
+}
+
+/// Collect line numbers of each `random.*` call in a test function body.
+///
+/// The file is parsed exactly once by the caller (via `parse_source_tree`) and the
+/// resulting tree plus the already-held source string are passed in here, so we do
+/// not re-read from disk or re-parse per test.
+fn collect_random_call_lines(
+    test: &crate::models::TestFunction,
+    tree: Option<&tree_sitter::Tree>,
+    source: &str,
+) -> Vec<usize> {
+    let tree = match tree {
         Some(t) => t,
         None => return vec![test.line],
     };
@@ -644,19 +624,15 @@ fn collect_random_calls(node: Node, source: &[u8], lines: &mut Vec<usize>) {
 }
 
 /// Collect line numbers of subprocess calls that lack a timeout argument.
-fn collect_unguarded_subprocess_calls(test: &crate::models::TestFunction) -> Vec<usize> {
-    let source = match std::fs::read_to_string(&test.file_path) {
-        Ok(s) => s,
-        Err(_) => return vec![test.line],
-    };
-    let mut parser = tree_sitter::Parser::new();
-    if parser
-        .set_language(&tree_sitter_python::LANGUAGE.into())
-        .is_err()
-    {
-        return vec![test.line];
-    }
-    let tree = match parser.parse(&source, None) {
+///
+/// Shares the caller-parsed `tree` and the already-held `source` string so the file
+/// is parsed once per module rather than once per test.
+fn collect_unguarded_subprocess_calls(
+    test: &crate::models::TestFunction,
+    tree: Option<&tree_sitter::Tree>,
+    source: &str,
+) -> Vec<usize> {
+    let tree = match tree {
         Some(t) => t,
         None => return vec![test.line],
     };
@@ -731,15 +707,12 @@ fn call_has_timeout(call_node: Node, source: &[u8]) -> bool {
 }
 
 /// Search inside a decorated_definition node for a function_definition at the target line.
-#[allow(clippy::manual_find)]
 fn find_in_decorated_definition(node: Node, target_line: usize) -> Option<Node> {
     let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if child.kind() == "function_definition" && child.start_position().row + 1 == target_line {
-            return Some(child);
-        }
-    }
-    None
+    let mut children = node.children(&mut cursor);
+    children.find(|child| {
+        child.kind() == "function_definition" && child.start_position().row + 1 == target_line
+    })
 }
 
 /// Find the function_definition node at the given 1-indexed line number.

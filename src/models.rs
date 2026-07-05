@@ -53,8 +53,73 @@ pub struct Violation {
     pub file_path: PathBuf,
     pub line: usize,
     pub col: Option<usize>,
+    pub end_col: Option<usize>,
     pub suggestion: Option<String>,
     pub test_name: Option<String>,
+}
+
+/// Source span (line + optional column range) used when constructing a
+/// `Violation`. Bundling the three positional fields keeps `make_violation`
+/// under clippy's `too_many_arguments` threshold while remaining explicit.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Span {
+    pub line: usize,
+    pub col: Option<usize>,
+    pub end_col: Option<usize>,
+}
+
+impl Span {
+    /// Span anchored to a specific line with no column information.
+    #[must_use]
+    pub const fn line(line: usize) -> Self {
+        Self {
+            line,
+            col: None,
+            end_col: None,
+        }
+    }
+
+    /// Span for a file-level violation (no particular line/column).
+    #[must_use]
+    pub const fn file_level() -> Self {
+        Self::line(1)
+    }
+
+    /// Span from a 1-based line and column with an exclusive end column.
+    #[must_use]
+    pub const fn new(line: usize, col: Option<usize>, end_col: Option<usize>) -> Self {
+        Self { line, col, end_col }
+    }
+}
+
+impl From<&TestFunction> for Span {
+    fn from(t: &TestFunction) -> Self {
+        Self {
+            line: t.line,
+            col: t.col,
+            end_col: t.end_col,
+        }
+    }
+}
+
+impl From<&Fixture> for Span {
+    fn from(f: &Fixture) -> Self {
+        Self {
+            line: f.line,
+            col: f.col,
+            end_col: f.end_col,
+        }
+    }
+}
+
+impl From<&AssertionInfo> for Span {
+    fn from(a: &AssertionInfo) -> Self {
+        Self {
+            line: a.line,
+            col: a.col,
+            end_col: a.end_col,
+        }
+    }
 }
 
 /// Metadata about an assert statement found in a test.
@@ -65,15 +130,18 @@ pub struct AssertionInfo {
     pub has_comparison: bool,
     pub expression_text: String,
     pub line: usize,
+    pub col: Option<usize>,
+    pub end_col: Option<usize>,
 }
 
 /// Parsed representation of a single test function with all detected characteristics.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[allow(clippy::struct_excessive_bools)]
 pub struct TestFunction {
     pub name: String,
     pub file_path: PathBuf,
     pub line: usize,
+    pub col: Option<usize>,
+    pub end_col: Option<usize>,
     pub is_async: bool,
     pub is_parametrized: bool,
     pub parametrize_count: Option<usize>,
@@ -135,11 +203,12 @@ impl std::fmt::Display for FixtureScope {
 
 /// Parsed representation of a pytest fixture with scope and dependency info.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[allow(clippy::struct_excessive_bools)]
 pub struct Fixture {
     pub name: String,
     pub file_path: PathBuf,
     pub line: usize,
+    pub col: Option<usize>,
+    pub end_col: Option<usize>,
     pub scope: FixtureScope,
     pub is_autouse: bool,
     pub dependencies: Vec<String>,
@@ -149,7 +218,6 @@ pub struct Fixture {
     pub has_db_rollback: bool,
     pub has_cleanup: bool,
     pub uses_file_io: bool,
-    pub used_by: Vec<String>,
 }
 
 /// Result of parsing a single Python test file: imports, tests, and fixtures.
@@ -167,6 +235,8 @@ impl PartialEq for Violation {
         self.file_path == other.file_path
             && self.line == other.line
             && self.rule_id == other.rule_id
+            && self.col == other.col
+            && message_hash(&self.message) == message_hash(&other.message)
     }
 }
 
@@ -184,7 +254,21 @@ impl Ord for Violation {
             .cmp(&other.file_path)
             .then(self.line.cmp(&other.line))
             .then(self.rule_id.cmp(&other.rule_id))
+            .then(self.col.cmp(&other.col))
+            .then_with(|| message_hash(&self.message).cmp(&message_hash(&other.message)))
     }
+}
+
+/// Stable, low-collision hash of a violation message used for deduplication.
+/// FxHash-style mix (no external dependency): keeps equality cheap while
+/// distinguishing same-line/same-rule violations whose messages differ.
+fn message_hash(message: &str) -> u64 {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in message.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x0100_0000_01b3);
+    }
+    hash
 }
 
 #[cfg(test)]
@@ -250,6 +334,7 @@ mod tests {
             file_path: PathBuf::from("a.py"),
             line: 1,
             col: None,
+            end_col: None,
             suggestion: None,
             test_name: None,
         };
@@ -262,6 +347,7 @@ mod tests {
             file_path: PathBuf::from("a.py"),
             line: 2,
             col: None,
+            end_col: None,
             suggestion: None,
             test_name: None,
         };
@@ -279,6 +365,7 @@ mod tests {
             file_path: PathBuf::from("a.py"),
             line: 5,
             col: None,
+            end_col: None,
             suggestion: None,
             test_name: None,
         };
@@ -291,6 +378,7 @@ mod tests {
             file_path: PathBuf::from("b.py"),
             line: 1,
             col: None,
+            end_col: None,
             suggestion: None,
             test_name: None,
         };
@@ -322,6 +410,7 @@ mod tests {
             file_path: PathBuf::from("test.py"),
             line: 10,
             col: Some(5),
+            end_col: None,
             suggestion: Some("fix it".to_string()),
             test_name: Some("test_foo".to_string()),
         };

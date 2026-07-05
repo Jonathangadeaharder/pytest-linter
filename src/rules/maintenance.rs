@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 
 use crate::engine::make_violation;
-use crate::models::{Category, ParsedModule, Severity, TestFunction, Violation};
+use crate::models::{Category, ParsedModule, Severity, Span, TestFunction, Violation};
 use crate::rules::{Rule, RuleContext};
 
 fn stable_hash(content: &str) -> u64 {
@@ -40,16 +40,13 @@ impl Rule for TestLogicRule {
         for test in &module.test_functions {
             if test.has_conditional_logic {
                 violations.push(make_violation(
-                    self.id(),
-                    self.name(),
-                    self.severity(),
-                    self.category(),
+                    self,
                     format!(
                         "Test '{}' contains conditional logic (if statements)",
                         test.name
                     ),
                     module.file_path.clone(),
-                    test.line,
+                    Span::from(test),
                     Some("Split into separate tests or use parametrize".to_string()),
                     Some(test.name.clone()),
                 ));
@@ -86,16 +83,13 @@ impl Rule for MagicAssertRule {
             for assertion in &test.assertions {
                 if assertion.is_magic {
                     violations.push(make_violation(
-                        self.id(),
-                        self.name(),
-                        self.severity(),
-                        self.category(),
+                        self,
                         format!(
                             "Magic assertion at line {}: '{}' — this always passes/fails",
                             assertion.line, assertion.expression_text
                         ),
                         module.file_path.clone(),
-                        assertion.line,
+                        Span::from(assertion),
                         Some("Replace with a meaningful comparison".to_string()),
                         Some(test.name.clone()),
                     ));
@@ -133,16 +127,13 @@ impl Rule for SuboptimalAssertRule {
             for assertion in &test.assertions {
                 if assertion.is_suboptimal {
                     violations.push(make_violation(
-                        self.id(),
-                        self.name(),
-                        self.severity(),
-                        self.category(),
+                        self,
                         format!(
                             "Suboptimal assertion at line {}: '{}'",
                             assertion.line, assertion.expression_text
                         ),
                         module.file_path.clone(),
-                        assertion.line,
+                        Span::from(assertion),
                         Some("Use a more direct assertion pattern".to_string()),
                         Some(test.name.clone()),
                     ));
@@ -179,13 +170,10 @@ impl Rule for NoAssertionRule {
         for test in &module.test_functions {
             if !test.has_assertions {
                 violations.push(make_violation(
-                    self.id(),
-                    self.name(),
-                    self.severity(),
-                    self.category(),
+                    self,
                     format!("Test '{}' has no assertions", test.name),
                     module.file_path.clone(),
-                    test.line,
+                    Span::from(test),
                     Some("Add assertions to verify expected behavior".to_string()),
                     Some(test.name.clone()),
                 ));
@@ -221,50 +209,41 @@ impl Rule for MockOnlyVerifyRule {
         for test in &module.test_functions {
             if test.has_mock_verifications && !test.has_state_assertions {
                 violations.push(make_violation(
-                    self.id(),
-                    self.name(),
-                    self.severity(),
-                    self.category(),
+                    self,
                     format!(
                         "Test '{}' only verifies mocks without checking state",
                         test.name
                     ),
                     module.file_path.clone(),
-                    test.line,
+                    Span::from(test),
                     Some("Add state assertions to verify actual outcomes".to_string()),
                     Some(test.name.clone()),
                 ));
             }
             if test.mocks_stdlib_module {
                 violations.push(make_violation(
-                    self.id(),
-                    self.name(),
-                    self.severity(),
-                    self.category(),
+                        self,
                     format!(
                         "Test '{}' mocks stdlib module(s): {} — use dependency injection or test doubles instead",
                         test.name,
                         test.mocked_stdlib_targets.join(", ")
                     ),
                     module.file_path.clone(),
-                    test.line,
+                    Span::from(test),
                     Some("Refactor to inject dependencies instead of patching stdlib internals".to_string()),
                     Some(test.name.clone()),
                 ));
             }
             if test.has_weak_assertions && !test.weak_assertion_details.is_empty() {
                 violations.push(make_violation(
-                    self.id(),
-                    self.name(),
-                    self.severity(),
-                    self.category(),
+                    self,
                     format!(
                         "Test '{}' uses weak assertion patterns: {}",
                         test.name,
                         test.weak_assertion_details.join(", ")
                     ),
                     module.file_path.clone(),
-                    test.line,
+                    Span::from(test),
                     Some(
                         "Use value-level assertions instead of type/existence/key-presence checks"
                             .to_string(),
@@ -303,16 +282,13 @@ impl Rule for AssertionRouletteRule {
         for test in &module.test_functions {
             if test.assertion_count > 3 && !test.is_parametrized {
                 violations.push(make_violation(
-                    self.id(),
-                    self.name(),
-                    self.severity(),
-                    self.category(),
+                    self,
                     format!(
                         "Test '{}' has {} assertions (assertion roulette)",
                         test.name, test.assertion_count
                     ),
                     module.file_path.clone(),
-                    test.line,
+                    Span::from(test),
                     Some("Split into smaller, focused tests".to_string()),
                     Some(test.name.clone()),
                 ));
@@ -348,16 +324,13 @@ impl Rule for RawExceptionHandlingRule {
         for test in &module.test_functions {
             if test.has_try_except {
                 violations.push(make_violation(
-                    self.id(),
-                    self.name(),
-                    self.severity(),
-                    self.category(),
+                    self,
                     format!(
                         "Test '{}' uses try/except instead of pytest.raises",
                         test.name
                     ),
                     module.file_path.clone(),
-                    test.line,
+                    Span::from(test),
                     Some("Use pytest.raises() for exception testing".to_string()),
                     Some(test.name.clone()),
                 ));
@@ -402,16 +375,13 @@ impl Rule for BddMissingScenarioRule {
             });
             if !has_gherkin {
                 violations.push(make_violation(
-                    self.id(),
-                    self.name(),
-                    self.severity(),
-                    self.category(),
+                    self,
                     format!(
                         "Test '{}' lacks a Gherkin-style docstring scenario",
                         test.name
                     ),
                     module.file_path.clone(),
-                    test.line,
+                    Span::from(test),
                     Some("Add a docstring with Given/When/Then structure".to_string()),
                     Some(test.name.clone()),
                 ));
@@ -449,16 +419,13 @@ impl Rule for PropertyTestHintRule {
                 if let Some(count) = test.parametrize_count {
                     if count > 3 {
                         violations.push(make_violation(
-                            self.id(),
-                            self.name(),
-                            self.severity(),
-                            self.category(),
+                        self,
                             format!(
                                 "Test '{}' has {} parametrized cases — consider property-based testing",
                                 test.name, count
                             ),
                             module.file_path.clone(),
-                            test.line,
+                            Span::from(test),
                             Some("Consider using hypothesis for property-based testing".to_string()),
                             Some(test.name.clone()),
                         ));
@@ -498,16 +465,13 @@ impl Rule for ParametrizeEmptyRule {
                 if let Some(count) = test.parametrize_count {
                     if count <= 1 {
                         violations.push(make_violation(
-                            self.id(),
-                            self.name(),
-                            self.severity(),
-                            self.category(),
+                            self,
                             format!(
                                 "Test '{}' is parametrized with only {} case(s)",
                                 test.name, count
                             ),
                             module.file_path.clone(),
-                            test.line,
+                            Span::from(test),
                             Some("Add more test cases or remove parametrize".to_string()),
                             Some(test.name.clone()),
                         ));
@@ -555,17 +519,14 @@ impl Rule for ParametrizeDuplicateRule {
                     let mut dup_str: Vec<&str> = duplicates.into_iter().collect();
                     dup_str.sort_unstable();
                     violations.push(make_violation(
-                        self.id(),
-                        self.name(),
-                        self.severity(),
-                        self.category(),
+                        self,
                         format!(
                             "Parametrize in test '{}' has duplicate values: {}",
                             test.name,
                             dup_str.join(", ")
                         ),
                         module.file_path.clone(),
-                        test.line,
+                        Span::from(test),
                         Some("Remove duplicate parametrize values".to_string()),
                         Some(test.name.clone()),
                     ));
@@ -603,16 +564,13 @@ impl Rule for ParametrizeExplosionRule {
             if let Some(count) = test.parametrize_count {
                 if count > 20 {
                     violations.push(make_violation(
-                        self.id(),
-                        self.name(),
-                        self.severity(),
-                        self.category(),
+                        self,
                         format!(
                             "Test '{}' has {} parametrized cases — combinatorial explosion",
                             test.name, count
                         ),
                         module.file_path.clone(),
-                        test.line,
+                        Span::from(test),
                         Some("Reduce test cases or use hypothesis".to_string()),
                         Some(test.name.clone()),
                     ));
@@ -648,16 +606,13 @@ impl Rule for ConditionalLogicInTestRule {
         for test in &module.test_functions {
             if test.is_parametrized && test.has_conditional_logic {
                 violations.push(make_violation(
-                    self.id(),
-                    self.name(),
-                    self.severity(),
-                    self.category(),
+                        self,
                     format!(
                         "Parametrized test '{}' contains conditional logic (if/elif/else/for/while) — use separate parameter cases instead of branching",
                         test.name
                     ),
                     module.file_path.clone(),
-                    test.line,
+                    Span::from(test),
                     Some("Split into separate tests or use pytest.mark.parametrize".to_string()),
                     Some(test.name.clone()),
                 ));
@@ -711,10 +666,7 @@ impl Rule for DuplicateTestBodiesRule {
                 }
                 let peers: Vec<&str> = names.iter().filter(|n| **n != test.name).copied().collect();
                 violations.push(make_violation(
-                    self.id(),
-                    self.name(),
-                    self.severity(),
-                    self.category(),
+                    self,
                     format!(
                         "Test '{}' has identical body to {} other test(s): {} (shared body hash)",
                         test.name,
@@ -722,7 +674,7 @@ impl Rule for DuplicateTestBodiesRule {
                         peers.join(", ")
                     ),
                     module.file_path.clone(),
-                    test.line,
+                    Span::from(test),
                     Some("Consolidate or differentiate the test bodies".to_string()),
                     Some(test.name.clone()),
                 ));
@@ -760,16 +712,13 @@ impl Rule for SleepWithValueRule {
                 let exceeds_threshold = test.sleep_value.is_some_and(|v| v > 0.1);
                 if exceeds_threshold {
                     violations.push(make_violation(
-                        self.id(),
-                        self.name(),
-                        self.severity(),
-                        self.category(),
+                        self,
                         format!(
                             "Test '{}' uses time.sleep() with value > 0.1s — slows test suite",
                             test.name
                         ),
                         module.file_path.clone(),
-                        test.line,
+                        Span::from(test),
                         Some("Use mocking, async waits, or reduce sleep duration".to_string()),
                         Some(test.name.clone()),
                     ));
@@ -805,17 +754,14 @@ impl Rule for TestNameLengthRule {
         for test in &module.test_functions {
             if test.name.chars().count() > 80 {
                 violations.push(make_violation(
-                    self.id(),
-                    self.name(),
-                    self.severity(),
-                    self.category(),
+                    self,
                     format!(
                         "Test name '{}' exceeds 80 characters ({} chars)",
                         test.name,
                         test.name.chars().count()
                     ),
                     module.file_path.clone(),
-                    test.line,
+                    Span::from(test),
                     Some("Shorten the test name to be more concise".to_string()),
                     Some(test.name.clone()),
                 ));
@@ -828,9 +774,26 @@ impl Rule for TestNameLengthRule {
 pub struct InlineSchemaRedeclaredRule;
 
 fn extract_dict_content(line: &str) -> Option<String> {
-    let trimmed = line.trim();
+    // Strip a trailing `#` comment so that lines like
+    // `payload = {"a": 1, "b": 2}  # noqa` are still recognized. We split on the
+    // first `#` not inside a string literal; a simpler heuristic of `find('#')`
+    // is unsafe because `#` may appear inside a string value. To stay robust
+    // without a full tokenizer, we scan char-by-char tracking string context.
+    let stripped = strip_trailing_comment(line);
+    let trimmed = stripped.trim();
+    // Find "= {" and advance past it using char_indices so we never slice into the
+    // middle of a multi-byte UTF-8 sequence (which would panic). `find` returns a
+    // byte index guaranteed to be at a char boundary, and "= {" is pure ASCII, so
+    // the index after skipping it is also a char boundary — but using char_indices
+    // makes the boundary-safety explicit and robust against future edits.
     if let Some(eq_pos) = trimmed.find("= {") {
-        let rest = &trimmed[eq_pos + 2..].trim();
+        let skip = "= ".len();
+        let rest_start = trimmed[eq_pos..]
+            .char_indices()
+            .nth(skip)
+            .map(|(idx, _)| eq_pos + idx)
+            .unwrap_or(trimmed.len());
+        let rest = trimmed[rest_start..].trim();
         if rest.starts_with('{') && rest.ends_with('}') && rest.len() > 20 && rest.contains(':') {
             Some(rest.to_string())
         } else {
@@ -845,6 +808,34 @@ fn extract_dict_content(line: &str) -> Option<String> {
     } else {
         None
     }
+}
+
+/// Strip a trailing `#` comment from a line of Python source, respecting
+/// single- and double-quoted string literals (so a `#` inside a string is not
+/// treated as a comment marker). Returns the code portion of the line.
+fn strip_trailing_comment(line: &str) -> &str {
+    let bytes = line.as_bytes();
+    let mut in_string: Option<u8> = None;
+    let mut i = 0;
+    while i < bytes.len() {
+        let c = bytes[i];
+        match in_string {
+            Some(quote) => {
+                if c == quote {
+                    in_string = None;
+                }
+            }
+            None => {
+                if c == b'"' || c == b'\'' {
+                    in_string = Some(c);
+                } else if c == b'#' {
+                    return &line[..i];
+                }
+            }
+        }
+        i += 1;
+    }
+    line
 }
 
 fn collect_schema_hashes(tests: &[TestFunction], source: &str) -> HashMap<u64, Vec<String>> {
@@ -880,17 +871,14 @@ fn build_schema_violations(
             if unique_names.len() >= 2 {
                 let test_names: Vec<&str> = unique_names.into_iter().collect();
                 violations.push(make_violation(
-                    rule.id(),
-                    rule.name(),
-                    rule.severity(),
-                    rule.category(),
+                    rule,
                     format!(
                         "Inline schema redeclared across {} tests: {} — extract to a fixture",
                         test_names.len(),
                         test_names.join(", ")
                     ),
                     module.file_path.clone(),
-                    1,
+                    Span::file_level(),
                     Some("Extract shared test data into a fixture or conftest".to_string()),
                     None,
                 ));

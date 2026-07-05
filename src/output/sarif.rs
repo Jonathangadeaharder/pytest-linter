@@ -207,6 +207,7 @@ mod tests {
             file_path: PathBuf::from("a.py"),
             line: 10,
             col: Some(2),
+            end_col: None,
             suggestion: None,
             test_name: None,
         };
@@ -231,6 +232,7 @@ mod tests {
                 file_path: PathBuf::from("b.py"),
                 line: 5,
                 col: None,
+                end_col: None,
                 suggestion: None,
                 test_name: None,
             },
@@ -243,6 +245,7 @@ mod tests {
                 file_path: PathBuf::from("a.py"),
                 line: 1,
                 col: None,
+                end_col: None,
                 suggestion: None,
                 test_name: None,
             },

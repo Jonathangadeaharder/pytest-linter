@@ -3,7 +3,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::engine::{fixture_scope_by_name, make_violation};
-use crate::models::{Category, Fixture, FixtureScope, ParsedModule, Severity, Violation};
+use crate::models::{Category, Fixture, FixtureScope, ParsedModule, Severity, Span, Violation};
 use crate::rules::{Rule, RuleContext};
 
 /// Rule that detects autouse fixtures which implicitly affect all tests.
@@ -32,13 +32,10 @@ impl Rule for AutouseFixtureRule {
         for fixture in &module.fixtures {
             if fixture.is_autouse {
                 violations.push(make_violation(
-                    self.id(),
-                    self.name(),
-                    self.severity(),
-                    self.category(),
+                    self,
                     format!("Fixture '{}' uses autouse=True", fixture.name),
                     module.file_path.clone(),
-                    fixture.line,
+                    Span::from(fixture),
                     Some("Explicitly declare fixture dependencies instead".to_string()),
                     None,
                 ));
@@ -77,16 +74,13 @@ impl Rule for InvalidScopeRule {
                 if let Some(dep_scope) = fixture_scope_by_name(ctx.fixture_map, dep_name) {
                     if fixture.scope > dep_scope {
                         violations.push(make_violation(
-                            self.id(),
-                            self.name(),
-                            self.severity(),
-                            self.category(),
+                        self,
                             format!(
                                 "Fixture '{}' (scope={}) depends on '{}' (scope={}) — fixture scope must not exceed dependency scope",
                                 fixture.name, fixture.scope, dep_name, dep_scope
                             ),
                             module.file_path.clone(),
-                            fixture.line,
+                            Span::from(fixture),
                             Some(format!(
                                 "Reduce scope of '{}' to match or be narrower than '{}'",
                                 fixture.name, dep_name
@@ -129,17 +123,14 @@ impl Rule for ShadowedFixtureRule {
             if let Some(locations) = ctx.fixture_locations.get(&fixture.name) {
                 if locations.len() > 1 {
                     violations.push(make_violation(
-                        self.id(),
-                        self.name(),
-                        self.severity(),
-                        self.category(),
+                        self,
                         format!(
                             "Fixture '{}' is defined in {} different modules (shadowed)",
                             fixture.name,
                             locations.len()
                         ),
                         module.file_path.clone(),
-                        fixture.line,
+                        Span::from(fixture),
                         Some("Rename or consolidate fixture definitions".to_string()),
                         None,
                     ));
@@ -179,13 +170,10 @@ impl Rule for UnusedFixtureRule {
             }
             if !ctx.used_fixture_names.contains(&fixture.name) {
                 violations.push(make_violation(
-                    self.id(),
-                    self.name(),
-                    self.severity(),
-                    self.category(),
+                        self,
                     format!("Fixture '{}' is not used by any test or fixture", fixture.name),
                     module.file_path.clone(),
-                    fixture.line,
+                    Span::from(fixture),
                     Some("Remove the unused fixture or reference it explicitly from tests/other fixtures".to_string()),
                     None,
                 ));
@@ -221,16 +209,13 @@ impl Rule for StatefulSessionFixtureRule {
         for fixture in &module.fixtures {
             if fixture.scope == crate::models::FixtureScope::Session && fixture.returns_mutable {
                 violations.push(make_violation(
-                    self.id(),
-                    self.name(),
-                    self.severity(),
-                    self.category(),
+                    self,
                     format!(
                         "Session-scoped fixture '{}' returns mutable state",
                         fixture.name
                     ),
                     module.file_path.clone(),
-                    fixture.line,
+                    Span::from(fixture),
                     Some("Return immutable data or use a factory pattern".to_string()),
                     None,
                 ));
@@ -271,16 +256,13 @@ impl Rule for FixtureMutationRule {
                     .is_some_and(|fixtures| fixtures.iter().any(|f| f.returns_mutable));
                 if is_mutable_fixture {
                     violations.push(make_violation(
-                        self.id(),
-                        self.name(),
-                        self.severity(),
-                        self.category(),
+                        self,
                         format!(
                             "Test '{}' mutates fixture '{}' which may affect other tests",
                             test.name, dep_name
                         ),
                         module.file_path.clone(),
-                        test.line,
+                        Span::from(test),
                         Some(
                             "Create a fresh copy of the fixture value before modifying it"
                                 .to_string(),
@@ -320,16 +302,13 @@ impl Rule for FixtureDbCommitNoCleanupRule {
         for fixture in &module.fixtures {
             if fixture.has_db_commit && !fixture.has_db_rollback && !fixture.has_yield {
                 violations.push(make_violation(
-                    self.id(),
-                    self.name(),
-                    self.severity(),
-                    self.category(),
+                    self,
                     format!(
                         "Fixture '{}' commits to DB without rollback or cleanup (no yield)",
                         fixture.name
                     ),
                     module.file_path.clone(),
-                    fixture.line,
+                    Span::from(fixture),
                     Some("Use yield to provide cleanup or wrap in a transaction".to_string()),
                     None,
                 ));
@@ -369,16 +348,13 @@ impl Rule for FixtureOverlyBroadScopeRule {
                 && !fixture.uses_file_io
             {
                 violations.push(make_violation(
-                    self.id(),
-                    self.name(),
-                    self.severity(),
-                    self.category(),
+                        self,
                     format!(
                         "Fixture '{}' has scope '{}' but no expensive setup — consider using function scope for better isolation",
                         fixture.name, fixture.scope
                     ),
                     module.file_path.clone(),
-                    fixture.line,
+                    Span::from(fixture),
                     Some("Change fixture scope to 'function'".to_string()),
                     None,
                 ));
@@ -416,16 +392,13 @@ impl Rule for AutouseCascadeDepthRule {
                 let depth = compute_cascade_depth(fixture, ctx.fixture_map, &mut visited);
                 if depth > 3 {
                     violations.push(make_violation(
-                        self.id(),
-                        self.name(),
-                        self.severity(),
-                        self.category(),
+                        self,
                         format!(
                             "Autouse fixture '{}' has dependency cascade depth of {} (> 3)",
                             fixture.name, depth
                         ),
                         module.file_path.clone(),
-                        fixture.line,
+                        Span::from(fixture),
                         Some("Reduce fixture dependency chain or remove autouse".to_string()),
                         None,
                     ));
@@ -502,16 +475,13 @@ impl Rule for ModuleScopeFixtureMutatedRule {
                 });
                 if is_broad_scoped {
                     violations.push(make_violation(
-                        self.id(),
-                        self.name(),
-                        self.severity(),
-                        self.category(),
+                        self,
                         format!(
                             "Test '{}' mutates module/session-scoped fixture '{}' — causes cross-test contamination",
                             test.name, dep
                         ),
                         module.file_path.clone(),
-                        test.line,
+                        Span::from(test),
                         Some(
                             "Use function-scoped fixture or copy the value before mutation"
                                 .to_string(),
@@ -550,16 +520,13 @@ impl Rule for YieldWithoutTryFinallyRule {
         for fixture in &module.fixtures {
             if fixture.has_yield && !fixture.has_cleanup {
                 violations.push(make_violation(
-                    self.id(),
-                    self.name(),
-                    self.severity(),
-                    self.category(),
+                    self,
                     format!(
                         "Fixture '{}' uses yield without try/finally cleanup",
                         fixture.name
                     ),
                     module.file_path.clone(),
-                    fixture.line,
+                    Span::from(fixture),
                     Some(
                         "Wrap yield in try/finally to ensure cleanup runs even on failure"
                             .to_string(),
@@ -611,16 +578,13 @@ impl Rule for FixtureNameShadowsBuiltinRule {
         for fixture in &module.fixtures {
             if shadows.contains(&fixture.name.as_str()) {
                 violations.push(make_violation(
-                    self.id(),
-                    self.name(),
-                    self.severity(),
-                    self.category(),
+                    self,
                     format!(
                         "Fixture '{}' shadows a Python builtin or pytest hook",
                         fixture.name
                     ),
                     module.file_path.clone(),
-                    fixture.line,
+                    Span::from(fixture),
                     Some("Rename the fixture to avoid shadowing built-in names".to_string()),
                     None,
                 ));
@@ -660,13 +624,10 @@ impl Rule for NoContractHintRule {
                 && !test.is_parametrized
             {
                 violations.push(make_violation(
-                    self.id(),
-                    self.name(),
-                    self.severity(),
-                    self.category(),
+                        self,
                     format!("Test '{}' only tests the happy path — consider adding error/edge case coverage", test.name),
                     module.file_path.clone(),
-                    test.line,
+                    Span::from(test),
                     Some("Add tests for error conditions using pytest.raises".to_string()),
                     Some(test.name.clone()),
                 ));
