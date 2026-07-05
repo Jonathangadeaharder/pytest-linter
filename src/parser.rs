@@ -89,7 +89,6 @@ pub struct PythonParser {
 
 impl PythonParser {
     /// Create a new parser with the Python grammar loaded.
-    #[allow(clippy::missing_errors_doc)]
     pub fn new() -> Result<Self> {
         let mut parser = Parser::new();
         parser.set_language(&tree_sitter_python::LANGUAGE.into())?;
@@ -97,13 +96,11 @@ impl PythonParser {
     }
 
     /// Parse a Python file and extract its test functions, fixtures, and imports.
-    #[allow(clippy::missing_errors_doc)]
     pub fn parse_file(&mut self, path: &Path) -> Result<ParsedModule> {
         let source = std::fs::read_to_string(path)?;
         self.parse_source(&source, path)
     }
 
-    #[allow(clippy::missing_errors_doc)]
     pub fn parse_source(&mut self, source: &str, path: &Path) -> Result<ParsedModule> {
         let tree = self.parser.parse(source, None);
         let file_path = path.to_path_buf();
@@ -193,13 +190,22 @@ impl PythonParser {
         file_path: &Path,
     ) -> Vec<TestFunction> {
         let mut tests = Vec::new();
+        // Collect local names known to refer to the `time` module, so that
+        // attribute-based detection of `time.sleep` (and the sleep-value
+        // extractor) honours aliases such as `import time as t` without
+        // false-positiving on unrelated `<obj>.sleep(...)` calls.
+        let time_names = Self::collect_time_module_names(root, source);
         for func_node in Self::collect_function_nodes(root) {
             let name_node = func_node.child_by_field_name("name");
             if let Some(nn) = name_node {
                 let name = Self::node_text(nn, source);
                 if name.starts_with("test_") {
                     tests.push(Self::build_test_function(
-                        &func_node, source, file_path, &name,
+                        &func_node,
+                        source,
+                        file_path,
+                        &name,
+                        &time_names,
                     ));
                 }
             }
@@ -207,13 +213,69 @@ impl PythonParser {
         tests
     }
 
+    /// Return the set of identifiers in scope that refer to the `time` module.
+    /// Always includes `"time"` itself; also includes any alias declared via
+    /// `import time as <alias>`. Names imported via `from time import ...` are
+    /// NOT added because they refer to the imported attribute (e.g. `sleep`),
+    /// not the module.
+    fn collect_time_module_names(
+        root: &tree_sitter::Node,
+        source: &[u8],
+    ) -> std::collections::HashSet<String> {
+        let mut names = std::collections::HashSet::new();
+        names.insert("time".to_string());
+        let mut cursor = root.walk();
+        for child in root.children(&mut cursor) {
+            if child.kind() != "import_statement" {
+                continue;
+            }
+            // tree-sitter-python layout:
+            //   `import time`        -> import_statement: { import, dotted_name(time) }
+            //   `import time as t`   -> import_statement: { import, aliased_import: { dotted_name(time), as, identifier(t) } }
+            //   `import time, os`    -> multiple dotted_name/aliased_import children
+            let mut inner = child.walk();
+            for k in child.children(&mut inner) {
+                match k.kind() {
+                    "dotted_name" => {
+                        if Self::node_text(k, source) == "time" {
+                            // plain `import time` — already in the set.
+                        }
+                    }
+                    "aliased_import" => {
+                        // Inspect children: dotted_name, as, identifier(alias).
+                        let mut ainner = k.walk();
+                        let mut module_text = String::new();
+                        let mut alias_text = String::new();
+                        for ak in k.children(&mut ainner) {
+                            if ak.kind() == "dotted_name" {
+                                module_text = Self::node_text(ak, source);
+                            } else if ak.kind() == "identifier" {
+                                alias_text = Self::node_text(ak, source);
+                            }
+                        }
+                        if module_text == "time" && !alias_text.is_empty() {
+                            names.insert(alias_text);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        names
+    }
+
     fn build_test_function(
         func_node: &tree_sitter::Node,
         source: &[u8],
         file_path: &Path,
         name: &str,
+        time_names: &std::collections::HashSet<String>,
     ) -> TestFunction {
         let line = func_node.start_position().row + 1;
+        let start_position = func_node.start_position();
+        let end_position = func_node.end_position();
+        let col = Some(start_position.column + 1);
+        let end_col = Some(end_position.column + 1);
         let body = func_node.child_by_field_name("body");
         let body_text = body.map(|b| Self::node_text(b, source)).unwrap_or_default();
 
@@ -234,8 +296,8 @@ impl PythonParser {
             || body_text.contains(".call_count");
         let has_state_assertions = has_assertions && !has_mock_verifications_only(&body_text);
         let fixture_deps = Self::extract_fixture_deps(func_node, source);
-        let uses_time_sleep = Self::detect_time_sleep(body.as_ref(), source);
-        let sleep_value = Self::detect_sleep_value(body.as_ref(), source);
+        let uses_time_sleep = Self::detect_time_sleep(body.as_ref(), source, time_names);
+        let sleep_value = Self::detect_sleep_value(body.as_ref(), source, time_names);
         let uses_file_io = Self::detect_file_io(body.as_ref(), source);
         let uses_network = Self::detect_network_usage(body.as_ref(), source);
         let has_conditional_logic = Self::detect_conditionals(body.as_ref());
@@ -271,6 +333,8 @@ impl PythonParser {
             name: name.to_string(),
             file_path: file_path.to_path_buf(),
             line,
+            col,
+            end_col,
             end_line,
             is_async,
             is_parametrized,
@@ -511,12 +575,16 @@ impl PythonParser {
         let has_comparison = Self::has_node_kind_recursive(expr_node, "comparison_operator");
         let is_magic = Self::is_magic_assertion(expr_node, source, has_comparison);
         let is_suboptimal = Self::is_suboptimal_assertion(expr_node, source);
+        let start_position = expr_node.start_position();
+        let end_position = expr_node.end_position();
         crate::models::AssertionInfo {
             is_magic,
             is_suboptimal,
             has_comparison,
             expression_text,
             line,
+            col: Some(start_position.column + 1),
+            end_col: Some(end_position.column + 1),
         }
     }
 
@@ -1062,6 +1130,10 @@ impl PythonParser {
         frozen_classes: &HashSet<String>,
     ) -> Fixture {
         let line = func_node.start_position().row + 1;
+        let start_position = func_node.start_position();
+        let end_position = func_node.end_position();
+        let col = Some(start_position.column + 1);
+        let end_col = Some(end_position.column + 1);
         let body = func_node.child_by_field_name("body");
 
         let scope = Self::extract_fixture_scope(decorators);
@@ -1080,6 +1152,8 @@ impl PythonParser {
             name: name.to_string(),
             file_path: file_path.to_path_buf(),
             line,
+            col,
+            end_col,
             scope,
             is_autouse,
             dependencies,
@@ -1089,7 +1163,6 @@ impl PythonParser {
             has_db_rollback,
             has_cleanup,
             uses_file_io,
-            used_by: vec![],
         }
     }
 
@@ -1140,13 +1213,18 @@ impl PythonParser {
             None => return false,
         };
         let name = Self::node_text(func, source);
-        if ["open", "read", "write"].contains(&name.as_str()) {
+        // Match the built-in `open(` call by name.
+        if name == "open" {
             return true;
         }
+        // Also match qualified `.open()` attribute calls such as
+        // `pathlib.Path("...").open()`. We deliberately do NOT match bare `.read()` /
+        // `.write()` / `.read_text()` / `.write_text()` here: those are common false
+        // positives (e.g. `df.write()`, `sys.stdout.write()`, `Path(...).read_text()`)
+        // and the golden corpus keys file-I/O detection on `open(` specifically.
         if func.kind() == "attribute" {
             if let Some(attr) = func.child_by_field_name("attribute") {
-                let attr_name = Self::node_text(attr, source);
-                return ["read", "write", "open"].contains(&attr_name.as_str());
+                return Self::node_text(attr, source) == "open";
             }
         }
         false
@@ -1165,11 +1243,19 @@ impl PythonParser {
         false
     }
 
-    fn detect_time_sleep(body: Option<&tree_sitter::Node>, source: &[u8]) -> bool {
-        body.is_some_and(|b| Self::has_time_sleep_call(*b, source))
+    fn detect_time_sleep(
+        body: Option<&tree_sitter::Node>,
+        source: &[u8],
+        time_names: &std::collections::HashSet<String>,
+    ) -> bool {
+        body.is_some_and(|b| Self::has_time_sleep_call(*b, source, time_names))
     }
 
-    fn is_time_sleep_call_node(node: tree_sitter::Node, source: &[u8]) -> bool {
+    fn is_time_sleep_call_node(
+        node: tree_sitter::Node,
+        source: &[u8],
+        time_names: &std::collections::HashSet<String>,
+    ) -> bool {
         if node.kind() != "call" {
             return false;
         }
@@ -1178,33 +1264,53 @@ impl PythonParser {
             None => return false,
         };
         let text = Self::node_text(func, source);
+        // Match `time.sleep(...)` (qualified) or a bare `sleep(...)` call
+        // (e.g. `from time import sleep`). We deliberately do NOT match arbitrary
+        // `<obj>.sleep(...)` attribute calls: those are common false positives
+        // (e.g. `mylib.sleep`, `asyncio.sleep` is its own concern, etc.).
         if text == "time.sleep" || text == "sleep" {
             return true;
         }
+        // Allow an aliased `time` module, e.g. `import time as t; t.sleep(...)`.
+        // The receiver object must be a known name referring to the `time`
+        // module (collected via collect_time_module_names) so that unrelated
+        // `.sleep` attribute calls are not flagged.
         if func.kind() == "attribute" {
-            if let Some(attr) = func.child_by_field_name("attribute") {
-                let name = Self::node_text(attr, source);
-                return name == "sleep";
+            if let (Some(attr), Some(obj)) = (
+                func.child_by_field_name("attribute"),
+                func.child_by_field_name("object"),
+            ) {
+                let attr_name = Self::node_text(attr, source);
+                let obj_name = Self::node_text(obj, source);
+                return attr_name == "sleep" && time_names.contains(&obj_name);
             }
         }
         false
     }
 
-    fn has_time_sleep_call(node: tree_sitter::Node, source: &[u8]) -> bool {
-        if Self::is_time_sleep_call_node(node, source) {
+    fn has_time_sleep_call(
+        node: tree_sitter::Node,
+        source: &[u8],
+        time_names: &std::collections::HashSet<String>,
+    ) -> bool {
+        if Self::is_time_sleep_call_node(node, source, time_names) {
             return true;
         }
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            if Self::has_time_sleep_call(child, source) {
+            if Self::has_time_sleep_call(child, source, time_names) {
                 return true;
             }
         }
         false
     }
 
-    fn detect_sleep_value(body: Option<&tree_sitter::Node>, source: &[u8]) -> Option<f64> {
-        body.and_then(|b| Self::find_sleep_value(*b, source))
+    fn detect_sleep_value(
+        body: Option<&tree_sitter::Node>,
+        source: &[u8],
+        time_names: &std::collections::HashSet<String>,
+    ) -> Option<f64> {
+        body.and_then(|b| Self::find_sleep_value(*b, source, time_names))
     }
 
     fn try_extract_unary_neg(node: tree_sitter::Node, source: &[u8]) -> Option<f64> {
@@ -1236,17 +1342,23 @@ impl PythonParser {
         None
     }
 
-    fn is_sleep_call(func: tree_sitter::Node, source: &[u8]) -> bool {
+    fn is_sleep_call(
+        func: tree_sitter::Node,
+        source: &[u8],
+        time_names: &std::collections::HashSet<String>,
+    ) -> bool {
         let text = Self::node_text(func, source);
         if text == "time.sleep" || text == "sleep" {
             return true;
         }
         if func.kind() == "attribute" {
-            if let Some(attr) = func.child_by_field_name("attribute") {
-                let name = Self::node_text(attr, source);
-                if name == "sleep" {
-                    return true;
-                }
+            if let (Some(attr), Some(obj)) = (
+                func.child_by_field_name("attribute"),
+                func.child_by_field_name("object"),
+            ) {
+                let attr_name = Self::node_text(attr, source);
+                let obj_name = Self::node_text(obj, source);
+                return attr_name == "sleep" && time_names.contains(&obj_name);
             }
         }
         false
@@ -1260,12 +1372,16 @@ impl PythonParser {
         }
     }
 
-    fn find_sleep_value(node: tree_sitter::Node, source: &[u8]) -> Option<f64> {
+    fn find_sleep_value(
+        node: tree_sitter::Node,
+        source: &[u8],
+        time_names: &std::collections::HashSet<String>,
+    ) -> Option<f64> {
         let mut max_val: Option<f64> = None;
 
         if node.kind() == "call" {
             if let Some(func) = node.child_by_field_name("function") {
-                if Self::is_sleep_call(func, source) {
+                if Self::is_sleep_call(func, source, time_names) {
                     max_val = Self::extract_sleep_arg(node, source);
                 }
             }
@@ -1273,7 +1389,7 @@ impl PythonParser {
 
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            if let Some(val) = Self::find_sleep_value(child, source) {
+            if let Some(val) = Self::find_sleep_value(child, source, time_names) {
                 max_val = Self::update_max(max_val, val);
             }
         }
@@ -1372,9 +1488,10 @@ impl PythonParser {
         };
         let text = Self::node_text(func, source);
         let network_libs = ["requests", "socket", "httpx", "aiohttp", "urllib"];
-        if network_libs.iter().any(|lib| {
-            text.starts_with(&format!("{}.", lib)) || text.starts_with(&format!("{} (", lib))
-        }) {
+        if network_libs
+            .iter()
+            .any(|lib| text.starts_with(&format!("{lib}.")))
+        {
             return true;
         }
         if let Some(o) = func.child_by_field_name("object") {
@@ -1417,16 +1534,17 @@ impl PythonParser {
                 Some(f) => f,
                 None => return false,
             };
-            let text = Self::node_text(func, source);
-            if text.to_lowercase().contains(method_name) {
-                return true;
-            }
+            // Match the called attribute/method name exactly (e.g. "commit" / "rollback"),
+            // rather than substring-matching on the full function text, which would
+            // erroneously match identifiers like `commit_changes` or `rollback_helper`.
             if func.kind() == "attribute" {
                 if let Some(a) = func.child_by_field_name("attribute") {
                     return Self::node_text(a, source).to_lowercase() == method_name;
                 }
             }
-            return false;
+            // For unqualified calls, match the bare function name exactly.
+            let text = Self::node_text(func, source);
+            return text.to_lowercase() == method_name;
         }
         if node.kind() == "identifier" {
             return Self::node_text(node, source).to_lowercase() == method_name;
@@ -1676,6 +1794,18 @@ impl PythonParser {
         let text = Self::node_text(func, source);
         if text == "random.seed" {
             return true;
+        }
+        // Recognize `random.Random(<seed>)` constructor calls as a seeding
+        // pattern. `random.Random()` with no argument seeds from OS entropy
+        // (not a fixed seed), so only treat it as seeded when at least one
+        // non-punctuation argument is supplied. The receiver must be the
+        // `random` module so that `np.random.Random(...)` and similar are not
+        // matched.
+        if text == "random.Random" {
+            if let Some(args) = node.child_by_field_name("arguments") {
+                let mut cursor = args.walk();
+                return args.children(&mut cursor).any(|c| c.is_named());
+            }
         }
         if func.kind() == "attribute" {
             if let (Some(a), Some(o)) = (
@@ -1992,6 +2122,65 @@ impl PythonParser {
             || body_text.contains("shutil.copytree(")
             || body_text.contains("shutil.move(")
     }
+}
+
+/// Walk decorator nodes on every `decorated_definition` in the source tree and
+/// return `true` if any decorator contains an `attribute` node whose full dotted
+/// text exactly equals `mark` (e.g. `pytest.mark.network`).
+///
+/// This replaces substring matching against the raw source so that comments or
+/// string literals mentioning `@pytest.mark.network` cannot accidentally
+/// satisfy the check.
+#[must_use]
+pub fn source_has_pytest_mark(source: &str, mark: &str) -> bool {
+    let mut parser = Parser::new();
+    if parser
+        .set_language(&tree_sitter_python::LANGUAGE.into())
+        .is_err()
+    {
+        return false;
+    }
+    let Some(tree) = parser.parse(source, None) else {
+        return false;
+    };
+    let root = tree.root_node();
+    let source_bytes = source.as_bytes();
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        if node.kind() == "decorated_definition" {
+            let mut child_cursor = node.walk();
+            for child in node.children(&mut child_cursor) {
+                if child.kind() == "decorator" && decorator_matches_mark(child, source_bytes, mark)
+                {
+                    return true;
+                }
+            }
+        }
+        let mut child_cursor = node.walk();
+        for child in node.children(&mut child_cursor) {
+            stack.push(child);
+        }
+    }
+    false
+}
+
+/// Check whether a `decorator` node contains an `attribute` node whose full
+/// dotted text equals `mark`.
+fn decorator_matches_mark(decorator: tree_sitter::Node, source: &[u8], mark: &str) -> bool {
+    let mut stack = vec![decorator];
+    while let Some(node) = stack.pop() {
+        if node.kind() == "attribute" {
+            let text = node.utf8_text(source).unwrap_or_default().trim();
+            if text == mark {
+                return true;
+            }
+        }
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            stack.push(child);
+        }
+    }
+    false
 }
 
 fn extract_patch_target(text: &str) -> Option<String> {
@@ -3274,6 +3463,45 @@ def test_seed():
     }
 
     #[test]
+    fn test_random_seed_via_random_constructor_detected() {
+        // `random.Random(seed)` is a valid seeding pattern (e.g. for using a
+        // local RNG instance). It must be recognized as a fixed seed so that
+        // FLK-008 does not flag seeded tests as flaky.
+        let module = parse_source(
+            r#"
+import random
+def test_rng_instance():
+    rng = random.Random(42)
+    x = rng.randint(0, 10)
+    assert x >= 0
+"#,
+        );
+        assert!(
+            module.test_functions[0].has_random_seed,
+            "random.Random(42) must be recognized as a fixed seed"
+        );
+    }
+
+    #[test]
+    fn test_random_constructor_without_seed_not_treated_as_seeded() {
+        // `random.Random()` with no argument seeds from OS entropy, so it must
+        // NOT be treated as a fixed seed.
+        let module = parse_source(
+            r#"
+import random
+def test_rng_unseeded():
+    rng = random.Random()
+    x = rng.randint(0, 10)
+    assert x >= 0
+"#,
+        );
+        assert!(
+            !module.test_functions[0].has_random_seed,
+            "random.Random() with no arg must not be treated as a fixed seed"
+        );
+    }
+
+    #[test]
     fn test_subprocess_via_object() {
         let module = parse_source(
             r#"
@@ -3579,11 +3807,29 @@ import pytest
 
 @pytest.fixture
 def write_fix():
-    f.write("data")
+    f = open("data.txt", "w")
     return f
 "#,
         );
         assert!(module.fixtures[0].uses_file_io);
+    }
+
+    /// Regression: `f.write("data")` must NOT be flagged as file I/O, since it is a
+    /// common false positive (`df.write()`, `sys.stdout.write()`). Only `open(` is
+    /// treated as a file-I/O entry point.
+    #[test]
+    fn test_fixture_file_io_write_no_false_positive() {
+        let module = parse_source(
+            r#"
+import pytest
+
+@pytest.fixture
+def write_fix():
+    f.write("data")
+    return f
+"#,
+        );
+        assert!(!module.fixtures[0].uses_file_io);
     }
 
     #[test]
@@ -4378,7 +4624,7 @@ import pytest
 
 @pytest.fixture
 def fix_commit_id():
-    do_commit()
+    commit()
     return 42
 "#,
         );
@@ -4393,11 +4639,29 @@ import pytest
 
 @pytest.fixture
 def fix_rollback_id():
-    do_rollback()
+    rollback()
     return 42
 "#,
         );
         assert!(module.fixtures[0].has_db_rollback);
+    }
+
+    /// Regression: a bare call like `do_commit()` must NOT be flagged as a DB commit,
+    /// since `is_db_call_node` now matches the method name exactly (`commit`/`rollback`)
+    /// rather than substring-matching on the full function text.
+    #[test]
+    fn test_db_commit_substring_no_false_positive() {
+        let module = parse_source(
+            r#"
+import pytest
+
+@pytest.fixture
+def fix_no_commit():
+    do_commit()
+    return 42
+"#,
+        );
+        assert!(!module.fixtures[0].has_db_commit);
     }
 
     #[test]
@@ -4430,6 +4694,31 @@ def fix_try_suite_check():
 "#,
         );
         assert!(module.fixtures[0].has_cleanup);
+    }
+
+    #[test]
+    fn test_try_yield_only_in_except_clause_no_cleanup() {
+        // A yield in the except clause is NOT a try-wrapping-yield: the
+        // fixture body's try block does not wrap the yield, so this should
+        // not be detected as having a cleanup pattern by has_try_wrapping_yield.
+        // (It may still be flagged by other rules, but not as a cleanup pattern.)
+        let module = parse_source(
+            r#"
+import pytest
+
+@pytest.fixture
+def fix_yield_in_except():
+    try:
+        setup()
+    except Exception:
+        yield "recovery"
+"#,
+        );
+        // No try-wrapping-yield and no other cleanup patterns => has_cleanup false.
+        assert!(
+            !module.fixtures[0].has_cleanup,
+            "yield in except (not try body) must not count as try-wrapping-yield"
+        );
     }
 
     #[test]

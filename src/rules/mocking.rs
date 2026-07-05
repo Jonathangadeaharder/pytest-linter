@@ -1,5 +1,5 @@
 use crate::engine::make_violation;
-use crate::models::{Category, ParsedModule, Severity, Violation};
+use crate::models::{Category, ParsedModule, Severity, Span, Violation};
 use crate::rules::{Rule, RuleContext};
 
 fn find_patch_target_def_module(target: &str) -> Option<String> {
@@ -43,16 +43,13 @@ impl Rule for PatchTargetingDefinitionModuleRule {
                 if let Some(def_module) = find_patch_target_def_module(target) {
                     if module.imports.iter().any(|imp| imp.contains(&def_module)) {
                         violations.push(make_violation(
-                            self.id(),
-                            self.name(),
-                            self.severity(),
-                            self.category(),
+                        self,
                             format!(
                                 "Test '{}' patches definition module '{}' — patch the consumer instead",
                                 test.name, target
                             ),
                             module.file_path.clone(),
-                            test.line,
+                            Span::from(test),
                             Some("Patch where the target is used, not where it is defined".to_string()),
                             Some(test.name.clone()),
                         ));
@@ -89,16 +86,13 @@ impl Rule for MagicMockOnAsyncRule {
         for test in &module.test_functions {
             if test.is_async && test.has_magic_mock {
                 violations.push(make_violation(
-                    self.id(),
-                    self.name(),
-                    self.severity(),
-                    self.category(),
+                    self,
                     format!(
                         "Async test '{}' uses MagicMock instead of AsyncMock",
                         test.name
                     ),
                     module.file_path.clone(),
-                    test.line,
+                    Span::from(test),
                     Some("Use unittest.mock.AsyncMock for async functions".to_string()),
                     Some(test.name.clone()),
                 ));
@@ -134,16 +128,13 @@ impl Rule for PatchInitBypassRule {
             for target in &test.patch_targets {
                 if target.ends_with(".__init__") {
                     violations.push(make_violation(
-                        self.id(),
-                        self.name(),
-                        self.severity(),
-                        self.category(),
+                        self,
                         format!(
                             "Test '{}' patches __init__ on '{}' — bypasses constructor validation",
                             test.name, target
                         ),
                         module.file_path.clone(),
-                        test.line,
+                        Span::from(test),
                         Some("Patch the class itself or use a factory fixture instead".to_string()),
                         Some(test.name.clone()),
                     ));
@@ -181,32 +172,26 @@ impl Rule for MockRatioBudgetRule {
                 let ratio = test.mock_count as f64 / test.assertion_count as f64;
                 if ratio > 3.0 {
                     violations.push(make_violation(
-                        self.id(),
-                        self.name(),
-                        self.severity(),
-                        self.category(),
+                        self,
                         format!(
                             "Test '{}' has mock-to-assertion ratio of {:.1}:1 ({} mocks, {} assertions) — over budget",
                             test.name, ratio, test.mock_count, test.assertion_count
                         ),
                         module.file_path.clone(),
-                        test.line,
+                        Span::from(test),
                         Some("Reduce mock count or add more state assertions".to_string()),
                         Some(test.name.clone()),
                     ));
                 }
             } else if test.mock_count > 3 && test.assertion_count == 0 {
                 violations.push(make_violation(
-                    self.id(),
-                    self.name(),
-                    self.severity(),
-                    self.category(),
+                    self,
                     format!(
                         "Test '{}' has {} mock operations but zero assertions — over budget",
                         test.name, test.mock_count
                     ),
                     module.file_path.clone(),
-                    test.line,
+                    Span::from(test),
                     Some("Add assertions to verify actual outcomes".to_string()),
                     Some(test.name.clone()),
                 ));

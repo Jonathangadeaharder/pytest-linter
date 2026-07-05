@@ -1,5 +1,6 @@
 use crate::engine::make_violation;
-use crate::models::{Category, ParsedModule, Severity, Violation};
+use crate::models::{Category, ParsedModule, Severity, Span, Violation};
+use crate::parser::source_has_pytest_mark;
 use crate::rules::{Rule, RuleContext};
 
 const NETWORK_MODULES: &[&str] = &[
@@ -34,8 +35,7 @@ impl Rule for NetworkBanMissingRule {
         if !has_network {
             return vec![];
         }
-        let has_network_mark = module.source.contains("@pytest.mark.network")
-            || module.source.contains("pytest.mark.network");
+        let has_network_mark = source_has_pytest_mark(&module.source, "pytest.mark.network");
         let is_conftest = module.file_path.ends_with("conftest.py");
         if has_network_mark || is_conftest {
             return vec![];
@@ -59,13 +59,10 @@ impl Rule for NetworkBanMissingRule {
             return vec![];
         }
         vec![make_violation(
-            self.id(),
-            self.name(),
-            self.severity(),
-            self.category(),
+            self,
             "File imports network libraries without @pytest.mark.network or mock layer".to_string(),
             module.file_path.clone(),
-            1,
+            Span::file_level(),
             Some(
                 "Add @pytest.mark.network or use a mock layer (respx, responses, etc.)".to_string(),
             ),
@@ -121,17 +118,13 @@ impl Rule for LiveSuiteUnmarkedRule {
         }
         for test in &module.test_functions {
             if test.uses_network {
-                let has_live = module.source.contains("@pytest.mark.live")
-                    || module.source.contains("pytest.mark.live");
+                let has_live = source_has_pytest_mark(&module.source, "pytest.mark.live");
                 if !has_live {
                     return vec![make_violation(
-                        self.id(),
-                        self.name(),
-                        self.severity(),
-                        self.category(),
+                        self,
                         "File has live network calls without @pytest.mark.live".to_string(),
                         module.file_path.clone(),
-                        1,
+                        Span::file_level(),
                         Some("Mark live network tests with @pytest.mark.live for selective CI filtering".to_string()),
                         None,
                     )];
@@ -188,16 +181,13 @@ impl Rule for NonIdiomaticMonkeyPatchRule {
                         || test_body.contains("monkeypatch.undo()");
                     if !has_context {
                         violations.push(make_violation(
-                            self.id(),
-                            self.name(),
-                            self.severity(),
-                            self.category(),
+                        self,
                             format!(
                                 "Test '{}' uses monkeypatch without context manager — changes may leak",
                                 test.name
                             ),
                             module.file_path.clone(),
-                            test.line,
+                            Span::from(test),
                             Some("Use `with monkeypatch.context() as m:` for automatic cleanup".to_string()),
                             Some(test.name.clone()),
                         ));
@@ -234,16 +224,13 @@ impl Rule for MacOsCopyArtefactRule {
         for test in &module.test_functions {
             if test.uses_shutil_copy {
                 violations.push(make_violation(
-                    self.id(),
-                    self.name(),
-                    self.severity(),
-                    self.category(),
+                        self,
                     format!(
                         "Test '{}' uses shutil.copy/copy2/copyfile — may copy macOS metadata artefacts",
                         test.name
                     ),
                     module.file_path.clone(),
-                    test.line,
+                    Span::from(test),
                     Some("Use tmp_path.joinpath().write_bytes() or shutil.copy without preserving metadata".to_string()),
                     Some(test.name.clone()),
                 ));
@@ -255,16 +242,13 @@ impl Rule for MacOsCopyArtefactRule {
                 let trimmed = line.trim();
                 if let Some(artifact) = detect_macos_copy_artefact(trimmed) {
                     violations.push(make_violation(
-                        self.id(),
-                        self.name(),
-                        self.severity(),
-                        self.category(),
+                        self,
                         format!(
                             "Test '{}' uses macOS Finder copy artefact filename '{}' — normalize or remove",
                             test.name, artifact
                         ),
                         module.file_path.clone(),
-                        test.line,
+                        Span::from(test),
                         Some("Rename file to remove trailing ' N' copy suffix or use tmp_path fixtures".to_string()),
                         Some(test.name.clone()),
                     ));

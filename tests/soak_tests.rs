@@ -10,7 +10,7 @@ fn get_soak_dir() -> PathBuf {
 }
 
 #[test]
-#[ignore]
+#[ignore = "perf benchmark; run with --ignored after scripts/generate-soak-repo.py"]
 fn soak_test_10k_files() {
     let soak_dir = get_soak_dir();
     assert!(
@@ -55,13 +55,15 @@ fn soak_test_10k_files() {
 }
 
 #[test]
-#[ignore]
+#[ignore = "perf benchmark; run with --ignored after scripts/generate-soak-repo.py"]
 fn soak_test_single_file_performance() {
     let soak_dir = get_soak_dir();
-    if !soak_dir.exists() {
-        eprintln!("Skipping: soak repo not found");
-        return;
-    }
+    assert!(
+        soak_dir.exists(),
+        "Soak repo not found at {:?}. Run: python scripts/generate-soak-repo.py --output-dir {}",
+        soak_dir,
+        SOAK_DIR
+    );
 
     let first_file = std::fs::read_dir(&soak_dir)
         .unwrap()

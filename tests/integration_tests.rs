@@ -3799,6 +3799,45 @@ def test_no_assert():  # noqa
 }
 
 #[test]
+fn test_noqa_without_space_suppresses_rule() {
+    // `#noqa: RULE` (no space) is a valid flake8/ruff spelling and must be
+    // honored. Regression: previously only `# noqa` (with a space) was matched.
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_noqa_nospace.py",
+        r#"
+def test_no_assert():  #noqa: PYTEST-MNT-004
+    pass
+"#,
+    );
+    let violations = lint_single_file(&path);
+    assert!(
+        find_violation(&violations, "PYTEST-MNT-004").is_none(),
+        "#noqa: (no space) should suppress PYTEST-MNT-004"
+    );
+}
+
+#[test]
+fn test_noqa_case_insensitive_suppresses_rule() {
+    // `# NOQA: RULE` (uppercase) is a valid spelling and must be honored.
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_noqa_upper.py",
+        r#"
+def test_no_assert():  # NOQA: PYTEST-MNT-004
+    pass
+"#,
+    );
+    let violations = lint_single_file(&path);
+    assert!(
+        find_violation(&violations, "PYTEST-MNT-004").is_none(),
+        "# NOQA: (uppercase) should suppress PYTEST-MNT-004"
+    );
+}
+
+#[test]
 fn test_noqa_does_not_suppress_other_rules() {
     let dir = tempfile::tempdir().unwrap();
     let path = write_temp_file(
@@ -3867,6 +3906,7 @@ fn test_save_and_load_baseline() {
             file_path: PathBuf::from("test_foo.py"),
             line: 5,
             col: None,
+            end_col: None,
             suggestion: None,
             test_name: None,
         },
@@ -3879,6 +3919,7 @@ fn test_save_and_load_baseline() {
             file_path: PathBuf::from("test_bar.py"),
             line: 10,
             col: None,
+            end_col: None,
             suggestion: None,
             test_name: None,
         },
@@ -3919,6 +3960,7 @@ fn test_filter_new_violations_empty_baseline() {
         file_path: PathBuf::from("test_foo.py"),
         line: 5,
         col: None,
+        end_col: None,
         suggestion: None,
         test_name: None,
     }];
@@ -3941,6 +3983,7 @@ fn test_filter_new_violations_with_baseline_match() {
             file_path: PathBuf::from("test_foo.py"),
             line: 5,
             col: None,
+            end_col: None,
             suggestion: None,
             test_name: None,
         },
@@ -3953,6 +3996,7 @@ fn test_filter_new_violations_with_baseline_match() {
             file_path: PathBuf::from("test_bar.py"),
             line: 10,
             col: None,
+            end_col: None,
             suggestion: None,
             test_name: None,
         },
@@ -3977,6 +4021,7 @@ fn test_filter_new_violations_all_in_baseline() {
         file_path: PathBuf::from("test_foo.py"),
         line: 5,
         col: None,
+        end_col: None,
         suggestion: None,
         test_name: None,
     }];
@@ -4027,6 +4072,7 @@ fn test_format_json_output_to_file() {
         file_path: PathBuf::from("test.py"),
         line: 1,
         col: None,
+        end_col: None,
         suggestion: Some("add assert".to_string()),
         test_name: Some("test_foo".to_string()),
     }];
@@ -4051,6 +4097,7 @@ fn test_format_sarif_output_to_file() {
         file_path: PathBuf::from("test.py"),
         line: 1,
         col: None,
+        end_col: None,
         suggestion: None,
         test_name: None,
     }];
@@ -4074,6 +4121,7 @@ fn test_format_terminal_output_to_file() {
         file_path: PathBuf::from("test.py"),
         line: 1,
         col: Some(5),
+        end_col: None,
         suggestion: Some("add assert".to_string()),
         test_name: Some("test_foo".to_string()),
     }];
@@ -4098,6 +4146,7 @@ fn test_format_terminal_output_with_col_none() {
         file_path: PathBuf::from("test.py"),
         line: 3,
         col: None,
+        end_col: None,
         suggestion: None,
         test_name: None,
     }];
@@ -4121,6 +4170,7 @@ fn test_format_terminal_output_info_severity() {
         file_path: PathBuf::from("test.py"),
         line: 1,
         col: None,
+        end_col: None,
         suggestion: None,
         test_name: None,
     }];
@@ -4261,6 +4311,57 @@ def test_seeded_random():
     assert!(
         v.is_none(),
         "Should not trigger FLK-008 when random.seed is called"
+    );
+}
+
+#[test]
+fn test_random_with_random_constructor_seed_does_not_trigger_flk008() {
+    // `random.Random(seed)` is a valid fixed-seed pattern (local RNG instance).
+    // Regression: previously only `random.seed(...)` was recognized, so seeded
+    // `random.Random(42)` usage was falsely reported as flaky.
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_random_constructor_seed.py",
+        r#"
+import random
+
+def test_seeded_rng():
+    rng = random.Random(42)
+    val = rng.randint(1, 100)
+    assert val > 0
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FLK-008");
+    assert!(
+        v.is_none(),
+        "Should not trigger FLK-008 when random.Random(seed) is used"
+    );
+}
+
+#[test]
+fn test_random_constructor_without_seed_triggers_flk008() {
+    // `random.Random()` with no argument seeds from OS entropy — must still be
+    // reported as flaky.
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_random_constructor_no_seed.py",
+        r#"
+import random
+
+def test_unseeded_rng():
+    rng = random.Random()
+    val = rng.randint(1, 100)
+    assert val > 0
+"#,
+    );
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-FLK-008");
+    assert!(
+        v.is_some(),
+        "Expected PYTEST-FLK-008 when random.Random() is used without a seed"
     );
 }
 
@@ -4619,14 +4720,36 @@ def test_in_subdir():
 #[test]
 fn test_make_violation_function() {
     use pytest_linter::engine::make_violation;
+    use pytest_linter::models::Span;
+    use pytest_linter::rules::{Rule, RuleContext};
+    struct TestRule;
+    impl Rule for TestRule {
+        fn id(&self) -> &'static str {
+            "TEST-001"
+        }
+        fn name(&self) -> &'static str {
+            "TestRule"
+        }
+        fn severity(&self) -> Severity {
+            Severity::Warning
+        }
+        fn category(&self) -> Category {
+            Category::Flakiness
+        }
+        fn check(
+            &self,
+            _module: &pytest_linter::models::ParsedModule,
+            _all_modules: &[pytest_linter::models::ParsedModule],
+            _ctx: &RuleContext,
+        ) -> Vec<pytest_linter::models::Violation> {
+            Vec::new()
+        }
+    }
     let v = make_violation(
-        "TEST-001",
-        "TestRule",
-        Severity::Warning,
-        Category::Flakiness,
+        &TestRule,
         "test message".to_string(),
         PathBuf::from("test.py"),
-        42,
+        Span::line(42),
         Some("suggestion".to_string()),
         Some("test_name".to_string()),
     );
@@ -4638,6 +4761,7 @@ fn test_make_violation_function() {
     assert_eq!(v.file_path, PathBuf::from("test.py"));
     assert_eq!(v.line, 42);
     assert_eq!(v.col, None);
+    assert_eq!(v.end_col, None);
     assert_eq!(v.suggestion.as_deref(), Some("suggestion"));
     assert_eq!(v.test_name.as_deref(), Some("test_name"));
 }
@@ -5276,6 +5400,55 @@ def test_subprocess_line():
     assert_eq!(
         v.line, 5,
         "Violation should be at subprocess call line 5, not function def line 4"
+    );
+}
+
+#[test]
+fn test_subprocess_in_class_method_not_analyzed() {
+    // Design decision: test functions inside classes are not traversed
+    // (see test_class_definition_not_traversed in parser.rs). This test pins
+    // that behavior for FLK-009 so any future change to traverse classes
+    // also updates the line-number logic in flakiness.rs.
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_subprocess_class_line.py",
+        r#"
+import subprocess
+
+class TestThing:
+    def test_subprocess_class(self):
+        result = subprocess.run(["echo", "hello"])
+        assert result.returncode == 0
+"#,
+    );
+    let violations = lint_single_file(&path);
+    assert!(
+        find_violation(&violations, "PYTEST-FLK-009").is_none(),
+        "class-based test methods are not analyzed"
+    );
+}
+
+#[test]
+fn test_random_in_class_method_not_analyzed() {
+    // Same design decision as above, for FLK-008.
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_random_class_line.py",
+        r#"
+import random
+
+class TestThing:
+    def test_random_class(self):
+        val = random.randrange(10)
+        assert val >= 0
+"#,
+    );
+    let violations = lint_single_file(&path);
+    assert!(
+        find_violation(&violations, "PYTEST-FLK-008").is_none(),
+        "class-based test methods are not analyzed"
     );
 }
 
@@ -6342,5 +6515,82 @@ def test_fetch(mock_fetch):
     assert!(
         v.is_none(),
         "mocking non-stdlib module should NOT trigger MNT-005"
+    );
+}
+
+#[test]
+fn test_foreign_sleep_attribute_no_flk001() {
+    // A `.sleep()` call on a non-`time` object (e.g. a custom library) must not be
+    // flagged as `time.sleep` usage. is_time_sleep_call_node's attribute branch
+    // previously matched any `.sleep` attribute regardless of the receiver object.
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_foreign_sleep.py",
+        r#"
+def test_foreign_sleep():
+    mylib.sleep(2)
+    assert True
+"#,
+    );
+    let violations = lint_single_file(&path);
+    assert!(
+        find_violation(&violations, "PYTEST-FLK-001").is_none(),
+        "mylib.sleep() must not be reported as time.sleep (FLK-001)"
+    );
+}
+
+#[test]
+fn test_inline_schema_with_trailing_comment_triggers_val001() {
+    // Regression: a trailing `#` comment caused extract_dict_content to miss the
+    // dict (it no longer ended with `}`), so two tests redeclaring the same
+    // inline schema with a trailing comment were NOT flagged by VAL-001.
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_inline_schema_comment.py",
+        r#"
+def test_create_order():
+    order = {"customer_id": 1, "items": ["book"], "total": 29.99}  # the order
+    assert order["total"] == 29.99
+
+
+def test_update_order():
+    order = {"customer_id": 1, "items": ["book"], "total": 29.99}  # again
+    order["total"] = 39.99
+    assert order["total"] == 39.99
+"#,
+    );
+    let violations = lint_single_file(&path);
+    assert!(
+        find_violation(&violations, "PYTEST-VAL-001").is_some(),
+        "Expected PYTEST-VAL-001 for inline schema redeclared across tests (with trailing comment)"
+    );
+}
+
+#[test]
+fn test_inline_schema_with_hash_inside_string_not_treated_as_comment() {
+    // A `#` inside a string value must not be treated as a comment marker, or the
+    // dict would be truncated and the schema not detected.
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_inline_schema_hash_string.py",
+        r#"
+def test_create():
+    order = {"tag": "a#b", "customer_id": 1, "items": ["book"], "total": 29.99}
+    assert order["total"] == 29.99
+
+
+def test_update():
+    order = {"tag": "a#b", "customer_id": 1, "items": ["book"], "total": 29.99}
+    order["total"] = 39.99
+    assert order["total"] == 39.99
+"#,
+    );
+    let violations = lint_single_file(&path);
+    assert!(
+        find_violation(&violations, "PYTEST-VAL-001").is_some(),
+        "Expected PYTEST-VAL-001 even when a dict value contains a '#' character"
     );
 }

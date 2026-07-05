@@ -1,7 +1,7 @@
 //! Core linting engine: file discovery, parallel parsing, rule execution, and output formatting.
 
 use crate::config::Config;
-use crate::models::{Category, Fixture, FixtureScope, ParsedModule, Severity, Violation};
+use crate::models::{Fixture, FixtureScope, ParsedModule, Severity, Span, Violation};
 use crate::rules::{Rule, RuleContext};
 use anyhow::Result;
 use colored::Colorize;
@@ -103,7 +103,6 @@ pub struct LintEngine {
 
 impl LintEngine {
     /// Create a new engine with rules filtered by the given configuration.
-    #[allow(clippy::missing_errors_doc)]
     pub fn new(config: Config) -> Result<Self> {
         Ok(Self {
             dispatcher: RuleDispatcher::new(),
@@ -113,7 +112,6 @@ impl LintEngine {
     }
 
     /// Create a LintEngine with an explicit memory limit (in MB).
-    #[allow(clippy::missing_errors_doc)]
     pub fn with_memory_limit(config: Config, memory_limit_mb: usize) -> Result<Self> {
         Ok(Self {
             dispatcher: RuleDispatcher::new(),
@@ -123,7 +121,6 @@ impl LintEngine {
     }
 
     /// Lint all test files discovered under the given paths and return violations.
-    #[allow(clippy::missing_errors_doc)]
     pub fn lint_paths(&self, paths: &[PathBuf]) -> Result<Vec<Violation>> {
         let files = discover_files(paths, &self.config.excludes);
 
@@ -167,12 +164,10 @@ impl LintEngine {
         Ok(violations)
     }
 
-    #[allow(clippy::missing_errors_doc)]
     pub fn lint_source(&self, source: &str, file_path: &Path) -> Result<Vec<Violation>> {
         self.lint_source_with_context(source, file_path, &[])
     }
 
-    #[allow(clippy::missing_errors_doc)]
     pub fn lint_source_with_context(
         &self,
         source: &str,
@@ -223,8 +218,8 @@ pub const DEFAULT_EXCLUDED_DIRS: &[&str] = &[
     ".hg",
     ".svn",
     ".venv",
+    ".env",
     "venv",
-    "env",
     "__pypackages__",
     "site-packages",
     "node_modules",
@@ -320,11 +315,40 @@ fn collect_suppressions(modules: &[ParsedModule]) -> SuppressionMap {
 }
 
 /// Parse `# noqa` comments from a line and return the suppressed rule IDs.
+///
+/// Recognizes the common flake8/ruff spellings: `# noqa`, `#noqa`, and any
+/// case variant (`# NOQA`, `# Noqa`, ...). An optional `: RULE1, RULE2` suffix
+/// lists the rule IDs to suppress; a bare `# noqa` (or `# noqa:` with no IDs)
+/// suppresses all rules.
 fn parse_noqa_comment(line: &str) -> Option<Vec<String>> {
     let trimmed = line.trim();
-    let noqa_pos = trimmed.find("# noqa")?;
-    let after_noqa = &trimmed[noqa_pos + 6..].trim();
+    // Lowercase copy used only for case-insensitive searching; all slicing is
+    // performed on `trimmed` using byte indices derived from `lower`, which is
+    // valid because lowercasing ASCII leaves byte positions unchanged and the
+    // characters we search for (`#`, whitespace, `noqa`, `:`) are all ASCII.
+    let lower = trimmed.to_lowercase();
+    // Find the first `#` that begins a `noqa` comment. There may be earlier
+    // `#` characters inside string literals, but a `# noqa` convention placed
+    // outside a string is what we care about; the first `#` followed by an
+    // optional-whitespace + `noqa` is the comment marker.
+    let mut search_from = 0;
+    while let Some(hash_pos) = lower[search_from..].find('#') {
+        let hash_pos = search_from + hash_pos;
+        let after_hash = &lower[hash_pos + 1..];
+        let leading_ws_len = after_hash.len() - after_hash.trim_start().len();
+        let noqa_start = hash_pos + 1 + leading_ws_len;
+        if lower[noqa_start..].strip_prefix("noqa").is_some() {
+            let after_noqa = trimmed[noqa_start + "noqa".len()..].trim();
+            return parse_noqa_suffix(after_noqa);
+        }
+        search_from = hash_pos + 1;
+    }
+    None
+}
 
+/// Given the text following the literal `noqa` token, return the suppressed
+/// rule IDs (or `["*"]` for a bare `# noqa`).
+fn parse_noqa_suffix(after_noqa: &str) -> Option<Vec<String>> {
     if after_noqa.is_empty() || after_noqa.starts_with(':') {
         let rules_str = if let Some(stripped) = after_noqa.strip_prefix(':') {
             stripped.trim()
@@ -490,28 +514,25 @@ pub fn compute_used_fixture_names(modules: &[ParsedModule]) -> HashSet<String> {
 }
 
 /// Construct a `Violation` from the given rule metadata and location info.
-#[allow(dead_code, clippy::too_many_arguments)]
 #[must_use]
 pub fn make_violation(
-    rule_id: &'static str,
-    rule_name: &'static str,
-    severity: Severity,
-    category: Category,
+    rule: &dyn Rule,
     message: String,
     file_path: PathBuf,
-    line: usize,
+    span: Span,
     suggestion: Option<String>,
     test_name: Option<String>,
 ) -> Violation {
     Violation {
-        rule_id: rule_id.to_string(),
-        rule_name: rule_name.to_string(),
-        severity,
-        category,
+        rule_id: rule.id().to_string(),
+        rule_name: rule.name().to_string(),
+        severity: rule.severity(),
+        category: rule.category(),
         message,
         file_path,
-        line,
-        col: None,
+        line: span.line,
+        col: span.col,
+        end_col: span.end_col,
         suggestion,
         test_name,
     }
@@ -523,7 +544,6 @@ fn is_py_test_file(path: &Path) -> bool {
 }
 
 /// Get test files changed since the given git base ref.
-#[allow(clippy::missing_errors_doc)]
 pub fn get_changed_files(base: &str) -> Result<Vec<PathBuf>> {
     let output = std::process::Command::new("git")
         .args(["diff", "--name-only", "--diff-filter=ACMR", base])
@@ -547,7 +567,6 @@ pub fn get_changed_files(base: &str) -> Result<Vec<PathBuf>> {
 }
 
 /// Run the full linter pipeline: discover, lint, format output. Returns true if errors found.
-#[allow(clippy::missing_errors_doc)]
 pub fn run_linter(
     paths: &[PathBuf],
     format: &str,
@@ -558,7 +577,6 @@ pub fn run_linter(
     run_linter_with_memory_limit(paths, format, output, no_color, config, 256)
 }
 
-#[allow(clippy::missing_errors_doc)]
 pub fn run_linter_with_memory_limit(
     paths: &[PathBuf],
     format: &str,
@@ -584,7 +602,6 @@ pub fn run_linter_with_memory_limit(
 }
 
 /// Collect all violations from the given paths without producing output.
-#[allow(clippy::missing_errors_doc)]
 pub fn collect_violations(paths: &[PathBuf], config: Config) -> Result<Vec<Violation>> {
     let engine = LintEngine::new(config)?;
     engine.lint_paths(paths)
@@ -598,7 +615,6 @@ struct BaselineEntry {
 }
 
 /// Save a baseline of known violations to a JSON file.
-#[allow(clippy::missing_errors_doc)]
 pub fn save_baseline(violations: &[Violation], path: &Path) -> Result<()> {
     let entries: Vec<BaselineEntry> = violations
         .iter()
@@ -614,7 +630,6 @@ pub fn save_baseline(violations: &[Violation], path: &Path) -> Result<()> {
 }
 
 /// Load a baseline of known violations from a JSON file.
-#[allow(clippy::missing_errors_doc)]
 pub fn load_baseline(path: &Path) -> Result<HashSet<(String, usize, String)>> {
     let content = std::fs::read_to_string(path)?;
     let entries: Vec<BaselineEntry> = serde_json::from_str(&content)?;
@@ -626,7 +641,6 @@ pub fn load_baseline(path: &Path) -> Result<HashSet<(String, usize, String)>> {
 }
 
 /// Filter violations to only those not present in the baseline.
-#[allow(clippy::missing_errors_doc)]
 pub fn filter_new_violations(
     violations: &[Violation],
     baseline: &HashSet<(String, usize, String)>,
@@ -646,19 +660,16 @@ pub fn filter_new_violations(
 }
 
 /// Format violations as JSON and write to the given path or stdout.
-#[allow(clippy::missing_errors_doc)]
 pub fn format_json_output(violations: &[Violation], output: Option<&Path>) -> Result<()> {
     format_json(violations, output)
 }
 
 /// Format violations as SARIF and write to the given path or stdout.
-#[allow(clippy::missing_errors_doc)]
 pub fn format_sarif_output(violations: &[Violation], output: Option<&Path>) -> Result<()> {
     format_sarif(violations, output)
 }
 
 /// Format violations for terminal display and write to the given path or stdout.
-#[allow(clippy::missing_errors_doc)]
 pub fn format_terminal_output(
     violations: &[Violation],
     output: Option<&Path>,
@@ -844,6 +855,7 @@ mod tests {
             file_path: PathBuf::from("test.py"),
             line: 5,
             col: None,
+            end_col: None,
             suggestion: None,
             test_name: None,
         };
@@ -867,6 +879,7 @@ mod tests {
             file_path: PathBuf::from("test.py"),
             line: 5,
             col: None,
+            end_col: None,
             suggestion: None,
             test_name: None,
         };
@@ -893,6 +906,7 @@ mod tests {
             file_path: PathBuf::from("test.py"),
             line: 5,
             col: None,
+            end_col: None,
             suggestion: None,
             test_name: None,
         };
@@ -903,31 +917,47 @@ mod tests {
     #[test]
     fn test_violation_equality_same_key_different_rest() {
         use crate::models::Violation;
-        let v1 = Violation {
+        // Same (file, line, rule_id, col, message) => equal even if metadata differs.
+        let mk = |rule_name: &str, severity, category, suggestion: Option<&str>| Violation {
             rule_id: "PYTEST-FLK-001".to_string(),
-            rule_name: "A".to_string(),
-            severity: crate::models::Severity::Warning,
-            category: crate::models::Category::Flakiness,
+            rule_name: rule_name.to_string(),
+            severity,
+            category,
             message: "msg1".to_string(),
             file_path: PathBuf::from("test.py"),
             line: 5,
             col: None,
-            suggestion: None,
+            end_col: None,
+            suggestion: suggestion.map(str::to_string),
             test_name: None,
         };
-        let v2 = Violation {
-            rule_id: "PYTEST-FLK-001".to_string(),
-            rule_name: "B".to_string(),
-            severity: crate::models::Severity::Error,
-            category: crate::models::Category::Fixture,
-            message: "msg2".to_string(),
-            file_path: PathBuf::from("test.py"),
-            line: 5,
-            col: Some(10),
-            suggestion: Some("fix".to_string()),
-            test_name: Some("test_x".to_string()),
-        };
+        let v1 = mk(
+            "A",
+            crate::models::Severity::Warning,
+            crate::models::Category::Flakiness,
+            None,
+        );
+        let v2 = mk(
+            "B",
+            crate::models::Severity::Error,
+            crate::models::Category::Fixture,
+            Some("fix"),
+        );
         assert_eq!(v1, v2);
+
+        // Different message hash or column => not equal (prevents collision bugs).
+        let v3 = {
+            let mut v = v1.clone();
+            v.message = "msg2".to_string();
+            v
+        };
+        assert_ne!(v1, v3);
+        let v4 = {
+            let mut v = v1.clone();
+            v.col = Some(3);
+            v
+        };
+        assert_ne!(v1, v4);
     }
 
     #[test]
@@ -942,6 +972,7 @@ mod tests {
             file_path: PathBuf::from("test.py"),
             line: 5,
             col: None,
+            end_col: None,
             suggestion: None,
             test_name: None,
         };
@@ -954,6 +985,7 @@ mod tests {
             file_path: PathBuf::from("test.py"),
             line: 6,
             col: None,
+            end_col: None,
             suggestion: None,
             test_name: None,
         };
@@ -972,6 +1004,7 @@ mod tests {
             file_path: PathBuf::from("test.py"),
             line: 5,
             col: None,
+            end_col: None,
             suggestion: None,
             test_name: None,
         };
@@ -984,6 +1017,7 @@ mod tests {
             file_path: PathBuf::from("test.py"),
             line: 5,
             col: None,
+            end_col: None,
             suggestion: None,
             test_name: None,
         };
@@ -1003,6 +1037,7 @@ mod tests {
                 file_path: PathBuf::from("a.py"),
                 line: 1,
                 col: None,
+                end_col: None,
                 suggestion: None,
                 test_name: None,
             },
@@ -1015,6 +1050,7 @@ mod tests {
                 file_path: PathBuf::from("a.py"),
                 line: 2,
                 col: None,
+                end_col: None,
                 suggestion: None,
                 test_name: None,
             },
@@ -1027,6 +1063,7 @@ mod tests {
                 file_path: PathBuf::from("a.py"),
                 line: 3,
                 col: None,
+                end_col: None,
                 suggestion: None,
                 test_name: None,
             },
@@ -1180,6 +1217,7 @@ mod tests {
             file_path: PathBuf::from("test.py"),
             line: 1,
             col: None,
+            end_col: None,
             suggestion: None,
             test_name: None,
         };
@@ -1212,6 +1250,8 @@ mod tests {
                 name: "test_x".to_string(),
                 file_path: PathBuf::from("test_a.py"),
                 line: 1,
+                col: None,
+                end_col: None,
                 is_async: false,
                 is_parametrized: false,
                 parametrize_count: None,
@@ -1252,6 +1292,8 @@ mod tests {
                     name: "db_connection".to_string(),
                     file_path: PathBuf::from("test_a.py"),
                     line: 3,
+                    col: None,
+                    end_col: None,
                     scope: FixtureScope::Function,
                     is_autouse: false,
                     dependencies: vec![],
@@ -1261,13 +1303,14 @@ mod tests {
                     has_db_rollback: false,
                     has_cleanup: false,
                     uses_file_io: false,
-                    used_by: vec![],
                 },
                 // unrelated_fixture does NOT depend on db_connection
                 Fixture {
                     name: "unrelated_fixture".to_string(),
                     file_path: PathBuf::from("test_a.py"),
                     line: 5,
+                    col: None,
+                    end_col: None,
                     scope: FixtureScope::Function,
                     is_autouse: false,
                     dependencies: vec!["other_dep".to_string()],
@@ -1277,7 +1320,6 @@ mod tests {
                     has_db_rollback: false,
                     has_cleanup: false,
                     uses_file_io: false,
-                    used_by: vec![],
                 },
             ],
         };
@@ -1301,6 +1343,8 @@ mod tests {
                 name: "test_x".to_string(),
                 file_path: PathBuf::from("test_a.py"),
                 line: 1,
+                col: None,
+                end_col: None,
                 is_async: false,
                 is_parametrized: false,
                 parametrize_count: None,
@@ -1340,6 +1384,8 @@ mod tests {
                 name: "db_connection".to_string(),
                 file_path: PathBuf::from("test_a.py"),
                 line: 3,
+                col: None,
+                end_col: None,
                 scope: FixtureScope::Function,
                 is_autouse: false,
                 dependencies: vec![],
@@ -1349,7 +1395,6 @@ mod tests {
                 has_db_rollback: false,
                 has_cleanup: false,
                 uses_file_io: false,
-                used_by: vec![],
             }],
         };
         assert!(
@@ -1372,6 +1417,8 @@ mod tests {
                 name: "test_x".to_string(),
                 file_path: PathBuf::from("test_a.py"),
                 line: 1,
+                col: None,
+                end_col: None,
                 is_async: false,
                 is_parametrized: false,
                 parametrize_count: None,
@@ -1412,6 +1459,8 @@ mod tests {
                     name: "api_client".to_string(),
                     file_path: PathBuf::from("test_a.py"),
                     line: 3,
+                    col: None,
+                    end_col: None,
                     scope: FixtureScope::Function,
                     is_autouse: false,
                     dependencies: vec!["db_connection".to_string()],
@@ -1421,12 +1470,13 @@ mod tests {
                     has_db_rollback: false,
                     has_cleanup: false,
                     uses_file_io: false,
-                    used_by: vec![],
                 },
                 Fixture {
                     name: "db_connection".to_string(),
                     file_path: PathBuf::from("test_a.py"),
                     line: 5,
+                    col: None,
+                    end_col: None,
                     scope: FixtureScope::Function,
                     is_autouse: false,
                     dependencies: vec![],
@@ -1436,7 +1486,6 @@ mod tests {
                     has_db_rollback: false,
                     has_cleanup: false,
                     uses_file_io: false,
-                    used_by: vec![],
                 },
             ],
         };

@@ -159,7 +159,7 @@ def test_something():  # noqa: PYTEST-FLK-001
 
 ## LSP Server
 
-A `tower-lsp`-based LSP server ships as the `pytest-linter-lsp` binary. It provides real-time diagnostics in any LSP-aware editor. Scope: diagnostics only (code actions and hover are future work).
+A `tower-lsp`-based LSP server ships as the `pytest-linter-lsp` binary. It provides real-time diagnostics in any LSP-aware editor.
 
 ### Install
 

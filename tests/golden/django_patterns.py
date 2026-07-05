@@ -13,8 +13,11 @@ def test_slow():  # expect: PYTEST-MNT-016
 
 
 # --- FLK-003: network import at module level ---
+# The import below triggers PYTEST-FLK-003 (network library in test file)
+# and PYTEST-INF-001 (no network mark and no mock layer).
 # expect: PYTEST-FLK-003
 # expect: PYTEST-INF-001
+import httpx
 
 
 # --- FLK-002: file I/O without tmp_path ---
