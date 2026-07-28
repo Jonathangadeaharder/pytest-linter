@@ -189,6 +189,72 @@ def test_does_nothing():
 }
 
 #[test]
+fn test_pytest_raises_counts_as_assertion() {
+    // A test whose only assertion mechanism is `pytest.raises(...)` must NOT be
+    // flagged by MNT-004 (has-no-assertions), since `pytest.raises` is an
+    // expectation about raised exceptions.
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_raises_only.py",
+        r#"
+import pytest
+
+def test_only_raises():
+    with pytest.raises(ValueError):
+        raise ValueError("bad")
+"#,
+    );
+    let module = parse_file(&path);
+    assert_eq!(module.test_functions.len(), 1);
+    assert!(
+        module.test_functions[0].has_assertions,
+        "pytest.raises should count as an assertion"
+    );
+    assert_eq!(module.test_functions[0].assertion_count, 1);
+
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-MNT-004");
+    assert!(
+        v.is_none(),
+        "Test with only pytest.raises should not be flagged as having no assertions"
+    );
+}
+
+#[test]
+fn test_pytest_raises_with_assert_both_counted() {
+    // When a test has both `assert` statements and `pytest.raises(...)`, both
+    // should be counted toward the assertion total.
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_temp_file(
+        dir.path(),
+        "test_raises_and_assert.py",
+        r#"
+import pytest
+
+def test_raises_and_assert():
+    assert 1 + 1 == 2
+    with pytest.raises(ValueError):
+        raise ValueError("bad")
+"#,
+    );
+    let module = parse_file(&path);
+    assert_eq!(module.test_functions.len(), 1);
+    assert!(module.test_functions[0].has_assertions);
+    assert_eq!(
+        module.test_functions[0].assertion_count, 2,
+        "both assert and pytest.raises should be counted"
+    );
+
+    let violations = lint_single_file(&path);
+    let v = find_violation(&violations, "PYTEST-MNT-004");
+    assert!(
+        v.is_none(),
+        "Test with assert + pytest.raises should not be flagged as no assertions"
+    );
+}
+
+#[test]
 fn test_try_except_triggers_mnt007() {
     let dir = tempfile::tempdir().unwrap();
     let path = write_temp_file(
@@ -726,8 +792,11 @@ fn test_run_linter_terminal_with_info_violations() {
         dir.path(),
         "test_term_info.py",
         r#"
-def test_ok():
-    assert 1 + 1 == 2
+import pytest
+
+@pytest.mark.parametrize("x", [1, 2, 3, 4])
+def test_many(x):
+    assert x > 0
 "#,
     );
     let output_path = dir.path().join("info.txt");
@@ -977,48 +1046,6 @@ def test_mock_and_state(mock_obj):
     assert!(
         v.is_none(),
         "Should not trigger MNT-005 when test has state assertions"
-    );
-}
-
-#[test]
-fn test_bdd_missing_scenario_triggers_bdd001() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = write_temp_file(
-        dir.path(),
-        "test_bdd.py",
-        r#"
-def test_without_gherkin():
-    assert True
-"#,
-    );
-    let violations = lint_single_file(&path);
-    let v = find_violation(&violations, "PYTEST-BDD-001");
-    assert!(
-        v.is_some(),
-        "Expected PYTEST-BDD-001 for missing BDD scenario"
-    );
-    let v = v.unwrap();
-    assert_eq!(v.rule_name, "BddMissingScenarioRule");
-    assert_eq!(v.severity, Severity::Info);
-}
-
-#[test]
-fn test_bdd_with_gherkin_does_not_trigger_bdd001() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = write_temp_file(
-        dir.path(),
-        "test_bdd_ok.py",
-        r#"
-def test_with_gherkin():
-    """Given a setup when an action then a result."""
-    assert True
-"#,
-    );
-    let violations = lint_single_file(&path);
-    let v = find_violation(&violations, "PYTEST-BDD-001");
-    assert!(
-        v.is_none(),
-        "Should not trigger BDD-001 when docstring has Gherkin"
     );
 }
 
@@ -2223,40 +2250,6 @@ def test_reads_file(tmp_path):
 }
 
 #[test]
-fn test_bdd_with_when_does_not_trigger_bdd001() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = write_temp_file(
-        dir.path(),
-        "test_bdd_when.py",
-        r#"
-def test_with_when():
-    """When something happens."""
-    assert True
-"#,
-    );
-    let violations = lint_single_file(&path);
-    let v = find_violation(&violations, "PYTEST-BDD-001");
-    assert!(v.is_none());
-}
-
-#[test]
-fn test_bdd_with_then_does_not_trigger_bdd001() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = write_temp_file(
-        dir.path(),
-        "test_bdd_then.py",
-        r#"
-def test_with_then():
-    """Then something is verified."""
-    assert True
-"#,
-    );
-    let violations = lint_single_file(&path);
-    let v = find_violation(&violations, "PYTEST-BDD-001");
-    assert!(v.is_none());
-}
-
-#[test]
 fn test_property_test_hint_non_parametrized_does_not_trigger() {
     let dir = tempfile::tempdir().unwrap();
     let path = write_temp_file(
@@ -3007,23 +3000,6 @@ def test_no_cond():
 }
 
 #[test]
-fn test_parse_test_docstring_with_given() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = write_temp_file(
-        dir.path(),
-        "test_docstring_given.py",
-        r#"
-def test_given():
-    """Given a setup."""
-    assert True
-"#,
-    );
-    let violations = lint_single_file(&path);
-    let v = find_violation(&violations, "PYTEST-BDD-001");
-    assert!(v.is_none());
-}
-
-#[test]
 fn test_parse_test_no_docstring() {
     let dir = tempfile::tempdir().unwrap();
     let path = write_temp_file(
@@ -3475,67 +3451,6 @@ def test_safe():
 }
 
 #[test]
-fn test_no_contract_hint_triggers_dbc001() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = write_temp_file(
-        dir.path(),
-        "test_happy_path.py",
-        r#"
-def test_happy_only():
-    result = 1 + 2
-    assert result == 3
-"#,
-    );
-    let violations = lint_single_file(&path);
-    let v = find_violation(&violations, "PYTEST-DBC-001");
-    assert!(
-        v.is_some(),
-        "Expected PYTEST-DBC-001 for happy-path-only test"
-    );
-}
-
-#[test]
-fn test_with_pytest_raises_does_not_trigger_dbc001() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = write_temp_file(
-        dir.path(),
-        "test_with_error.py",
-        r#"
-import pytest
-
-def test_error():
-    with pytest.raises(ValueError):
-        raise ValueError("bad")
-"#,
-    );
-    let violations = lint_single_file(&path);
-    let v = find_violation(&violations, "PYTEST-DBC-001");
-    assert!(
-        v.is_none(),
-        "Test with pytest.raises should not trigger DBC-001"
-    );
-}
-
-#[test]
-fn test_parametrized_does_not_trigger_dbc001() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = write_temp_file(
-        dir.path(),
-        "test_param_dbc.py",
-        r#"
-import pytest
-
-@pytest.mark.parametrize("x", [1, 2, 3])
-def test_values(x):
-    assert x > 0
-"#,
-    );
-    let violations = lint_single_file(&path);
-    let v = find_violation(&violations, "PYTEST-DBC-001");
-    assert!(v.is_none(), "Parametrized tests should not trigger DBC-001");
-}
-
-#[test]
 fn test_fixture_mutation_triggers_fix007() {
     let dir = tempfile::tempdir().unwrap();
     let conftest = write_temp_file(
@@ -3860,15 +3775,17 @@ fn test_noqa_multiple_rules() {
         dir.path(),
         "test_noqa_multi.py",
         r#"
-def test_no_assert():  # noqa: PYTEST-MNT-004, PYTEST-BDD-001
-    pass
+import time
+
+def test_no_assert():  # noqa: PYTEST-MNT-004, PYTEST-FLK-001
+    time.sleep(1)
 "#,
     );
     let violations = lint_single_file(&path);
     let v1 = find_violation(&violations, "PYTEST-MNT-004");
-    let v2 = find_violation(&violations, "PYTEST-BDD-001");
+    let v2 = find_violation(&violations, "PYTEST-FLK-001");
     assert!(v1.is_none(), "noqa should suppress PYTEST-MNT-004");
-    assert!(v2.is_none(), "noqa should suppress PYTEST-BDD-001");
+    assert!(v2.is_none(), "noqa should suppress PYTEST-FLK-001");
 }
 
 #[test]
@@ -4162,11 +4079,11 @@ fn test_format_terminal_output_info_severity() {
     let dir = tempfile::tempdir().unwrap();
     let output_path = dir.path().join("info.txt");
     let violations = vec![pytest_linter::models::Violation {
-        rule_id: "PYTEST-BDD-001".to_string(),
-        rule_name: "BddMissingScenarioRule".to_string(),
+        rule_id: "PYTEST-PBT-001".to_string(),
+        rule_name: "PropertyTestHintRule".to_string(),
         severity: Severity::Info,
         category: Category::Enhancement,
-        message: "missing BDD".to_string(),
+        message: "consider property-based testing".to_string(),
         file_path: PathBuf::from("test.py"),
         line: 1,
         col: None,
@@ -4789,13 +4706,15 @@ fn test_noqa_with_whitespace_rules() {
         dir.path(),
         "test_noqa_ws.py",
         r#"
-def test_no_assert():  # noqa:   PYTEST-MNT-004  ,  PYTEST-BDD-001
-    pass
+import time
+
+def test_no_assert():  # noqa:   PYTEST-MNT-004  ,  PYTEST-FLK-001
+    time.sleep(1)
 "#,
     );
     let violations = lint_single_file(&path);
     let v1 = find_violation(&violations, "PYTEST-MNT-004");
-    let v2 = find_violation(&violations, "PYTEST-BDD-001");
+    let v2 = find_violation(&violations, "PYTEST-FLK-001");
     assert!(v1.is_none());
     assert!(v2.is_none());
 }
@@ -5040,24 +4959,6 @@ def test_uses(list):
     assert_eq!(v.rule_id, "PYTEST-FIX-012");
     assert_eq!(v.rule_name, "FixtureNameShadowsBuiltinRule");
     assert!(v.message.contains("shadows a Python builtin"));
-}
-
-#[test]
-fn test_no_contract_hint_rule_name_dbc001() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = write_temp_file(
-        dir.path(),
-        "test_dbc001_name.py",
-        r#"
-def test_happy():
-    result = 1 + 2
-    assert result == 3
-"#,
-    );
-    let violations = lint_single_file(&path);
-    let v = find_violation(&violations, "PYTEST-DBC-001");
-    assert!(v.is_some(), "Expected PYTEST-DBC-001 violation");
-    assert_eq!(v.unwrap().rule_name, "NoContractHintRule");
 }
 
 #[test]

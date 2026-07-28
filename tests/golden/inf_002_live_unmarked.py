@@ -2,8 +2,6 @@
 # expect: PYTEST-FLK-003
 # expect: PYTEST-INF-001
 # expect: PYTEST-INF-002
-# expect: PYTEST-BDD-001
-# expect: PYTEST-DBC-001
 
 import requests
 

@@ -24,7 +24,7 @@ pytest-linter --baseline violations.json /path/to/tests
 pytest-linter --check-baseline violations.json /path/to/tests
 ```
 
-## Rules (49)
+## Rules (47)
 
 **Flakiness (11):**
 
@@ -78,10 +78,8 @@ pytest-linter --check-baseline violations.json /path/to/tests
 |---------|------|----------|
 | PYTEST-MNT-003 | SuboptimalAssertRule | Info |
 | PYTEST-VAL-001 | InlineSchemaRedeclaredRule | Info |
-| PYTEST-BDD-001 | BddMissingScenarioRule | Info |
 | PYTEST-PBT-001 | PropertyTestHintRule | Info |
 | PYTEST-MOC-004 | MockRatioBudgetRule | Info |
-| PYTEST-DBC-001 | NoContractHintRule | Info |
 
 **Fixtures (12):**
 

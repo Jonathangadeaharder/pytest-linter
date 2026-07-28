@@ -1,7 +1,5 @@
 # Golden corpus: PYTEST-INF-003 NonIdiomaticMonkeyPatchRule
 # expect: PYTEST-INF-003
-# expect: PYTEST-BDD-001
-# expect: PYTEST-DBC-001
 # expect: PYTEST-MNT-002
 
 

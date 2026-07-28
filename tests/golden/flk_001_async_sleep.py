@@ -1,8 +1,6 @@
 # Golden corpus: PYTEST-FLK-001 + PYTEST-MNT-016 async sleep hardening
 # expect: PYTEST-FLK-001
 # expect: PYTEST-MNT-016
-# expect: PYTEST-BDD-001
-# expect: PYTEST-DBC-001
 # expect: PYTEST-MNT-002
 
 import asyncio

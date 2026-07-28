@@ -515,8 +515,8 @@ def test_waits():
 #[tokio::test]
 async fn did_open_file_emits_diagnostics_consistent_with_engine() {
     // The LSP must return the same set of rule IDs the engine produces for the
-    // same source. We don't assert "zero diagnostics" because rules like
-    // DBC-001 legitimately fire on simple happy-path tests.
+    // same source. We don't assert "zero diagnostics" because some rules
+    // legitimately fire on simple happy-path tests.
     let dir = tempfile::tempdir().unwrap();
     let file_path = dir.path().join("test_simple.py");
     let uri = Url::from_file_path(&file_path).unwrap();

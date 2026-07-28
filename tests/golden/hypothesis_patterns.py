@@ -45,16 +45,6 @@ def test_file_io():
 # expect: PYTEST-FLK-005
 
 
-# --- BDD-001: no Gherkin docstring ---
-def test_plain():  # expect: PYTEST-BDD-001
-    assert True
-
-
-# --- DBC-001: happy-path only ---
-def test_happy_only():  # expect: PYTEST-DBC-001
-    assert 1 + 1 == 2
-
-
 # --- Clean: parametrize with good count ---
 @pytest.mark.parametrize("x", [1, 2, 3])
 def test_good_param(x):

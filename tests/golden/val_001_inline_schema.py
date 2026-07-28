@@ -1,7 +1,5 @@
 # Golden corpus: PYTEST-VAL-001 InlineSchemaRedeclaredRule
 # expect: PYTEST-VAL-001
-# expect: PYTEST-BDD-001
-# expect: PYTEST-DBC-001
 
 
 def test_create_order():

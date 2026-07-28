@@ -215,21 +215,6 @@ RULES = [
         ],
     },
     {
-        "id": "PYTEST-BDD-001",
-        "name": "BddMissingScenarioRule",
-        "severity": "Info",
-        "category": "Enhancement",
-        "message": "Test '{test}' lacks a Gherkin-style docstring scenario",
-        "suggestion": "Add a docstring with Given/When/Then structure",
-        "rationale": "Tests with Gherkin-style docstrings (Given/When/Then) serve as living documentation and make test intent clear without reading implementation details.",
-        "bad": [
-            "def test_login():\n    user = login('admin', 'pass')\n    assert user.authenticated",
-        ],
-        "good": [
-            'def test_login():\n    """Given a valid user\n    When logging in\n    Then the user is authenticated"""\n    user = login(\'admin\', \'pass\')\n    assert user.authenticated',
-        ],
-    },
-    {
         "id": "PYTEST-PBT-001",
         "name": "PropertyTestHintRule",
         "severity": "Info",
@@ -407,21 +392,6 @@ RULES = [
         ],
         "good": [
             "@pytest.fixture\ndef simple_value():\n    return 42",
-        ],
-    },
-    {
-        "id": "PYTEST-DBC-001",
-        "name": "NoContractHintRule",
-        "severity": "Info",
-        "category": "Enhancement",
-        "message": "Test '{test}' only tests the happy path — consider adding error/edge case coverage",
-        "suggestion": "Add tests for error conditions using pytest.raises",
-        "rationale": "Design-by-contract testing suggests covering both happy paths and error/edge cases. Tests that only assert positive outcomes miss important failure modes.",
-        "bad": [
-            "def test_parse():\n    result = parse('valid json')\n    assert result.success",
-        ],
-        "good": [
-            "def test_parse_valid():\n    result = parse('valid json')\n    assert result.success\n\ndef test_parse_invalid():\n    with pytest.raises(ParseError):\n        parse('invalid json')",
         ],
     },
     {

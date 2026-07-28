@@ -69,16 +69,6 @@ def test_mock_only():
     mock_obj.assert_called()  # expect: PYTEST-MNT-005
 
 
-# --- BDD-001: missing Gherkin ---
-def test_plain():  # expect: PYTEST-BDD-001
-    assert True
-
-
-# --- DBC-001: happy-path only ---
-def test_happy():  # expect: PYTEST-DBC-001
-    assert 1 + 1 == 2
-
-
 # --- XDIST-002: session fixture with I/O ---
 @pytest.fixture(scope="session")
 def session_io():

@@ -1,6 +1,6 @@
 # Rules Overview
 
-pytest-linter includes **49 rules** across four categories (Flakiness, Maintenance, Fixture, Enhancement), with Infrastructure as a documentation grouping for rules related to test infrastructure.
+pytest-linter includes **47 rules** across four categories (Flakiness, Maintenance, Fixture, Enhancement), with Infrastructure as a documentation grouping for rules related to test infrastructure.
 
 ## Flakiness
 
@@ -70,8 +70,6 @@ pytest-linter includes **49 rules** across four categories (Flakiness, Maintenan
 | Rule ID | Name | Severity |
 |---------|------|----------|
 | [PYTEST-MNT-003](./PYTEST-MNT-003.md) | SuboptimalAssertRule | Info |
-| [PYTEST-BDD-001](./PYTEST-BDD-001.md) | BddMissingScenarioRule | Info |
 | [PYTEST-PBT-001](./PYTEST-PBT-001.md) | PropertyTestHintRule | Info |
-| [PYTEST-DBC-001](./PYTEST-DBC-001.md) | NoContractHintRule | Info |
 | [PYTEST-VAL-001](./PYTEST-VAL-001.md) | InlineSchemaRedeclaredRule | Info |
 | [PYTEST-MOC-004](./PYTEST-MOC-004.md) | MockRatioBudgetRule | Info |

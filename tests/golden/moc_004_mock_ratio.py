@@ -1,7 +1,5 @@
 # Golden corpus: PYTEST-MOC-004 MockRatioBudgetRule
 # expect: PYTEST-MOC-004
-# expect: PYTEST-BDD-001
-# expect: PYTEST-DBC-001
 # expect: PYTEST-MNT-002
 
 from unittest.mock import MagicMock, patch

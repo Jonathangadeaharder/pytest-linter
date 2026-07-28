@@ -56,17 +56,6 @@ def auto_setup():
     return 42
 
 
-# --- BDD-001: missing Gherkin ---
-def test_no_bdd_keywords():  # expect: PYTEST-BDD-001
-    assert True
-
-
-# --- DBC-001: happy-path only (no error/assertion_raises) ---
-def test_happy_path():  # expect: PYTEST-DBC-001
-    result = 1 + 1
-    assert result == 2
-
-
 # --- MNT-002: magic assert ---
 def test_magic_boolean():
     assert True  # expect: PYTEST-MNT-002
@@ -76,6 +65,6 @@ def test_magic_boolean():
 # expect-clean: test_clean_addition
 def test_clean_addition():
     """Given two numbers when added then sum is correct."""
-    assert 1 + 1 == 2  # expect: PYTEST-DBC-001
+    assert 1 + 1 == 2
     with pytest.raises(TypeError):
         1 + "a"

@@ -340,57 +340,6 @@ impl Rule for RawExceptionHandlingRule {
     }
 }
 
-/// Rule that detects BDD-style tests missing Given/When/Then scenario structure.
-pub struct BddMissingScenarioRule;
-
-impl Rule for BddMissingScenarioRule {
-    fn id(&self) -> &'static str {
-        "PYTEST-BDD-001"
-    }
-    fn name(&self) -> &'static str {
-        "BddMissingScenarioRule"
-    }
-    fn severity(&self) -> Severity {
-        Severity::Info
-    }
-    fn category(&self) -> Category {
-        Category::Enhancement
-    }
-    fn check(
-        &self,
-        module: &ParsedModule,
-        _all_modules: &[ParsedModule],
-        _ctx: &RuleContext,
-    ) -> Vec<Violation> {
-        let mut violations = Vec::new();
-        for test in &module.test_functions {
-            // Parametrized tests provide structured coverage via data variants,
-            // so BDD-style docstrings are not required.
-            if test.is_parametrized {
-                continue;
-            }
-            let has_gherkin = test.docstring.as_ref().is_some_and(|ds| {
-                let lower = ds.to_lowercase();
-                lower.contains("given") || lower.contains("when") || lower.contains("then")
-            });
-            if !has_gherkin {
-                violations.push(make_violation(
-                    self,
-                    format!(
-                        "Test '{}' lacks a Gherkin-style docstring scenario",
-                        test.name
-                    ),
-                    module.file_path.clone(),
-                    Span::from(test),
-                    Some("Add a docstring with Given/When/Then structure".to_string()),
-                    Some(test.name.clone()),
-                ));
-            }
-        }
-        violations
-    }
-}
-
 /// Rule that suggests using property-based testing for suitable tests.
 pub struct PropertyTestHintRule;
 

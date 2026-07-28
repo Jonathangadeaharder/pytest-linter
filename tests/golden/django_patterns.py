@@ -79,17 +79,6 @@ def setup_db():  # expect: PYTEST-FIX-011
     teardown_db()
 
 
-# --- BDD-001: missing Gherkin in docstring ---
-def test_response_status():  # expect: PYTEST-BDD-001
-    assert get_response().status_code == 200
-
-
-# --- DBC-001: happy-path only ---
-def test_create_user_happy():  # expect: PYTEST-DBC-001
-    user = create_user("alice")
-    assert user.name == "alice"
-
-
 # --- Clean test ---
 def test_with_raises():
     """Given invalid input when creating user then ValueError raised."""

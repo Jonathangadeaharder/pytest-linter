@@ -289,7 +289,7 @@ impl PythonParser {
             has_async
         };
         let (is_parametrized, parametrize_count) = Self::detect_parametrize(&decorators);
-        let assertion_count = Self::count_assertions(body.as_ref());
+        let assertion_count = Self::count_assertions(body.as_ref(), source);
         let has_assertions = assertion_count > 0;
         let has_mock_verifications = body_text.contains(".assert_called")
             || body_text.contains(".called")
@@ -500,21 +500,26 @@ impl PythonParser {
         state.finish()
     }
 
-    fn count_assertions(body: Option<&tree_sitter::Node>) -> usize {
+    fn count_assertions(body: Option<&tree_sitter::Node>, source: &[u8]) -> usize {
         body.map_or(0, |b| {
             let mut count = 0;
-            Self::count_assertions_recursive(*b, &mut count);
+            Self::count_assertions_recursive(*b, source, &mut count);
             count
         })
     }
 
-    fn count_assertions_recursive(node: tree_sitter::Node, count: &mut usize) {
+    fn count_assertions_recursive(node: tree_sitter::Node, source: &[u8], count: &mut usize) {
         if node.kind() == "assert_statement" {
+            *count += 1;
+        } else if Self::is_pytest_raises_call(node, source) {
+            // `pytest.raises(...)` is an expectation about raised exceptions and
+            // should count as an assertion — otherwise tests that only assert
+            // via `pytest.raises` get falsely flagged as having no assertions.
             *count += 1;
         }
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            Self::count_assertions_recursive(child, count);
+            Self::count_assertions_recursive(child, source, count);
         }
     }
 

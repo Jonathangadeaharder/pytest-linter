@@ -55,7 +55,6 @@ pub fn all_rules() -> Vec<Box<dyn Rule>> {
         Box::new(maintenance::MockOnlyVerifyRule),
         Box::new(maintenance::AssertionRouletteRule),
         Box::new(maintenance::RawExceptionHandlingRule),
-        Box::new(maintenance::BddMissingScenarioRule),
         Box::new(maintenance::PropertyTestHintRule),
         Box::new(maintenance::ParametrizeEmptyRule),
         Box::new(maintenance::ParametrizeDuplicateRule),
@@ -78,7 +77,6 @@ pub fn all_rules() -> Vec<Box<dyn Rule>> {
         Box::new(maintenance::DuplicateTestBodiesRule),
         Box::new(maintenance::SleepWithValueRule),
         Box::new(maintenance::TestNameLengthRule),
-        Box::new(fixtures::NoContractHintRule),
         Box::new(mocking::PatchTargetingDefinitionModuleRule),
         Box::new(mocking::MagicMockOnAsyncRule),
         Box::new(mocking::PatchInitBypassRule),
@@ -98,7 +96,7 @@ mod tests {
     #[test]
     fn test_all_rules_count() {
         let rules = all_rules();
-        assert_eq!(rules.len(), 49);
+        assert_eq!(rules.len(), 47);
     }
 
     #[test]
