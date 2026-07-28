@@ -1081,7 +1081,91 @@ impl PythonParser {
                 }
             }
         }
+
+        // Fixtures applied via `@pytest.mark.usefixtures("a", "b")` are dependencies
+        // of the test even though they never appear as parameters. Without this, a
+        // side-effect fixture used only through the mark is falsely reported as unused.
+        let decorators = Self::get_decorators(func_node, source);
+        Self::collect_usefixtures_deps(&decorators, &mut deps);
+
+        // Fixtures requested dynamically via `request.getfixturevalue("name")`.
+        if let Some(body) = func_node.child_by_field_name("body") {
+            Self::collect_getfixturevalue_deps(body, source, &mut deps);
+        }
+
         deps
+    }
+
+    /// Collect fixture names referenced through `@pytest.mark.usefixtures(...)` marks.
+    fn collect_usefixtures_deps(decorators: &[DecoratorInfo], deps: &mut Vec<String>) {
+        for dec in decorators {
+            let name = dec
+                .text
+                .trim_start_matches('@')
+                .split('(')
+                .next()
+                .unwrap_or("")
+                .trim();
+            if name != "pytest.mark.usefixtures" && name != "usefixtures" {
+                continue;
+            }
+            let Some(start) = dec.text.find('(') else {
+                continue;
+            };
+            let Some(end) = dec.text.rfind(')') else {
+                continue;
+            };
+            if end <= start {
+                continue;
+            }
+            Self::push_quoted_strings(&dec.text[start + 1..end], deps);
+        }
+    }
+
+    /// Push every quoted string literal found in `text` onto `deps`.
+    fn push_quoted_strings(text: &str, deps: &mut Vec<String>) {
+        let mut chars = text.chars();
+        while let Some(c) = chars.next() {
+            if c == '"' || c == '\'' {
+                let quote = c;
+                let mut value = String::new();
+                for inner in chars.by_ref() {
+                    if inner == quote {
+                        break;
+                    }
+                    value.push(inner);
+                }
+                if !value.is_empty() {
+                    deps.push(value);
+                }
+            }
+        }
+    }
+
+    /// Collect fixture names passed to `request.getfixturevalue("name")` calls.
+    fn collect_getfixturevalue_deps(
+        node: tree_sitter::Node,
+        source: &[u8],
+        deps: &mut Vec<String>,
+    ) {
+        if node.kind() == "call" {
+            if let Some(func) = node.child_by_field_name("function") {
+                let fname = Self::node_text(func, source);
+                if fname == "getfixturevalue" || fname.ends_with(".getfixturevalue") {
+                    if let Some(args) = node.child_by_field_name("arguments") {
+                        let args_text = Self::node_text(args, source);
+                        let inner = args_text.trim_start_matches('(').trim_end_matches(')');
+                        if let Some(fixture_name) = extract_first_string_arg(inner) {
+                            deps.push(fixture_name);
+                        }
+                    }
+                }
+            }
+        }
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            Self::collect_getfixturevalue_deps(child, source, deps);
+        }
     }
 
     fn extract_fixtures(root: &tree_sitter::Node, source: &[u8], file_path: &Path) -> Vec<Fixture> {

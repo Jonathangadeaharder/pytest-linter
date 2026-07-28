@@ -120,22 +120,46 @@ impl Rule for ShadowedFixtureRule {
         let mut violations = Vec::new();
 
         for fixture in &module.fixtures {
-            if let Some(locations) = ctx.fixture_locations.get(&fixture.name) {
-                if locations.len() > 1 {
-                    violations.push(make_violation(
-                        self,
-                        format!(
-                            "Fixture '{}' is defined in {} different modules (shadowed)",
-                            fixture.name,
-                            locations.len()
-                        ),
-                        module.file_path.clone(),
-                        Span::from(fixture),
-                        Some("Rename or consolidate fixture definitions".to_string()),
-                        None,
-                    ));
-                }
+            let Some(locations) = ctx.fixture_locations.get(&fixture.name) else {
+                continue;
+            };
+            if locations.len() <= 1 {
+                continue;
             }
+
+            // Overriding a `conftest.py` fixture inside a test module (or a nested
+            // conftest) is pytest's documented fixture-override idiom, not a smell.
+            // Reserve the warning for genuine same-scope redefinitions, where two
+            // test modules define the same fixture name with no conftest involved.
+            let involves_conftest = locations
+                .iter()
+                .any(|p| p.file_name().and_then(|n| n.to_str()) == Some("conftest.py"));
+            if involves_conftest {
+                continue;
+            }
+
+            // Report each shadowed name once (from its first defining file) rather
+            // than once per defining module.
+            if locations
+                .iter()
+                .min()
+                .is_some_and(|first| *first != module.file_path)
+            {
+                continue;
+            }
+
+            violations.push(make_violation(
+                self,
+                format!(
+                    "Fixture '{}' is defined in {} different modules (shadowed)",
+                    fixture.name,
+                    locations.len()
+                ),
+                module.file_path.clone(),
+                Span::from(fixture),
+                Some("Rename or consolidate fixture definitions".to_string()),
+                None,
+            ));
         }
         violations
     }
